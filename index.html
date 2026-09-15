@@ -1,0 +1,125 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#f4f0e8" />
+    <title>WorLibrary — 阅读世界的每一种语言</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Noto+Serif+SC:wght@400;500;600;700&family=Playfair+Display:ital,wght@0,500;0,600;0,700;1,500&display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <div class="grain" aria-hidden="true"></div>
+    <main class="app-shell">
+      <aside class="rail" aria-label="主导航">
+        <a class="wordmark" href="#" aria-label="WorLibrary 首页">WL<span>°</span></a>
+        <nav>
+          <button class="nav-item active" data-view="library"><span>01</span>书库</button>
+          <button class="nav-item" data-view="notes"><span>02</span>摘录</button>
+          <button class="nav-item" data-view="settings"><span>03</span>设置</button>
+        </nav>
+        <div class="rail-foot"><i class="online-dot"></i><span>离线可读</span></div>
+      </aside>
+
+      <section class="content">
+        <header class="topbar">
+          <p class="eyebrow">PERSONAL WORLD LIBRARY / 001</p>
+          <div class="top-actions">
+            <button class="text-button" id="languageButton">理解语言：<strong>中文</strong>⌄</button>
+            <button class="round-button" id="importButton" aria-label="导入书籍">＋</button>
+          </div>
+        </header>
+
+        <section class="library-view view active" id="libraryView">
+          <div class="hero">
+            <div>
+              <p class="eyebrow">YOUR SHELF</p>
+              <h1>把世界的书，<em>读成自己的语言。</em></h1>
+            </div>
+            <p class="hero-copy">导入你的书，关联不同译本。划线即可获得翻译与解释——即使离线，也能继续阅读和思考。</p>
+          </div>
+
+          <div class="shelf-toolbar">
+            <div class="filter-row" role="tablist">
+              <button class="filter active">全部 <b>06</b></button>
+              <button class="filter">正在读 <b>02</b></button>
+              <button class="filter">多译本 <b>03</b></button>
+            </div>
+            <button class="sort-button">最近阅读 ↓</button>
+          </div>
+
+          <div class="shelf" id="shelf">
+            <article class="book-card featured" data-book="invisible">
+              <div class="cover invisible-cover"><span>THE<br />INVISIBLE<br />LIFE</span><small>V. E. SCHWAB</small></div>
+              <div class="book-info"><p class="book-lang">English · 3 versions</p><h2>The Invisible Life of Addie LaRue</h2><p>V. E. Schwab</p><div class="progress"><i style="width: 38%"></i></div><small>38% · English edition</small></div>
+            </article>
+            <article class="book-card" data-book="stranger">
+              <div class="cover stranger-cover"><span>L'ÉTRANGER</span><small>ALBERT CAMUS</small></div>
+              <div class="book-info"><p class="book-lang">Français · 2 versions</p><h2>L'Étranger</h2><p>Albert Camus</p><div class="progress"><i style="width: 72%"></i></div><small>72% · French original</small></div>
+            </article>
+            <article class="book-card" data-book="kafka">
+              <div class="cover kafka-cover"><span>变<br />形<br />记</span><small>卡夫卡</small></div>
+              <div class="book-info"><p class="book-lang">中文 · 2 versions</p><h2>变形记</h2><p>Franz Kafka</p><div class="progress"><i style="width: 14%"></i></div><small>14% · 中文译本</small></div>
+            </article>
+            <article class="book-card compact"><div class="cover dune-cover"><span>DUNE</span></div><div class="book-info"><p class="book-lang">English · EPUB</p><h2>Dune</h2><p>Frank Herbert</p></div></article>
+            <article class="book-card compact"><div class="cover earth-cover"><span>三<br />体</span></div><div class="book-info"><p class="book-lang">中文 · EPUB</p><h2>三体</h2><p>刘慈欣</p></div></article>
+            <button class="import-card" id="importCard"><span>＋</span><strong>导入我的书</strong><small>EPUB · PDF · MOBI · CBZ</small></button>
+          </div>
+        </section>
+
+        <section class="reader-view view" id="readerView">
+          <div class="reader-header">
+            <button class="back-button" id="backButton">← <span>书库</span></button>
+            <div class="reader-title"><strong>The Invisible Life of Addie LaRue</strong><small>V. E. Schwab · Chapter 4</small></div>
+            <div class="reader-tools"><button id="compareButton">⇄ <span>对照阅读</span></button><button id="readerLanguage">中</button><button aria-label="阅读设置">Aa</button></div>
+          </div>
+          <div class="edition-strip">
+            <span>正在阅读</span>
+            <button class="edition active" data-edition="English">EN <strong>English original</strong></button>
+            <button class="edition" data-edition="中文">中 <strong>简体中文</strong></button>
+            <button class="edition" data-edition="日本語">日 <strong>日本語版</strong></button>
+            <button class="link-edition">＋ 关联译本</button>
+          </div>
+          <div class="reading-stage" id="readingStage">
+            <article class="page primary-page">
+              <div class="chapter-label">CHAPTER IV · A LIFE, UNLIVED</div>
+              <h2>One day, in the middle of a perfectly ordinary life, something extraordinary happened.</h2>
+              <p>Adeline LaRue had always believed the world was made of doors. A door was not just a passage from one room to another; it was a promise. It was the chance that something on the other side might change the shape of her life.</p>
+              <p class="selectable" id="selectableText">But freedom, she would learn, is a word with a thousand meanings, and some of them are cages.</p>
+              <p>She did not know yet which doors would open for her, or which would close. She only knew that she had to keep walking.</p>
+              <div class="selection-tip" id="selectionTip">选中这段文字 <button id="explainButton">用 AI 解释 ✦</button></div>
+              <footer class="page-footer"><span>041</span><i></i><span>THE INVISIBLE LIFE</span></footer>
+            </article>
+            <article class="page translation-page hidden" id="translationPage">
+              <div class="chapter-label">第四章 · 未曾活过的一生</div>
+              <h2>平凡人生的正中央，某一天发生了一件非凡的事。</h2>
+              <p>阿黛琳·拉吕一直相信，世界是由门构成的。门不仅是从一个房间通往另一个房间的通道；它更像一个承诺，意味着门的另一侧或许有什么能改变她生命的形状。</p>
+              <p>但她后来会明白，自由这个词有一千种含义，其中有些，恰恰是牢笼。</p>
+              <p>她还不知道哪些门会为她打开，哪些门又会关闭。她只知道自己必须继续走下去。</p>
+              <footer class="page-footer"><span>041</span><i></i><span>无形人生</span></footer>
+            </article>
+            <aside class="ai-panel hidden" id="aiPanel">
+              <div class="panel-top"><span class="spark">✦</span><strong>阅读助手</strong><button id="closeAi">×</button></div>
+              <p class="ai-label">ENGLISH → 简体中文</p>
+              <blockquote>“But freedom, she would learn, is a word with a thousand meanings, and some of them are cages.”</blockquote>
+              <section><h3>翻译</h3><p>但她后来会明白，自由这个词有一千种含义，其中有些，恰恰是牢笼。</p></section>
+              <section><h3>通俗解释</h3><p>这句话说的是：自由并不总是轻松美好的。有时我们以为自己在选择，却被选择的代价、规则或恐惧困住了。这里的“牢笼”不是实体，而是自由背后隐藏的限制。</p></section>
+              <div class="ai-actions"><button>↗ 保存摘录</button><button>⟳ 换一种说法</button></div>
+              <small>AI 解释仅供学习参考 · 今日剩余 8 次</small>
+            </aside>
+          </div>
+          <div class="reader-bottom"><span>38%</span><div><i></i></div><span>4 / 11</span><button id="ocrButton">◎ 扫描页？识别文字</button></div>
+        </section>
+
+        <section class="settings-view view" id="settingsView">
+          <div class="settings-wrap"><p class="eyebrow">PREFERENCES</p><h1>你的阅读语言</h1><p class="settings-copy">AI 会把你划线的任意语言文本，翻译并解释成这个语言。</p><div class="language-grid" id="languageGrid"><button class="language-choice active">中文 <span>简体中文</span></button><button class="language-choice">English <span>英语</span></button><button class="language-choice">日本語 <span>日语</span></button><button class="language-choice">Français <span>法语</span></button></div><div class="settings-note"><span>◎</span><p><strong>你的书，留在你的设备上。</strong><br />已导入的书籍、阅读进度和摘录均可离线访问；仅在你请求解释或识别文字时，相关内容才会发送至 AI 服务。</p></div></div>
+        </section>
+      </section>
+    </main>
+    <div class="toast" id="toast" role="status"></div>
+    <input type="file" id="fileInput" hidden accept=".epub,.pdf,.mobi,.cbz" multiple />
+    <script src="./app.js"></script>
+  </body>
+</html>
