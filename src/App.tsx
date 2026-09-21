@@ -1,21 +1,28 @@
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState, type ChangeEvent } from 'react'
+import { listBooks, saveBook, type StoredBook } from './lib/storage'
 
 type View = 'library' | 'reader' | 'settings'
+type DisplayBook = Pick<StoredBook, 'id' | 'title' | 'author' | 'language' | 'progress' | 'cover'>
 
-const books = [
+const sampleBooks: DisplayBook[] = [
   { id: 'invisible', title: 'The Invisible Life of Addie LaRue', author: 'V. E. Schwab', language: 'English · 3 versions', progress: 38, cover: 'ink' },
   { id: 'stranger', title: "L'Étranger", author: 'Albert Camus', language: 'Français · 2 versions', progress: 72, cover: 'sun' },
   { id: 'kafka', title: '变形记', author: 'Franz Kafka', language: '中文 · 2 versions', progress: 14, cover: 'red' },
 ]
 
 function App() {
+  const [books, setBooks] = useState<DisplayBook[]>(sampleBooks)
   const [view, setView] = useState<View>('library')
   const [language, setLanguage] = useState('中文')
-  const [selectedBook, setSelectedBook] = useState(books[0])
+  const [selectedBook, setSelectedBook] = useState<DisplayBook>(sampleBooks[0])
   const [compare, setCompare] = useState(false)
   const [assistantOpen, setAssistantOpen] = useState(false)
   const [notice, setNotice] = useState('')
   const fileInput = useRef<HTMLInputElement>(null)
+
+  useEffect(() => {
+    void listBooks().then((savedBooks) => setBooks([...sampleBooks, ...savedBooks]))
+  }, [])
 
   function toast(message: string) {
     setNotice(message)
@@ -24,10 +31,18 @@ function App() {
 
   function importBooks() { fileInput.current?.click() }
 
-  function handleFiles(event: React.ChangeEvent<HTMLInputElement>) {
-    const count = event.target.files?.length ?? 0
-    if (count > 0) toast(`已加入 ${count} 本书 · 本地 Demo 不会上传文件`)
+  async function handleFiles(event: ChangeEvent<HTMLInputElement>) {
+    const files = [...(event.target.files ?? [])]
     event.target.value = ''
+    if (files.length === 0) return
+    toast('正在保存到本地设备…')
+    try {
+      const saved = await Promise.all(files.map((file, index) => saveBook(file, index)))
+      setBooks((current) => [...current, ...saved])
+      toast(`已保存 ${saved.length} 本书 · 文件不会上传`)
+    } catch (error) {
+      toast(error instanceof Error ? error.message : '保存失败，请重试')
+    }
   }
 
   return (
@@ -53,7 +68,7 @@ function App() {
 
         {view === 'library' && <section className="library-view">
           <div className="hero"><div><p className="eyebrow">YOUR SHELF</p><h1>把世界的书，<em>读成自己的语言。</em></h1></div><p className="hero-copy">导入你的书，关联不同译本。划线即可获得翻译与解释——即使离线，也能继续阅读和思考。</p></div>
-          <div className="shelf-toolbar"><div className="filter-row"><button className="filter active">全部 <b>06</b></button><button className="filter" onClick={() => toast('筛选状态已准备接入本地书架')}>正在读 <b>02</b></button><button className="filter" onClick={() => toast('多译本筛选将在版本模型接入后启用')}>多译本 <b>03</b></button></div><button className="sort-button">最近阅读 ↓</button></div>
+          <div className="shelf-toolbar"><div className="filter-row"><button className="filter active">全部 <b>{String(books.length).padStart(2, '0')}</b></button><button className="filter" onClick={() => toast('筛选状态已准备接入本地书架')}>正在读 <b>02</b></button><button className="filter" onClick={() => toast('多译本筛选将在版本模型接入后启用')}>多译本 <b>03</b></button></div><button className="sort-button">最近阅读 ↓</button></div>
           <div className="shelf">
             {books.map((book) => <button className="book-card" key={book.id} onClick={() => { setSelectedBook(book); setView('reader') }}><div className={`cover ${book.cover}`}><span>{book.id === 'invisible' ? <>THE<br />INVISIBLE<br />LIFE</> : book.id === 'stranger' ? "L'ÉTRANGER" : <>变<br />形<br />记</>}</span><small>{book.author}</small></div><div className="book-info"><p className="book-lang">{book.language}</p><h2>{book.title}</h2><p>{book.author}</p><div className="progress"><i style={{ width: `${book.progress}%` }} /></div><small>{book.progress}% · 本地阅读</small></div></button>)}
             <button className="import-card" onClick={importBooks}><span>＋</span><strong>导入我的书</strong><small>EPUB · PDF · MOBI · CBZ</small></button>
