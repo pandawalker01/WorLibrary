@@ -9,13 +9,26 @@
 
 ## 运行
 
-这是一个零构建步骤的静态 Demo。直接在浏览器打开 `index.html`，或使用任意静态文件服务器：
+这是一个 React + TypeScript + Vite 驱动的前端 Demo。首次安装依赖后运行：
 
 ```bash
-python3 -m http.server 8080
+npm install
+npm run dev
 ```
 
-然后访问 `http://localhost:8080`。
+然后访问终端显示的本地地址（默认是 `http://localhost:5173`）。
+
+生产构建与类型检查：
+
+```bash
+npm run typecheck
+npm run build
+```
+
+架构与执行路线见：
+
+- `docs/implementation-architecture.md`
+- `docs/development-roadmap.md`
 
 ## 当前边界
 
