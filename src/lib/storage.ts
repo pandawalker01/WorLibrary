@@ -15,10 +15,21 @@ export type StoredBook = {
   location?: string
 }
 
+export type Highlight = {
+  id: string
+  bookId: string
+  text: string
+  location: string
+  note?: string
+  color: 'gold' | 'rose' | 'blue'
+  createdAt: number
+}
+
 const DB_NAME = 'wor-library'
-const DB_VERSION = 1
+const DB_VERSION = 2
 const BOOKS_STORE = 'books'
 const BLOBS_STORE = 'book-blobs'
+const HIGHLIGHTS_STORE = 'highlights'
 
 function openDatabase(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
@@ -28,6 +39,7 @@ function openDatabase(): Promise<IDBDatabase> {
       const db = request.result
       if (!db.objectStoreNames.contains(BOOKS_STORE)) db.createObjectStore(BOOKS_STORE, { keyPath: 'id' })
       if (!db.objectStoreNames.contains(BLOBS_STORE)) db.createObjectStore(BLOBS_STORE)
+      if (!db.objectStoreNames.contains(HIGHLIGHTS_STORE)) db.createObjectStore(HIGHLIGHTS_STORE, { keyPath: 'id' })
     }
     request.onsuccess = () => resolve(request.result)
   })
@@ -122,4 +134,25 @@ export async function saveReadingProgress(bookId: string, location: string, prog
     location,
     progress: Math.max(0, Math.min(100, progress)),
   }))
+}
+
+export async function saveHighlight(input: Omit<Highlight, 'id' | 'createdAt'>): Promise<Highlight> {
+  const highlight: Highlight = { ...input, id: crypto.randomUUID(), createdAt: Date.now() }
+  await transaction(HIGHLIGHTS_STORE, 'readwrite', (store) => store.put(highlight))
+  return highlight
+}
+
+export async function listHighlights(bookId?: string): Promise<Highlight[]> {
+  const highlights = await transaction<Highlight[]>(HIGHLIGHTS_STORE, 'readonly', (store) => store.getAll())
+  return highlights.filter((highlight) => !bookId || highlight.bookId === bookId).sort((a, b) => b.createdAt - a.createdAt)
+}
+
+export async function updateHighlightNote(id: string, note: string): Promise<void> {
+  const current = await transaction<Highlight | undefined>(HIGHLIGHTS_STORE, 'readonly', (store) => store.get(id))
+  if (!current) return
+  await transaction(HIGHLIGHTS_STORE, 'readwrite', (store) => store.put({ ...current, note }))
+}
+
+export async function deleteHighlight(id: string): Promise<void> {
+  await transaction(HIGHLIGHTS_STORE, 'readwrite', (store) => store.delete(id))
 }

@@ -1,9 +1,11 @@
 import { useCallback, useEffect, useRef, useState, type ChangeEvent } from 'react'
 import EpubReader from './components/EpubReader'
 import PdfReader from './components/PdfReader'
+import HighlightsView from './components/HighlightsView'
+import './highlights.css'
 import { listBooks, saveBook, type StoredBook } from './lib/storage'
 
-type View = 'library' | 'reader' | 'settings'
+type View = 'library' | 'reader' | 'highlights' | 'settings'
 type DisplayBook = Pick<StoredBook, 'id' | 'title' | 'author' | 'language' | 'progress' | 'cover'> & Partial<Pick<StoredBook, 'fileName' | 'fileType' | 'storage' | 'createdAt' | 'location'>>
 
 const sampleBooks: DisplayBook[] = [
@@ -53,7 +55,7 @@ function App() {
         <button className="wordmark" onClick={() => setView('library')} aria-label="回到书库">WL<span>°</span></button>
         <nav aria-label="主导航">
           <button className={view === 'library' ? 'nav-item active' : 'nav-item'} onClick={() => setView('library')}><span>01</span>书库</button>
-          <button className="nav-item" onClick={() => toast('摘录空间将在本地存储接入后启用')}><span>02</span>摘录</button>
+          <button className={view === 'highlights' ? 'nav-item active' : 'nav-item'} onClick={() => setView('highlights')}><span>02</span>摘录</button>
           <button className={view === 'settings' ? 'nav-item active' : 'nav-item'} onClick={() => setView('settings')}><span>03</span>设置</button>
         </nav>
         <div className="rail-foot"><i />离线可读</div>
@@ -76,6 +78,8 @@ function App() {
             <button className="import-card" onClick={importBooks}><span>＋</span><strong>导入我的书</strong><small>EPUB · PDF · MOBI · CBZ</small></button>
           </div>
         </section>}
+
+        {view === 'highlights' && <HighlightsView books={books.filter((book): book is StoredBook => Boolean(book.storage && book.fileName))} onNotice={toast} />}
 
         {view === 'reader' && <section className="reader-view">
           <div className="reader-header"><button className="back-button" onClick={() => setView('library')}>← <span>书库</span></button><div className="reader-title"><strong>{selectedBook.title}</strong><small>{selectedBook.author} · Chapter 4</small></div><div className="reader-tools"><button onClick={() => setCompare(!compare)}>{compare ? '↹ 退出对照' : '⇄ 对照阅读'}</button><button onClick={() => setView('settings')}>{language.slice(0, 1)}</button><button onClick={() => toast('阅读排版设置将在阅读引擎接入后启用')}>Aa</button></div></div>

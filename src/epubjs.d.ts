@@ -12,7 +12,8 @@ declare module 'epubjs' {
 
   type EpubRendition = {
     display: (target?: string) => Promise<void>
-    on: (event: string, callback: (location: { start?: { cfi?: string } }) => void) => void
+    on: (event: string, callback: (...args: any[]) => void) => void
+    annotations?: { highlight: (cfi: string, styles?: Record<string, string>, data?: Record<string, unknown>) => void }
     destroy: () => void
   }
 
