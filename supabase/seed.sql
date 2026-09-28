@@ -1,0 +1,2 @@
+-- Development-only seed. Production data is always owned by auth.uid().
+-- Anonymous and email users are created by Supabase Auth, not by this file.

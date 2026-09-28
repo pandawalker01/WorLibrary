@@ -1,0 +1,103 @@
+import type { Highlight, StoredBook } from './storage'
+import type { RemoteClient } from './remote'
+
+export type SyncSnapshot = {
+  books: StoredBook[]
+  highlights: Highlight[]
+  settings?: Record<string, unknown>
+}
+
+export type LocalSyncAdapter = {
+  read(): Promise<SyncSnapshot>
+  write(snapshot: SyncSnapshot): Promise<void>
+}
+
+const databaseName = 'wor-library'
+const databaseVersion = 2
+const booksStore = 'books'
+const highlightsStore = 'highlights'
+
+function openLocalDatabase(): Promise<IDBDatabase> {
+  return new Promise((resolve, reject) => {
+    const request = indexedDB.open(databaseName, databaseVersion)
+    request.onerror = () => reject(request.error)
+    request.onupgradeneeded = () => {
+      const db = request.result
+      if (!db.objectStoreNames.contains(booksStore)) db.createObjectStore(booksStore, { keyPath: 'id' })
+      if (!db.objectStoreNames.contains(highlightsStore)) db.createObjectStore(highlightsStore, { keyPath: 'id' })
+    }
+    request.onsuccess = () => resolve(request.result)
+  })
+}
+
+function readStore<T>(storeName: string): Promise<T[]> {
+  return openLocalDatabase().then((db) => new Promise((resolve, reject) => {
+    const request = db.transaction(storeName, 'readonly').objectStore(storeName).getAll()
+    request.onerror = () => reject(request.error)
+    request.onsuccess = () => resolve(request.result as T[])
+  }))
+}
+
+function replaceStore<T>(storeName: string, values: T[]): Promise<void> {
+  return openLocalDatabase().then((db) => new Promise((resolve, reject) => {
+    const transaction = db.transaction(storeName, 'readwrite')
+    const store = transaction.objectStore(storeName)
+    for (const value of values) store.put(value)
+    transaction.onerror = () => reject(transaction.error)
+    transaction.oncomplete = () => resolve()
+  }))
+}
+
+/** Adapter for the existing IndexedDB stores; book blobs are never uploaded. */
+export function createIndexedDbSyncAdapter(): LocalSyncAdapter {
+  return {
+    async read() {
+      let settings: Record<string, unknown> | undefined
+      if (typeof localStorage !== 'undefined') {
+        try { settings = JSON.parse(localStorage.getItem('wor-library.settings') ?? 'null') as Record<string, unknown> | undefined ?? undefined } catch { settings = undefined }
+      }
+      return { books: await readStore<StoredBook>(booksStore), highlights: await readStore<Highlight>(highlightsStore), settings }
+    },
+    async write(snapshot) {
+      await replaceStore(booksStore, snapshot.books)
+      await replaceStore(highlightsStore, snapshot.highlights)
+      if (snapshot.settings && typeof localStorage !== 'undefined') localStorage.setItem('wor-library.settings', JSON.stringify(snapshot.settings))
+    },
+  }
+}
+
+type SyncRow = Record<string, unknown> & { id: string; updated_at: string }
+
+function toBookRow(book: StoredBook): SyncRow {
+  return { id: book.id, title: book.title, author: book.author, language: book.language, progress: book.progress, location: book.location ?? null, file_name: book.fileName, file_type: book.fileType, file_size: book.fileSize, cover: book.cover, created_at: new Date(book.createdAt).toISOString(), updated_at: new Date(book.createdAt).toISOString() }
+}
+
+function toHighlightRow(highlight: Highlight): SyncRow {
+  return { id: highlight.id, book_id: highlight.bookId, text: highlight.text, location: highlight.location, note: highlight.note ?? null, color: highlight.color, created_at: new Date(highlight.createdAt).toISOString(), updated_at: new Date(highlight.createdAt).toISOString() }
+}
+
+export async function syncLibrary(remote: RemoteClient, local: LocalSyncAdapter): Promise<{ uploaded: number; downloaded: number }> {
+  const snapshot = await local.read()
+  const [remoteBooks, remoteHighlights] = await Promise.all([remote.select<SyncRow>('editions'), remote.select<SyncRow>('highlights')])
+  const books = new Map(snapshot.books.map((book) => [book.id, book]))
+  for (const row of remoteBooks) {
+    const remoteBook: StoredBook = { id: row.id, title: String(row.title), author: String(row.author), language: String(row.language), progress: Number(row.progress ?? 0), location: typeof row.location === 'string' ? row.location : undefined, fileName: String(row.file_name ?? ''), fileType: String(row.file_type ?? ''), fileSize: Number(row.file_size ?? 0), storage: 'indexeddb', cover: row.cover === 'sun' || row.cover === 'red' ? row.cover : 'ink', createdAt: Date.parse(String(row.created_at)) || Date.now() }
+    const current = books.get(remoteBook.id)
+    if (!current || Date.parse(row.updated_at) > current.createdAt) books.set(remoteBook.id, remoteBook)
+  }
+  const highlights = new Map(snapshot.highlights.map((highlight) => [highlight.id, highlight]))
+  for (const row of remoteHighlights) {
+    const remoteHighlight: Highlight = { id: row.id, bookId: String(row.book_id), text: String(row.text), location: String(row.location), note: typeof row.note === 'string' ? row.note : undefined, color: row.color === 'rose' || row.color === 'blue' ? row.color : 'gold', createdAt: Date.parse(String(row.created_at)) || Date.now() }
+    const current = highlights.get(remoteHighlight.id)
+    if (!current || remoteHighlight.createdAt > current.createdAt) highlights.set(remoteHighlight.id, remoteHighlight)
+  }
+  await remote.upsert('editions', snapshot.books.map(toBookRow))
+  await remote.upsert('highlights', snapshot.highlights.map(toHighlightRow))
+  const merged = { ...snapshot, books: [...books.values()], highlights: [...highlights.values()] }
+  await local.write(merged)
+  return { uploaded: snapshot.books.length + snapshot.highlights.length, downloaded: Math.max(0, merged.books.length - snapshot.books.length) + Math.max(0, merged.highlights.length - snapshot.highlights.length) }
+}
+
+export async function deleteRemoteAccount(remote: RemoteClient, userId: string): Promise<void> {
+  await Promise.all(['editions', 'highlights', 'reading_progress', 'user_settings', 'devices', 'works'].map((table) => remote.remove(table as Parameters<RemoteClient['remove']>[0], `user_id=eq.${encodeURIComponent(userId)}`)))
+}
