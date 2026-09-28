@@ -99,7 +99,7 @@ function makeProvider(env, fetchImpl) {
   }
 }
 
-export function createAiGateway({ env = {}, fetchImpl = fetch, logger = console.warn, now = () => Date.now(), provider } = {}) {
+export function createAiGateway({ env = {}, fetchImpl = fetch, logger = console.warn, now = () => Date.now(), provider, store } = {}) {
   const cache = new Map()
   const usage = new Map()
   const requests = new Map()
@@ -128,11 +128,11 @@ export function createAiGateway({ env = {}, fetchImpl = fetch, logger = console.
     requests.set(identity, [...recent, nowValue])
     const day = todayKey()
     const quotaKey = `${identity}:${day}`
-    const consumed = usage.get(quotaKey) || 0
-    if (consumed >= dailyQuota) return fail('quota_exceeded', cors)
     const key = await digest(JSON.stringify({ kind, text: input.text, sourceLanguage: input.sourceLanguage, targetLanguage: input.targetLanguage, context: input.context }))
-    const cached = cache.get(key)
+    const cached = store?.getCache ? await store.getCache(key) : cache.get(key)
     if (cached && cached.expiresAt > nowValue) return json({ ...cached.value, cached: true }, 200, cors)
+    const consumed = store?.getUsage ? await store.getUsage(quotaKey) : usage.get(quotaKey) || 0
+    if (consumed >= dailyQuota) return fail('quota_exceeded', cors)
     const controller = new AbortController()
     const timeout = setTimeout(() => controller.abort(), timeoutMs)
     let result
@@ -151,9 +151,12 @@ export function createAiGateway({ env = {}, fetchImpl = fetch, logger = console.
       safeLog(logger, 'ai_request_failed', { kind, requestId: input.requestId, code })
       return fail(code, cors)
     } finally { clearTimeout(timeout) }
-    usage.set(quotaKey, consumed + 1)
+    if (store?.incrementUsage) await store.incrementUsage(quotaKey)
+    else usage.set(quotaKey, consumed + 1)
     const value = { ...result, cached: false }
-    cache.set(key, { value, expiresAt: nowValue + cacheTtlMs })
+    const cacheEntry = { value, expiresAt: nowValue + cacheTtlMs }
+    if (store?.setCache) await store.setCache(key, cacheEntry)
+    else cache.set(key, cacheEntry)
     safeLog(logger, 'ai_request_succeeded', { kind, requestId: input.requestId, provider: result.provider, cached: false })
     return json(value, 200, cors)
   }
