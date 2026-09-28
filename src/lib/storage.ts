@@ -96,3 +96,25 @@ export async function saveBook(file: File, index: number): Promise<StoredBook> {
   await transaction('books', 'readwrite', (store) => store.put(book))
   return book
 }
+
+export async function getBookFile(book: StoredBook): Promise<File> {
+  if (book.storage === 'opfs') {
+    const storageManager = navigator.storage as StorageManager & {
+      getDirectory?: () => Promise<FileSystemDirectoryHandle>
+    }
+    if (storageManager.getDirectory) {
+      const root = await storageManager.getDirectory()
+      const handle = await root.getFileHandle(`${book.id}-${book.fileName}`)
+      return handle.getFile()
+    }
+  }
+  const blob = await transaction<Blob | undefined>('book-blobs', 'readonly', (store) => store.get(book.id))
+  if (!blob) throw new Error('找不到本地书籍文件，请重新导入')
+  return new File([blob], book.fileName, { type: book.fileType })
+}
+
+export async function saveReadingProgress(bookId: string, progress: number): Promise<void> {
+  const current = await transaction<StoredBook | undefined>('books', 'readonly', (store) => store.get(bookId))
+  if (!current) return
+  await transaction('books', 'readwrite', (store) => store.put({ ...current, progress: Math.max(0, Math.min(100, progress)) }))
+}
