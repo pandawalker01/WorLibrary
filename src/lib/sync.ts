@@ -12,6 +12,60 @@ export type LocalSyncAdapter = {
   write(snapshot: SyncSnapshot): Promise<void>
 }
 
+const databaseName = 'wor-library'
+const databaseVersion = 2
+const booksStore = 'books'
+const highlightsStore = 'highlights'
+
+function openLocalDatabase(): Promise<IDBDatabase> {
+  return new Promise((resolve, reject) => {
+    const request = indexedDB.open(databaseName, databaseVersion)
+    request.onerror = () => reject(request.error)
+    request.onupgradeneeded = () => {
+      const db = request.result
+      if (!db.objectStoreNames.contains(booksStore)) db.createObjectStore(booksStore, { keyPath: 'id' })
+      if (!db.objectStoreNames.contains(highlightsStore)) db.createObjectStore(highlightsStore, { keyPath: 'id' })
+    }
+    request.onsuccess = () => resolve(request.result)
+  })
+}
+
+function readStore<T>(storeName: string): Promise<T[]> {
+  return openLocalDatabase().then((db) => new Promise((resolve, reject) => {
+    const request = db.transaction(storeName, 'readonly').objectStore(storeName).getAll()
+    request.onerror = () => reject(request.error)
+    request.onsuccess = () => resolve(request.result as T[])
+  }))
+}
+
+function replaceStore<T>(storeName: string, values: T[]): Promise<void> {
+  return openLocalDatabase().then((db) => new Promise((resolve, reject) => {
+    const transaction = db.transaction(storeName, 'readwrite')
+    const store = transaction.objectStore(storeName)
+    for (const value of values) store.put(value)
+    transaction.onerror = () => reject(transaction.error)
+    transaction.oncomplete = () => resolve()
+  }))
+}
+
+/** Adapter for the existing IndexedDB stores; book blobs are never uploaded. */
+export function createIndexedDbSyncAdapter(): LocalSyncAdapter {
+  return {
+    async read() {
+      let settings: Record<string, unknown> | undefined
+      if (typeof localStorage !== 'undefined') {
+        try { settings = JSON.parse(localStorage.getItem('wor-library.settings') ?? 'null') as Record<string, unknown> | undefined ?? undefined } catch { settings = undefined }
+      }
+      return { books: await readStore<StoredBook>(booksStore), highlights: await readStore<Highlight>(highlightsStore), settings }
+    },
+    async write(snapshot) {
+      await replaceStore(booksStore, snapshot.books)
+      await replaceStore(highlightsStore, snapshot.highlights)
+      if (snapshot.settings && typeof localStorage !== 'undefined') localStorage.setItem('wor-library.settings', JSON.stringify(snapshot.settings))
+    },
+  }
+}
+
 type SyncRow = Record<string, unknown> & { id: string; updated_at: string }
 
 function toBookRow(book: StoredBook): SyncRow {

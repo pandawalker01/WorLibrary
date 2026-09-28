@@ -29,7 +29,10 @@ export function createRemoteClient(session: AuthSession): RemoteClient {
   }
   return {
     select: <T>(table: RemoteTable, query = '') => request<T[]>(table, { method: 'GET', headers: { Accept: 'application/json' } }, query),
-    upsert: <T extends Record<string, unknown>>(table: RemoteTable, rows: T | T[]) => request<T[]>(table, { method: 'POST', headers: { Prefer: 'resolution=merge-duplicates,return=representation' }, body: JSON.stringify(Array.isArray(rows) ? rows : [rows]) }),
+    upsert: <T extends Record<string, unknown>>(table: RemoteTable, rows: T | T[]) => {
+      const values = (Array.isArray(rows) ? rows : [rows]).map((row) => ({ ...row, user_id: row.user_id ?? session.user.id }))
+      return request<T[]>(table, { method: 'POST', headers: { Prefer: 'resolution=merge-duplicates,return=representation' }, body: JSON.stringify(values) })
+    },
     remove: (table: RemoteTable, query: string) => request<void>(table, { method: 'DELETE' }, query).then(() => undefined),
   }
 }
