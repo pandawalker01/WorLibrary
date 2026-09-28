@@ -25,6 +25,8 @@ export type Highlight = {
   createdAt: number
 }
 
+export type LibraryBackup = { version: 1; exportedAt: string; books: StoredBook[]; highlights: Highlight[] }
+
 const DB_NAME = 'wor-library'
 const DB_VERSION = 2
 const BOOKS_STORE = 'books'
@@ -181,4 +183,15 @@ export async function deleteBook(book: StoredBook): Promise<void> {
   }
   const highlights = await listHighlights(book.id)
   await Promise.all(highlights.map((highlight) => deleteHighlight(highlight.id)))
+}
+
+export async function exportLibraryData(): Promise<LibraryBackup> {
+  return { version: 1, exportedAt: new Date().toISOString(), books: await listBooks(), highlights: await listHighlights() }
+}
+
+export async function importLibraryData(backup: LibraryBackup): Promise<{ books: number; highlights: number }> {
+  if (backup.version !== 1 || !Array.isArray(backup.books) || !Array.isArray(backup.highlights)) throw new Error('无法识别这个备份文件')
+  for (const book of backup.books) await transaction(BOOKS_STORE, 'readwrite', (store) => store.put(book))
+  for (const highlight of backup.highlights) await transaction(HIGHLIGHTS_STORE, 'readwrite', (store) => store.put(highlight))
+  return { books: backup.books.length, highlights: backup.highlights.length }
 }

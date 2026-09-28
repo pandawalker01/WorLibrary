@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState, type ChangeEvent } from 'reac
 import EpubReader from './components/EpubReader'
 import PdfReader from './components/PdfReader'
 import HighlightsView from './components/HighlightsView'
+import DataTransfer from './components/DataTransfer'
 import './highlights.css'
 import type { Highlight } from './lib/storage'
 import './library.css'
@@ -31,6 +32,7 @@ function App() {
   useEffect(() => {
     void listBooks().then((savedBooks) => setBooks([...sampleBooks, ...savedBooks]))
   }, [])
+
 
   const toast = useCallback((message: string) => {
     setNotice(message)
@@ -115,6 +117,7 @@ function App() {
         {view === 'settings' && <section className="settings-view"><div className="settings-wrap"><p className="eyebrow">PREFERENCES</p><h1>你的阅读语言</h1><p className="settings-copy">AI 会把你划线的任意语言文本，翻译并解释成这个语言。</p><div className="language-grid">{['中文', 'English', '日本語', 'Français'].map((item) => <button className={language === item ? 'language-choice active' : 'language-choice'} key={item} onClick={() => { setLanguage(item); toast(`已将 AI 理解语言设为：${item}`) }}>{item}<span>{item === '中文' ? '简体中文' : item === 'English' ? '英语' : item === '日本語' ? '日语' : '法语'}</span></button>)}</div><div className="local-books"><h2>本地书籍管理</h2>{books.filter((book) => book.storage && book.fileName).map((book) => <div className="local-book-row" key={book.id}><span><strong>{book.title}</strong><small>{book.fileName} · {book.storage === 'opfs' ? '设备文件系统' : '浏览器数据库'}</small></span><button onClick={() => { void removeBook(book) }}>删除</button></div>)}</div><div className="settings-note"><span>◎</span><p><strong>你的书，留在你的设备上。</strong><br />已导入的书籍、阅读进度和摘录均可离线访问；仅在你请求解释或识别文字时，相关内容才会发送至 AI 服务。</p></div></div></section>}
       </main>
       {notice && <div className="toast" role="status">{notice}</div>}
+      <DataTransfer onNotice={toast} onImported={() => { void listBooks().then((savedBooks) => setBooks([...sampleBooks, ...savedBooks])) }} />
       <input ref={fileInput} onChange={handleFiles} type="file" hidden accept=".epub,.pdf,.mobi,.cbz" multiple />
     </div>
   )
