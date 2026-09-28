@@ -12,6 +12,7 @@ export type StoredBook = {
   fileSize: number
   storage: 'opfs' | 'indexeddb'
   createdAt: number
+  location?: string
 }
 
 const DB_NAME = 'wor-library'
@@ -113,8 +114,12 @@ export async function getBookFile(book: StoredBook): Promise<File> {
   return new File([blob], book.fileName, { type: book.fileType })
 }
 
-export async function saveReadingProgress(bookId: string, progress: number): Promise<void> {
+export async function saveReadingProgress(bookId: string, location: string, progress: number): Promise<void> {
   const current = await transaction<StoredBook | undefined>('books', 'readonly', (store) => store.get(bookId))
   if (!current) return
-  await transaction('books', 'readwrite', (store) => store.put({ ...current, progress: Math.max(0, Math.min(100, progress)) }))
+  await transaction('books', 'readwrite', (store) => store.put({
+    ...current,
+    location,
+    progress: Math.max(0, Math.min(100, progress)),
+  }))
 }
