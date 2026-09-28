@@ -25,7 +25,7 @@ export type Highlight = {
   createdAt: number
 }
 
-export type LibraryBackup = { version: 1; exportedAt: string; books: StoredBook[]; highlights: Highlight[] }
+export type LibraryBackup = { version: 2; exportedAt: string; books: StoredBook[]; highlights: Highlight[]; files: Record<string, string> }
 
 const DB_NAME = 'wor-library'
 const DB_VERSION = 2
@@ -185,13 +185,37 @@ export async function deleteBook(book: StoredBook): Promise<void> {
   await Promise.all(highlights.map((highlight) => deleteHighlight(highlight.id)))
 }
 
+function encodeBytes(bytes: Uint8Array) {
+  let binary = ''
+  const chunkSize = 0x8000
+  for (let index = 0; index < bytes.length; index += chunkSize) binary += String.fromCharCode(...bytes.subarray(index, index + chunkSize))
+  return btoa(binary)
+}
+
+function decodeBytes(value: string) {
+  const binary = atob(value)
+  const bytes = new Uint8Array(binary.length)
+  for (let index = 0; index < binary.length; index += 1) bytes[index] = binary.charCodeAt(index)
+  return bytes
+}
+
 export async function exportLibraryData(): Promise<LibraryBackup> {
-  return { version: 1, exportedAt: new Date().toISOString(), books: await listBooks(), highlights: await listHighlights() }
+  const books = await listBooks()
+  const files: Record<string, string> = {}
+  for (const book of books) {
+    const buffer = await (await getBookFile(book)).arrayBuffer()
+    files[book.id] = encodeBytes(new Uint8Array(buffer as ArrayBuffer))
+  }
+  return { version: 2, exportedAt: new Date().toISOString(), books, highlights: await listHighlights(), files }
 }
 
 export async function importLibraryData(backup: LibraryBackup): Promise<{ books: number; highlights: number }> {
-  if (backup.version !== 1 || !Array.isArray(backup.books) || !Array.isArray(backup.highlights)) throw new Error('无法识别这个备份文件')
-  for (const book of backup.books) await transaction(BOOKS_STORE, 'readwrite', (store) => store.put(book))
+  if (backup.version !== 2 || !Array.isArray(backup.books) || !Array.isArray(backup.highlights) || !backup.files) throw new Error('备份版本过旧，请重新导出')
+  for (const book of backup.books) {
+    const bytes = decodeBytes(backup.files[book.id] ?? '')
+    await transaction(BLOBS_STORE, 'readwrite', (store) => store.put(new Blob([bytes], { type: book.fileType }), book.id))
+    await transaction(BOOKS_STORE, 'readwrite', (store) => store.put({ ...book, storage: 'indexeddb' }))
+  }
   for (const highlight of backup.highlights) await transaction(HIGHLIGHTS_STORE, 'readwrite', (store) => store.put(highlight))
   return { books: backup.books.length, highlights: backup.highlights.length }
 }
