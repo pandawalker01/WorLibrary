@@ -83,6 +83,10 @@ export async function saveBook(file: File, index: number): Promise<StoredBook> {
   const extension = extensionOf(file.name)
   if (!['epub', 'pdf', 'mobi', 'cbz'].includes(extension)) throw new Error(`暂不支持 .${extension || 'unknown'} 文件`)
   if (file.size > 100 * 1024 * 1024) throw new Error(`${file.name} 超过 100 MB 限制`)
+  const existing = await listBooks()
+  if (existing.some((book) => book.fileName === file.name && book.fileSize === file.size)) {
+    throw new Error(`${file.name} 已在书库中，无需重复导入`)
+  }
 
   const id = crypto.randomUUID()
   let storage: StoredBook['storage'] = 'indexeddb'
