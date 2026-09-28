@@ -1,9 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
-import * as pdfjsLib from 'pdfjs-dist'
 import workerSrc from 'pdfjs-dist/build/pdf.worker.min.mjs?url'
 import { getBookFile, saveReadingProgress, type StoredBook } from '../lib/storage'
-
-pdfjsLib.GlobalWorkerOptions.workerSrc = workerSrc
 
 type PdfReaderProps = {
   book: StoredBook
@@ -33,6 +30,8 @@ export default function PdfReader({ book, onNotice, onProgress }: PdfReaderProps
     let active = true
     async function openDocument() {
       try {
+        const pdfjsLib = await import('pdfjs-dist')
+        pdfjsLib.GlobalWorkerOptions.workerSrc = workerSrc
         const file = await getBookFile(book)
         const loaded = await pdfjsLib.getDocument({ data: await file.arrayBuffer() }).promise as unknown as PdfDocument
         if (!active) {

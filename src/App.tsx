@@ -3,6 +3,7 @@ import EpubReader from './components/EpubReader'
 import PdfReader from './components/PdfReader'
 import HighlightsView from './components/HighlightsView'
 import './highlights.css'
+import type { Highlight } from './lib/storage'
 import { listBooks, saveBook, type StoredBook } from './lib/storage'
 
 type View = 'library' | 'reader' | 'highlights' | 'settings'
@@ -79,7 +80,15 @@ function App() {
           </div>
         </section>}
 
-        {view === 'highlights' && <HighlightsView books={books.filter((book): book is StoredBook => Boolean(book.storage && book.fileName))} onNotice={toast} />}
+        {view === 'highlights' && <HighlightsView books={books.filter((book): book is StoredBook => Boolean(book.storage && book.fileName))} onNotice={toast} onOpenHighlight={(highlight: Highlight) => {
+          const book = books.find((item) => item.id === highlight.bookId)
+          if (!book?.storage || !book.fileName) {
+            toast('找不到这本本地书籍，请重新导入')
+            return
+          }
+          setSelectedBook({ ...book, location: highlight.location })
+          setView('reader')
+        }} />}
 
         {view === 'reader' && <section className="reader-view">
           <div className="reader-header"><button className="back-button" onClick={() => setView('library')}>← <span>书库</span></button><div className="reader-title"><strong>{selectedBook.title}</strong><small>{selectedBook.author} · Chapter 4</small></div><div className="reader-tools"><button onClick={() => setCompare(!compare)}>{compare ? '↹ 退出对照' : '⇄ 对照阅读'}</button><button onClick={() => setView('settings')}>{language.slice(0, 1)}</button><button onClick={() => toast('阅读排版设置将在阅读引擎接入后启用')}>Aa</button></div></div>

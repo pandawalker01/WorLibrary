@@ -153,6 +153,12 @@ export async function updateHighlightNote(id: string, note: string): Promise<voi
   await transaction(HIGHLIGHTS_STORE, 'readwrite', (store) => store.put({ ...current, note }))
 }
 
+export async function updateHighlightColor(id: string, color: Highlight['color']): Promise<void> {
+  const current = await transaction<Highlight | undefined>(HIGHLIGHTS_STORE, 'readonly', (store) => store.get(id))
+  if (!current) return
+  await transaction(HIGHLIGHTS_STORE, 'readwrite', (store) => store.put({ ...current, color }))
+}
+
 export async function deleteHighlight(id: string): Promise<void> {
   await transaction(HIGHLIGHTS_STORE, 'readwrite', (store) => store.delete(id))
 }

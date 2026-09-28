@@ -6,11 +6,13 @@
 .highlights-heading select { min-width: 180px; padding: 10px 12px; border: 1px solid #d8d0c2; background: transparent; color: #514c45; font: 12px 'Noto Serif SC', serif; }
 .highlight-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px; padding-top: 28px; }
 .highlight-card { position: relative; padding: 24px 24px 18px; background: #f8f5ed; box-shadow: 0 8px 24px #bcb2a127; }
+.highlight-card.rose { border-top: 3px solid #bf6d76; }.highlight-card.blue { border-top: 3px solid #6886a7; }.highlight-card.gold { border-top: 3px solid #d59b59; }
 .highlight-mark { color: #bf553d; font: 45px/1 'Playfair Display', serif; }
 .highlight-card blockquote { margin: -4px 0 18px; color: #514c45; font: 18px/1.7 'Playfair Display', 'Noto Serif SC', serif; }
 .highlight-source { margin: 0; color: #a69d8e; font: 10px 'DM Mono', monospace; }
 .highlight-note { margin: 16px 0 0; padding-top: 12px; border-top: 1px solid #e4ddcf; color: #756d62; font-size: 12px; line-height: 1.7; }
 .highlight-actions { display: flex; gap: 15px; justify-content: flex-end; margin-top: 15px; }
+.highlight-colors { display: flex; align-items: center; gap: 5px; margin-left: auto; }.highlight-colors button { width: 13px; height: 13px; padding: 0; border: 1px solid #f8f5ed; border-radius: 50%; box-shadow: 0 0 0 1px #bdb4a5; }.highlight-colors .gold { background: #d59b59; }.highlight-colors .rose { background: #bf6d76; }.highlight-colors .blue { background: #6886a7; }
 .highlight-actions button, .highlight-editor button { border: 0; background: transparent; color: #bf553d; font-size: 11px; }
 .highlight-editor { margin-top: 14px; }
 .highlight-editor textarea { width: 100%; min-height: 72px; resize: vertical; padding: 10px; border: 1px solid #d8d0c2; background: #f4f0e8; color: #514c45; font: 12px/1.6 'Noto Serif SC', serif; }
