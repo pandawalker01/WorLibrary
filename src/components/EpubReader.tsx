@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import ePub from 'epubjs'
 import { getBookFile, listHighlights, saveHighlight, saveReadingProgress, type Highlight, type StoredBook } from '../lib/storage'
+import '../epub-reader.css'
 
 type EpubReaderProps = {
   book: StoredBook
@@ -23,6 +24,7 @@ export default function EpubReader({ book, onNotice, onProgress, onHighlightSave
   const [chapters, setChapters] = useState<Array<{ label: string; href: string }>>([])
   const [showContents, setShowContents] = useState(false)
   const [pendingSelection, setPendingSelection] = useState<{ text: string; cfi: string }>()
+  const [selectionColor, setSelectionColor] = useState<Highlight['color']>('gold')
 
   useEffect(() => {
     let active = true
@@ -75,7 +77,7 @@ export default function EpubReader({ book, onNotice, onProgress, onHighlightSave
 
   async function persistSelection() {
     if (!pendingSelection) return
-    const highlight = await saveHighlight({ bookId: book.id, text: pendingSelection.text, location: pendingSelection.cfi, color: 'gold' })
+    const highlight = await saveHighlight({ bookId: book.id, text: pendingSelection.text, location: pendingSelection.cfi, color: selectionColor })
     onHighlightSaved?.(highlight)
     setPendingSelection(undefined)
     onNotice('摘录已保存到本地')
@@ -88,6 +90,7 @@ export default function EpubReader({ book, onNotice, onProgress, onHighlightSave
     </div>
     {pendingSelection && <div className="epub-selection-bar">
       <span title={pendingSelection.text}>{pendingSelection.text}</span>
+      <div className="selection-colors" aria-label="摘录颜色"><button className={`gold ${selectionColor === 'gold' ? 'active' : ''}`} aria-label="金色" onClick={() => setSelectionColor('gold')} /><button className={`rose ${selectionColor === 'rose' ? 'active' : ''}`} aria-label="玫红" onClick={() => setSelectionColor('rose')} /><button className={`blue ${selectionColor === 'blue' ? 'active' : ''}`} aria-label="蓝色" onClick={() => setSelectionColor('blue')} /></div>
       <button onClick={() => { void persistSelection() }}>保存摘录</button>
       <button className="ghost" onClick={() => setPendingSelection(undefined)}>取消</button>
     </div>}
