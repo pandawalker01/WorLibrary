@@ -1,7 +1,8 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, type CSSProperties } from 'react'
 import ePub from 'epubjs'
 import { getBookFile, listHighlights, saveHighlight, saveReadingProgress, type Highlight, type StoredBook } from '../lib/storage'
 import { translateSelection } from '../lib/translation'
+import { clampFontScale, cycleTheme, DEFAULT_READER_PREFERENCES, readerThemeLabel, type ReaderPreferences } from '../lib/reader'
 import '../epub-reader.css'
 
 type EpubReaderProps = {
@@ -10,6 +11,7 @@ type EpubReaderProps = {
   onProgress: (progress: number, location: string) => void
   onHighlightSaved?: (highlight: Highlight) => void
   targetLanguage?: string
+  preferences?: Partial<ReaderPreferences>
 }
 
 type Rendition = {
@@ -19,7 +21,7 @@ type Rendition = {
   destroy: () => void
 }
 
-export default function EpubReader({ book, onNotice, onProgress, onHighlightSaved }: EpubReaderProps) {
+export default function EpubReader({ book, onNotice, onProgress, onHighlightSaved, preferences }: EpubReaderProps) {
   const mountRef = useRef<HTMLDivElement>(null)
   const renditionRef = useRef<Rendition | undefined>(undefined)
   const [status, setStatus] = useState('正在打开本地文件…')
@@ -29,6 +31,9 @@ export default function EpubReader({ book, onNotice, onProgress, onHighlightSave
   const [selectionColor, setSelectionColor] = useState<Highlight['color']>('gold')
   const [translation, setTranslation] = useState('')
   const [translating, setTranslating] = useState(false)
+  const [readerPreferences, setReaderPreferences] = useState<ReaderPreferences>({ ...DEFAULT_READER_PREFERENCES, ...preferences })
+
+  useEffect(() => { setReaderPreferences((current) => ({ ...current, ...preferences })) }, [preferences?.fontScale, preferences?.theme])
 
   useEffect(() => {
     let active = true
@@ -101,10 +106,10 @@ export default function EpubReader({ book, onNotice, onProgress, onHighlightSave
     }
   }
 
-  return <div className="epub-reader-shell">
+  return <div className={`epub-reader-shell reader-theme-${readerPreferences.theme}`} style={{ '--reader-font-scale': readerPreferences.fontScale } as CSSProperties}>
     <div className="epub-reader-toolbar">
       <span>{status || 'EPUB 本地阅读'}</span>
-      {chapters.length > 0 && <button onClick={() => setShowContents(!showContents)}>{showContents ? '收起目录' : `目录 · ${chapters.length}`}</button>}
+      <div className="reader-toolbar-actions"><button onClick={() => setReaderPreferences((current) => ({ ...current, fontScale: clampFontScale(current.fontScale - 0.05) }))} aria-label="减小字号">A−</button><button onClick={() => setReaderPreferences((current) => ({ ...current, fontScale: clampFontScale(current.fontScale + 0.05) }))} aria-label="增大字号">A＋</button><button onClick={() => setReaderPreferences((current) => ({ ...current, theme: cycleTheme(current.theme) }))}>{readerThemeLabel(readerPreferences.theme)}</button>{chapters.length > 0 && <button onClick={() => setShowContents(!showContents)}>{showContents ? '收起目录' : `目录 · ${chapters.length}`}</button>}</div>
     </div>
     {pendingSelection && <div className="epub-selection-bar">
       <span title={pendingSelection.text}>{pendingSelection.text}</span>

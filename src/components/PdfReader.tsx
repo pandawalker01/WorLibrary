@@ -1,12 +1,14 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, type CSSProperties } from 'react'
 import workerSrc from 'pdfjs-dist/build/pdf.worker.min.mjs?url'
 import { getBookFile, saveHighlight, saveReadingProgress, type StoredBook } from '../lib/storage'
+import { clampFontScale, cycleTheme, DEFAULT_READER_PREFERENCES, readerThemeLabel, type ReaderPreferences } from '../lib/reader'
 import '../pdf-reader.css'
 
 type PdfReaderProps = {
   book: StoredBook
   onNotice: (message: string) => void
   onProgress: (progress: number, location: string) => void
+  preferences?: Partial<ReaderPreferences>
 }
 
 type PdfDocument = {
@@ -21,7 +23,7 @@ type PdfPage = {
   getTextContent: () => Promise<{ items: Array<{ str?: string }> }>
 }
 
-export default function PdfReader({ book, onNotice, onProgress }: PdfReaderProps) {
+export default function PdfReader({ book, onNotice, onProgress, preferences }: PdfReaderProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const textLayerRef = useRef<HTMLDivElement>(null)
   const [document, setDocument] = useState<PdfDocument>()
@@ -31,6 +33,9 @@ export default function PdfReader({ book, onNotice, onProgress }: PdfReaderProps
   const [pageText, setPageText] = useState('')
   const [showText, setShowText] = useState(false)
   const [selectedText, setSelectedText] = useState('')
+  const [readerPreferences, setReaderPreferences] = useState<ReaderPreferences>({ ...DEFAULT_READER_PREFERENCES, ...preferences })
+
+  useEffect(() => { setReaderPreferences((current) => ({ ...current, ...preferences })) }, [preferences?.fontScale, preferences?.theme])
 
   useEffect(() => {
     let active = true
@@ -99,8 +104,8 @@ export default function PdfReader({ book, onNotice, onProgress }: PdfReaderProps
     if (text && textLayerRef.current?.contains(selection?.anchorNode ?? null)) setSelectedText(text)
   }
 
-  return <div className="pdf-reader-shell">
-    <div className="pdf-reader-toolbar"><span>{status || `PDF 本地阅读 · 第 ${page} / ${document?.numPages ?? '…'} 页`}</span><div><button disabled={!pageText} onClick={() => setShowText((current) => !current)}>{showText ? '收起文字' : '查看文字'}</button><button disabled={!pageText} onClick={() => { void saveText(pageText) }}>保存整页</button><button disabled={!selectedText} onClick={() => { void saveText(selectedText) }}>保存选中</button><button disabled={!document || page <= 1} onClick={() => setPage((current) => Math.max(1, current - 1))}>上一页</button><button disabled={!document || page >= (document?.numPages ?? 1)} onClick={() => setPage((current) => Math.min(document?.numPages ?? current, current + 1))}>下一页</button></div></div>
+  return <div className={`pdf-reader-shell reader-theme-${readerPreferences.theme}`} style={{ '--reader-font-scale': readerPreferences.fontScale } as CSSProperties}>
+    <div className="pdf-reader-toolbar"><span>{status || `PDF 本地阅读 · 第 ${page} / ${document?.numPages ?? '…'} 页`}</span><div><button onClick={() => setReaderPreferences((current) => ({ ...current, fontScale: clampFontScale(current.fontScale - 0.05) }))} aria-label="减小字号">A−</button><button onClick={() => setReaderPreferences((current) => ({ ...current, fontScale: clampFontScale(current.fontScale + 0.05) }))} aria-label="增大字号">A＋</button><button onClick={() => setReaderPreferences((current) => ({ ...current, theme: cycleTheme(current.theme) }))}>{readerThemeLabel(readerPreferences.theme)}</button><button disabled={!pageText} onClick={() => setShowText((current) => !current)}>{showText ? '收起文字' : '查看文字'}</button><button disabled={!pageText} onClick={() => { void saveText(pageText) }}>保存整页</button><button disabled={!selectedText} onClick={() => { void saveText(selectedText) }}>保存选中</button><button disabled={!document || page <= 1} onClick={() => setPage((current) => Math.max(1, current - 1))}>上一页</button><button disabled={!document || page >= (document?.numPages ?? 1)} onClick={() => setPage((current) => Math.min(document?.numPages ?? current, current + 1))}>下一页</button></div></div>
     {showText && <div ref={textLayerRef} className="pdf-text-layer" aria-label="PDF 当前页文字" onMouseUp={captureSelection}>{pageText}</div>}
     <div className="pdf-reader-frame"><canvas ref={canvasRef} /></div>
   </div>
