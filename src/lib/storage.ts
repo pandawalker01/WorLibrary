@@ -166,3 +166,19 @@ export async function updateHighlightColor(id: string, color: Highlight['color']
 export async function deleteHighlight(id: string): Promise<void> {
   await transaction(HIGHLIGHTS_STORE, 'readwrite', (store) => store.delete(id))
 }
+
+export async function deleteBook(book: StoredBook): Promise<void> {
+  await transaction(BOOKS_STORE, 'readwrite', (store) => store.delete(book.id))
+  await transaction(BLOBS_STORE, 'readwrite', (store) => store.delete(book.id))
+  const storageManager = navigator.storage as StorageManager & { getDirectory?: () => Promise<FileSystemDirectoryHandle> }
+  if (book.storage === 'opfs' && storageManager.getDirectory) {
+    try {
+      const root = await storageManager.getDirectory()
+      await root.removeEntry(`${book.id}-${book.fileName}`)
+    } catch {
+      // The metadata is already gone; a missing OPFS entry is safe to ignore.
+    }
+  }
+  const highlights = await listHighlights(book.id)
+  await Promise.all(highlights.map((highlight) => deleteHighlight(highlight.id)))
+}

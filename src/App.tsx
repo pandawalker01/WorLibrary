@@ -5,7 +5,8 @@ import HighlightsView from './components/HighlightsView'
 import './highlights.css'
 import type { Highlight } from './lib/storage'
 import './library.css'
-import { listBooks, saveBook, type StoredBook } from './lib/storage'
+import './settings.css'
+import { deleteBook, listBooks, saveBook, type StoredBook } from './lib/storage'
 
 type View = 'library' | 'reader' | 'highlights' | 'settings'
 type DisplayBook = Pick<StoredBook, 'id' | 'title' | 'author' | 'language' | 'progress' | 'cover'> & Partial<Pick<StoredBook, 'fileName' | 'fileType' | 'storage' | 'createdAt' | 'location'>>
@@ -50,6 +51,15 @@ function App() {
     } catch (error) {
       toast(error instanceof Error ? error.message : '保存失败，请重试')
     }
+  }
+
+  async function removeBook(book: DisplayBook) {
+    if (!book.storage || !book.fileName) return
+    if (!window.confirm(`确定从本地书库删除《${book.title}》吗？`)) return
+    await deleteBook(book as StoredBook)
+    setBooks((current) => current.filter((item) => item.id !== book.id))
+    if (selectedBook.id === book.id) setSelectedBook(sampleBooks[0])
+    toast('书籍、阅读进度和摘录已从本地删除')
   }
 
   return (
@@ -102,7 +112,7 @@ function App() {
           <div className="reader-bottom"><span>{selectedBook.progress}%</span><div><i style={{ width: `${selectedBook.progress}%` }} /></div><span>4 / 11</span><button onClick={() => toast('OCR 是下一步真实服务接入点')}>◎ 扫描页？识别文字</button></div>
         </section>}
 
-        {view === 'settings' && <section className="settings-view"><div className="settings-wrap"><p className="eyebrow">PREFERENCES</p><h1>你的阅读语言</h1><p className="settings-copy">AI 会把你划线的任意语言文本，翻译并解释成这个语言。</p><div className="language-grid">{['中文', 'English', '日本語', 'Français'].map((item) => <button className={language === item ? 'language-choice active' : 'language-choice'} key={item} onClick={() => { setLanguage(item); toast(`已将 AI 理解语言设为：${item}`) }}>{item}<span>{item === '中文' ? '简体中文' : item === 'English' ? '英语' : item === '日本語' ? '日语' : '法语'}</span></button>)}</div><div className="settings-note"><span>◎</span><p><strong>你的书，留在你的设备上。</strong><br />已导入的书籍、阅读进度和摘录均可离线访问；仅在你请求解释或识别文字时，相关内容才会发送至 AI 服务。</p></div></div></section>}
+        {view === 'settings' && <section className="settings-view"><div className="settings-wrap"><p className="eyebrow">PREFERENCES</p><h1>你的阅读语言</h1><p className="settings-copy">AI 会把你划线的任意语言文本，翻译并解释成这个语言。</p><div className="language-grid">{['中文', 'English', '日本語', 'Français'].map((item) => <button className={language === item ? 'language-choice active' : 'language-choice'} key={item} onClick={() => { setLanguage(item); toast(`已将 AI 理解语言设为：${item}`) }}>{item}<span>{item === '中文' ? '简体中文' : item === 'English' ? '英语' : item === '日本語' ? '日语' : '法语'}</span></button>)}</div><div className="local-books"><h2>本地书籍管理</h2>{books.filter((book) => book.storage && book.fileName).map((book) => <div className="local-book-row" key={book.id}><span><strong>{book.title}</strong><small>{book.fileName} · {book.storage === 'opfs' ? '设备文件系统' : '浏览器数据库'}</small></span><button onClick={() => { void removeBook(book) }}>删除</button></div>)}</div><div className="settings-note"><span>◎</span><p><strong>你的书，留在你的设备上。</strong><br />已导入的书籍、阅读进度和摘录均可离线访问；仅在你请求解释或识别文字时，相关内容才会发送至 AI 服务。</p></div></div></section>}
       </main>
       {notice && <div className="toast" role="status">{notice}</div>}
       <input ref={fileInput} onChange={handleFiles} type="file" hidden accept=".epub,.pdf,.mobi,.cbz" multiple />
