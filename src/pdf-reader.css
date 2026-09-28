@@ -1,0 +1,1 @@
+.pdf-text-layer { width: min(100%, 900px); max-height: 220px; overflow: auto; margin: 0 auto 12px; padding: 16px 20px; border: 1px solid #d8d0c2; background: #f8f5ed; color: #514c45; font: 13px/1.9 'Noto Serif SC', serif; user-select: text; }
