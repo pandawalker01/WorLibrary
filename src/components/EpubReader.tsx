@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import ePub from 'epubjs'
 import { getBookFile, listHighlights, saveHighlight, saveReadingProgress, type Highlight, type StoredBook } from '../lib/storage'
 import { translateSelection } from '../lib/translation'
+import { explainSelection } from '../lib/explanation'
 import '../epub-reader.css'
 
 type EpubReaderProps = {
@@ -28,7 +29,9 @@ export default function EpubReader({ book, onNotice, onProgress, onHighlightSave
   const [pendingSelection, setPendingSelection] = useState<{ text: string; cfi: string }>()
   const [selectionColor, setSelectionColor] = useState<Highlight['color']>('gold')
   const [translation, setTranslation] = useState('')
+  const [explanation, setExplanation] = useState('')
   const [translating, setTranslating] = useState(false)
+  const [explaining, setExplaining] = useState(false)
 
   useEffect(() => {
     let active = true
@@ -59,6 +62,7 @@ export default function EpubReader({ book, onNotice, onProgress, onHighlightSave
           if (!text) return
           setPendingSelection({ text, cfi })
           setTranslation('')
+          setExplanation('')
           rendition?.annotations?.highlight(cfi, { fill: '#e6b160', 'fill-opacity': '0.35' })
         })
         await rendition.display(book.location)
@@ -101,6 +105,20 @@ export default function EpubReader({ book, onNotice, onProgress, onHighlightSave
     }
   }
 
+  async function explainPendingSelection() {
+    if (!pendingSelection || translating || explaining) return
+    setExplaining(true)
+    try {
+      const result = await explainSelection(pendingSelection.text, '中文')
+      setTranslation(result.translation)
+      setExplanation(result.explanation)
+    } catch (error) {
+      onNotice(error instanceof Error ? error.message : '解释失败，请稍后重试')
+    } finally {
+      setExplaining(false)
+    }
+  }
+
   return <div className="epub-reader-shell">
     <div className="epub-reader-toolbar">
       <span>{status || 'EPUB 本地阅读'}</span>
@@ -109,11 +127,12 @@ export default function EpubReader({ book, onNotice, onProgress, onHighlightSave
     {pendingSelection && <div className="epub-selection-bar">
       <span title={pendingSelection.text}>{pendingSelection.text}</span>
       <button className="translate-button" onClick={() => { void translatePendingSelection() }}>{translating ? '翻译中…' : '翻译'}</button>
+      <button className="translate-button" onClick={() => { void explainPendingSelection() }}>{explaining ? '解释中…' : '解释'}</button>
       <div className="selection-colors" aria-label="摘录颜色"><button className={`gold ${selectionColor === 'gold' ? 'active' : ''}`} aria-label="金色" onClick={() => setSelectionColor('gold')} /><button className={`rose ${selectionColor === 'rose' ? 'active' : ''}`} aria-label="玫红" onClick={() => setSelectionColor('rose')} /><button className={`blue ${selectionColor === 'blue' ? 'active' : ''}`} aria-label="蓝色" onClick={() => setSelectionColor('blue')} /></div>
       <button onClick={() => { void persistSelection() }}>保存摘录</button>
       <button className="ghost" onClick={() => setPendingSelection(undefined)}>取消</button>
     </div>}
-    {translation && <div className="epub-translation-result"><span>译文</span>{translation}</div>}
+    {translation && <div className="epub-translation-result"><span>译文</span>{translation}{explanation && <><span>解释</span>{explanation}</>}</div>}
     {showContents && <nav className="epub-contents" aria-label="章节目录">{chapters.map((chapter) => <button key={chapter.href} onClick={() => { void renditionRef.current?.display(chapter.href); setShowContents(false) }}>{chapter.label}</button>)}</nav>}
     <div className="epub-reader-frame" ref={mountRef} />
   </div>
