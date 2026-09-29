@@ -9,6 +9,8 @@
 - [ ] 模拟翻译网关超时/限流，页面保持可阅读并展示用户可理解的提示。
 - [ ] Sentry release 已创建，source map 仅上传到 Sentry，不公开发布。
 - [ ] 确认最近一次数据库备份时间、恢复负责人和回滚版本。
+- [ ] migration 文件名连续且只向前执行；RLS policy 检查通过。
+- [ ] 登录匿名试用/魔法链接、首次同步和翻译成功/失败均有可追踪 request id。
 
 ## 发布后检查
 
@@ -22,6 +24,8 @@
 2. 验证首页、阅读器、备份恢复和 API 错误提示。
 3. 保留失败 deployment、request id 和 Sentry issue，便于复盘。
 4. 若是数据库问题，不回滚已执行的 migration；创建向前修复 migration，并先在 staging 恢复演练。
+
+若发布 job 失败：保留 workflow run、deployment id 和 request id，先判断是构建、环境变量、CSP/CORS 还是 API 依赖问题。构建失败不需要回滚线上版本；部署成功但健康检查失败时，立即 Promote 上一个绿色 deployment，并在 15 分钟内重新执行首页、登录、同步、翻译和双译本对照检查。CSP/CORS 变更必须先在 staging 验证，不能通过临时放开 `*` 来恢复服务。
 
 ## 监控与隐私
 
