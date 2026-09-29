@@ -27,7 +27,7 @@ export type Highlight = {
   createdAt: number
 }
 
-export type LibraryBackup = { version: 2; exportedAt: string; books: StoredBook[]; highlights: Highlight[]; files: Record<string, string> }
+export type LibraryBackup = { version: 2; exportedAt: string; books: StoredBook[]; highlights: Highlight[]; files: Record<string, string>; works?: Work[]; editions?: Edition[]; alignments?: Alignment[] }
 
 import type { Alignment, Edition, Work } from './edition'
 
@@ -73,6 +73,20 @@ function extensionOf(fileName: string) {
   return fileName.split('.').pop()?.toLowerCase() ?? ''
 }
 
+async function ensureEditionForBook(book: StoredBook): Promise<StoredBook> {
+  if (book.workId && book.editionId) return book
+  const workId = crypto.randomUUID()
+  const editionId = crypto.randomUUID()
+  const migratedBook = { ...book, workId, editionId }
+  const work: Work = { id: workId, title: book.title, author: book.author, editionIds: [editionId] }
+  const extension = extensionOf(book.fileName)
+  const edition: Edition = { id: editionId, workId, label: book.title, language: book.language, format: (['epub', 'pdf', 'mobi', 'cbz'].includes(extension) ? extension : 'epub') as Edition['format'], bookId: book.id, progress: book.progress, location: book.location }
+  await transaction(BOOKS_STORE, 'readwrite', (store) => store.put(migratedBook))
+  await transaction(WORKS_STORE, 'readwrite', (store) => store.put(work))
+  await transaction(EDITIONS_STORE, 'readwrite', (store) => store.put(edition))
+  return migratedBook
+}
+
 async function writeToOpfs(id: string, file: File) {
   const storageManager = navigator.storage as StorageManager & {
     getDirectory?: () => Promise<FileSystemDirectoryHandle>
@@ -88,7 +102,8 @@ async function writeToOpfs(id: string, file: File) {
 
 export async function listBooks(): Promise<StoredBook[]> {
   const books = await transaction<StoredBook[]>('books', 'readonly', (store) => store.getAll())
-  return books.sort((a, b) => b.createdAt - a.createdAt)
+  const migrated = await Promise.all(books.map(ensureEditionForBook))
+  return migrated.sort((a, b) => b.createdAt - a.createdAt)
 }
 
 export async function saveBook(file: File, index: number): Promise<StoredBook> {
@@ -265,7 +280,7 @@ export async function exportLibraryData(): Promise<LibraryBackup> {
     const buffer = await (await getBookFile(book)).arrayBuffer()
     files[book.id] = encodeBytes(new Uint8Array(buffer as ArrayBuffer))
   }
-  return { version: 2, exportedAt: new Date().toISOString(), books, highlights: await listHighlights(), files }
+  return { version: 2, exportedAt: new Date().toISOString(), books, highlights: await listHighlights(), files, works: await listWorks(), editions: await listEditions(), alignments: await listAlignments() }
 }
 
 export async function importLibraryData(backup: LibraryBackup): Promise<{ books: number; highlights: number }> {
@@ -276,5 +291,8 @@ export async function importLibraryData(backup: LibraryBackup): Promise<{ books:
     await transaction(BOOKS_STORE, 'readwrite', (store) => store.put({ ...book, storage: 'indexeddb' }))
   }
   for (const highlight of backup.highlights) await transaction(HIGHLIGHTS_STORE, 'readwrite', (store) => store.put(highlight))
+  for (const work of backup.works ?? []) await transaction(WORKS_STORE, 'readwrite', (store) => store.put(work))
+  for (const edition of backup.editions ?? []) await transaction(EDITIONS_STORE, 'readwrite', (store) => store.put(edition))
+  for (const alignment of backup.alignments ?? []) await transaction(ALIGNMENTS_STORE, 'readwrite', (store) => store.put(alignment))
   return { books: backup.books.length, highlights: backup.highlights.length }
 }
