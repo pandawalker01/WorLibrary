@@ -12,6 +12,36 @@ export type LocalSyncAdapter = {
   write(snapshot: SyncSnapshot): Promise<void>
 }
 
+type SyncQueueState = { pending: boolean; attempts: number; nextAttemptAt: number; lastError?: string }
+const syncQueueKey = 'wor-library.sync.queue'
+
+function readQueue(): SyncQueueState {
+  if (typeof localStorage === 'undefined') return { pending: false, attempts: 0, nextAttemptAt: 0 }
+  try { return JSON.parse(localStorage.getItem(syncQueueKey) ?? '') as SyncQueueState } catch { return { pending: false, attempts: 0, nextAttemptAt: 0 } }
+}
+
+function writeQueue(state: SyncQueueState) { if (typeof localStorage !== 'undefined') localStorage.setItem(syncQueueKey, JSON.stringify(state)) }
+export function enqueueSync() { writeQueue({ ...readQueue(), pending: true, nextAttemptAt: 0 }) }
+export function getSyncQueueState(): SyncQueueState { return readQueue() }
+
+export async function flushQueuedSync(remote: RemoteClient, local: LocalSyncAdapter): Promise<{ uploaded: number; downloaded: number }> {
+  const current = readQueue()
+  if (!current.pending) return { uploaded: 0, downloaded: 0 }
+  if (current.nextAttemptAt > Date.now()) throw new Error('同步将在稍后自动重试')
+  try {
+    const result = await syncLibrary(remote, local)
+    writeQueue({ pending: false, attempts: 0, nextAttemptAt: 0 })
+    return result
+  } catch (error) {
+    const attempts = current.attempts + 1
+    const delay = Math.min(5 * 60_000, 2 ** Math.min(attempts, 8) * 1000)
+    writeQueue({ pending: true, attempts, nextAttemptAt: Date.now() + delay, lastError: error instanceof Error ? error.message : '同步失败' })
+    throw error
+  }
+}
+
+export async function deleteRemoteHighlight(remote: RemoteClient, id: string): Promise<void> { await remote.remove('highlights', `id=eq.${encodeURIComponent(id)}`) }
+
 const databaseName = 'wor-library'
 const databaseVersion = 2
 const booksStore = 'books'
@@ -73,7 +103,7 @@ function toBookRow(book: StoredBook): SyncRow {
 }
 
 function toHighlightRow(highlight: Highlight): SyncRow {
-  return { id: highlight.id, book_id: highlight.bookId, text: highlight.text, location: highlight.location, note: highlight.note ?? null, color: highlight.color, created_at: new Date(highlight.createdAt).toISOString(), updated_at: new Date(highlight.createdAt).toISOString() }
+  return { id: highlight.id, book_id: highlight.bookId, edition_id: highlight.bookId, text: highlight.text, location: highlight.location, note: highlight.note ?? null, color: highlight.color, created_at: new Date(highlight.createdAt).toISOString(), updated_at: new Date(highlight.createdAt).toISOString() }
 }
 
 export async function syncLibrary(remote: RemoteClient, local: LocalSyncAdapter): Promise<{ uploaded: number; downloaded: number }> {
@@ -87,7 +117,7 @@ export async function syncLibrary(remote: RemoteClient, local: LocalSyncAdapter)
   }
   const highlights = new Map(snapshot.highlights.map((highlight) => [highlight.id, highlight]))
   for (const row of remoteHighlights) {
-    const remoteHighlight: Highlight = { id: row.id, bookId: String(row.book_id), text: String(row.text), location: String(row.location), note: typeof row.note === 'string' ? row.note : undefined, color: row.color === 'rose' || row.color === 'blue' ? row.color : 'gold', createdAt: Date.parse(String(row.created_at)) || Date.now() }
+    const remoteHighlight: Highlight = { id: row.id, bookId: String(row.book_id ?? row.edition_id), text: String(row.text), location: String(row.location), note: typeof row.note === 'string' ? row.note : undefined, color: row.color === 'rose' || row.color === 'blue' ? row.color : 'gold', createdAt: Date.parse(String(row.created_at)) || Date.now() }
     const current = highlights.get(remoteHighlight.id)
     if (!current || remoteHighlight.createdAt > current.createdAt) highlights.set(remoteHighlight.id, remoteHighlight)
   }

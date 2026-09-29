@@ -78,4 +78,13 @@ if (session) {
 
 - `683bfbe feat: add auth and cloud sync foundation`
 - `27e137f feat: connect indexeddb sync adapter`
+- 本轮待提交：AuthPanel 集成、应用同步触发、离线队列与重试。
 
+## 本轮推进说明
+
+- `AuthPanel` 已接入应用设置流程，支持匿名试用和邮箱 Magic Link。
+- 登录后会尝试同步本地书籍元数据、阅读进度和摘录；原始书籍文件不会上传。
+- 阅读页面定时将进度变化加入同步队列；摘录新增、备注、颜色修改和删除分别处理。
+- 同步失败会写入本地队列，并使用指数退避重试；浏览器恢复在线时会再次尝试。
+- 当前环境没有 `VITE_SUPABASE_URL`、`VITE_SUPABASE_ANON_KEY` 或 Supabase CLI，因此无法在 staging 执行 migration/RLS 实测。
+- migration/RLS 的 staging 验证仍需具备项目 URL、anon key 和部署权限后完成。

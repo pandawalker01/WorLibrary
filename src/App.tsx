@@ -8,6 +8,10 @@ import type { Highlight } from './lib/storage'
 import './library.css'
 import './settings.css'
 import { deleteBook, listBooks, saveBook, type StoredBook } from './lib/storage'
+import AuthPanel from './components/AuthPanel'
+import { getSession, type AuthSession } from './lib/auth'
+import { createRemoteClient } from './lib/remote'
+import { createIndexedDbSyncAdapter, deleteRemoteHighlight, enqueueSync, flushQueuedSync } from './lib/sync'
 
 type View = 'library' | 'reader' | 'highlights' | 'settings'
 type DisplayBook = Pick<StoredBook, 'id' | 'title' | 'author' | 'language' | 'progress' | 'cover'> & Partial<Pick<StoredBook, 'fileName' | 'fileType' | 'storage' | 'createdAt' | 'location'>>
@@ -27,11 +31,35 @@ function App() {
   const [assistantOpen, setAssistantOpen] = useState(false)
   const [notice, setNotice] = useState('')
   const [searchQuery, setSearchQuery] = useState('')
+  const [session, setSession] = useState<AuthSession | null>(null)
   const fileInput = useRef<HTMLInputElement>(null)
+  const syncTimer = useRef<number | undefined>(undefined)
+
+  const syncNow = useCallback(async () => {
+    if (!session) return
+    try {
+      const result = await flushQueuedSync(createRemoteClient(session), createIndexedDbSyncAdapter())
+      if (result.uploaded || result.downloaded) toast(`已同步 ${result.uploaded + result.downloaded} 项阅读数据`)
+    } catch { toast('同步失败，网络恢复后会自动重试') }
+  }, [session])
+
+  const scheduleSync = useCallback(() => {
+    enqueueSync()
+    if (syncTimer.current) window.clearTimeout(syncTimer.current)
+    syncTimer.current = window.setTimeout(() => { void syncNow() }, 1200)
+  }, [syncNow])
 
   useEffect(() => {
     void listBooks().then((savedBooks) => setBooks([...sampleBooks, ...savedBooks]))
   }, [])
+
+  useEffect(() => { void getSession().then((next) => { setSession(next); if (next) void syncNow() }) }, [syncNow])
+  useEffect(() => { const onOnline = () => { void syncNow() }; window.addEventListener('online', onOnline); return () => window.removeEventListener('online', onOnline) }, [syncNow])
+  useEffect(() => {
+    if (view !== 'reader') return
+    const timer = window.setInterval(scheduleSync, 5000)
+    return () => window.clearInterval(timer)
+  }, [view, scheduleSync])
 
 
   const toast = useCallback((message: string) => {
@@ -49,6 +77,7 @@ function App() {
     try {
       const saved = await Promise.all(files.map((file, index) => saveBook(file, index)))
       setBooks((current) => [...current, ...saved])
+      scheduleSync()
       toast(`已保存 ${saved.length} 本书 · 文件不会上传`)
     } catch (error) {
       toast(error instanceof Error ? error.message : '保存失败，请重试')
@@ -96,7 +125,7 @@ function App() {
           </div>
         </section>}
 
-        {view === 'highlights' && <HighlightsView books={books.filter((book): book is StoredBook => Boolean(book.storage && book.fileName))} onNotice={toast} onOpenHighlight={(highlight: Highlight) => {
+        {view === 'highlights' && <HighlightsView books={books.filter((book): book is StoredBook => Boolean(book.storage && book.fileName))} onNotice={toast} onChanged={scheduleSync} onDeleted={(id) => { if (session) void deleteRemoteHighlight(createRemoteClient(session), id).catch(() => scheduleSync()); else scheduleSync() }} onOpenHighlight={(highlight: Highlight) => {
           const book = books.find((item) => item.id === highlight.bookId)
           if (!book?.storage || !book.fileName) {
             toast('找不到这本本地书籍，请重新导入')
@@ -116,6 +145,7 @@ function App() {
 
         {view === 'settings' && <section className="settings-view"><div className="settings-wrap"><p className="eyebrow">PREFERENCES</p><h1>你的阅读语言</h1><p className="settings-copy">AI 会把你划线的任意语言文本，翻译并解释成这个语言。</p><div className="language-grid">{['中文', 'English', '日本語', 'Français'].map((item) => <button className={language === item ? 'language-choice active' : 'language-choice'} key={item} onClick={() => { setLanguage(item); toast(`已将 AI 理解语言设为：${item}`) }}>{item}<span>{item === '中文' ? '简体中文' : item === 'English' ? '英语' : item === '日本語' ? '日语' : '法语'}</span></button>)}</div><div className="local-books"><h2>本地书籍管理</h2>{books.filter((book) => book.storage && book.fileName).map((book) => <div className="local-book-row" key={book.id}><span><strong>{book.title}</strong><small>{book.fileName} · {book.storage === 'opfs' ? '设备文件系统' : '浏览器数据库'}</small></span><button onClick={() => { void removeBook(book) }}>删除</button></div>)}</div><div className="settings-note"><span>◎</span><p><strong>你的书，留在你的设备上。</strong><br />已导入的书籍、阅读进度和摘录均可离线访问；仅在你请求解释或识别文字时，相关内容才会发送至 AI 服务。</p></div></div></section>}
       </main>
+      {view === 'settings' && <AuthPanel onNotice={toast} onSessionChange={setSession} />}
       {notice && <div className="toast" role="status">{notice}</div>}
       <DataTransfer onNotice={toast} onImported={() => { void listBooks().then((savedBooks) => setBooks([...sampleBooks, ...savedBooks])) }} />
       <input ref={fileInput} onChange={handleFiles} type="file" hidden accept=".epub,.pdf,.mobi,.cbz" multiple />

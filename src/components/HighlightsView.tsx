@@ -5,9 +5,11 @@ type HighlightsViewProps = {
   books: StoredBook[]
   onNotice: (message: string) => void
   onOpenHighlight: (highlight: Highlight) => void
+  onChanged?: () => void
+  onDeleted?: (highlightId: string) => void
 }
 
-export default function HighlightsView({ books, onNotice, onOpenHighlight }: HighlightsViewProps) {
+export default function HighlightsView({ books, onNotice, onOpenHighlight, onChanged, onDeleted }: HighlightsViewProps) {
   const [highlights, setHighlights] = useState<Highlight[]>([])
   const [bookFilter, setBookFilter] = useState('all')
   const [editingId, setEditingId] = useState<string>()
@@ -22,18 +24,21 @@ export default function HighlightsView({ books, onNotice, onOpenHighlight }: Hig
     await updateHighlightNote(id, draftNote.trim())
     setHighlights((current) => current.map((item) => item.id === id ? { ...item, note: draftNote.trim() } : item))
     setEditingId(undefined)
+    onChanged?.()
     onNotice('备注已保存')
   }
 
   async function remove(id: string) {
     await deleteHighlight(id)
     setHighlights((current) => current.filter((item) => item.id !== id))
+    onDeleted?.(id)
     onNotice('摘录已删除')
   }
 
   async function changeColor(id: string, color: Highlight['color']) {
     await updateHighlightColor(id, color)
     setHighlights((current) => current.map((item) => item.id === id ? { ...item, color } : item))
+    onChanged?.()
   }
 
   return <section className="highlights-view">

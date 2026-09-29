@@ -1,12 +1,13 @@
 import { useEffect, useRef, useState } from 'react'
 import workerSrc from 'pdfjs-dist/build/pdf.worker.min.mjs?url'
-import { getBookFile, saveHighlight, saveReadingProgress, type StoredBook } from '../lib/storage'
+import { getBookFile, saveHighlight, saveReadingProgress, type Highlight, type StoredBook } from '../lib/storage'
 import '../pdf-reader.css'
 
 type PdfReaderProps = {
   book: StoredBook
   onNotice: (message: string) => void
   onProgress: (progress: number, location: string) => void
+  onHighlightSaved?: (highlight: Highlight) => void
 }
 
 type PdfDocument = {
@@ -21,7 +22,7 @@ type PdfPage = {
   getTextContent: () => Promise<{ items: Array<{ str?: string }> }>
 }
 
-export default function PdfReader({ book, onNotice, onProgress }: PdfReaderProps) {
+export default function PdfReader({ book, onNotice, onProgress, onHighlightSaved }: PdfReaderProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const textLayerRef = useRef<HTMLDivElement>(null)
   const [document, setDocument] = useState<PdfDocument>()
@@ -87,7 +88,8 @@ export default function PdfReader({ book, onNotice, onProgress }: PdfReaderProps
       onNotice('这一页没有可提取的文本')
       return
     }
-    await saveHighlight({ bookId: book.id, text, location: `pdf:${page}`, color: 'gold' })
+    const highlight = await saveHighlight({ bookId: book.id, text, location: `pdf:${page}`, color: 'gold' })
+    onHighlightSaved?.(highlight)
     setSelectedText('')
     window.getSelection()?.removeAllRanges()
     onNotice(text === pageText ? 'PDF 页面文字已保存到摘录空间' : 'PDF 局部文字已保存到摘录空间')
