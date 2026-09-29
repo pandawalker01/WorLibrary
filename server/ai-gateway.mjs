@@ -6,12 +6,14 @@ const DEFAULT_CACHE_TTL_MS = 24 * 60 * 60 * 1_000
 
 const errorDefinitions = {
   invalid_request: ['请求内容无效，请检查选中文本和语言设置。', false, 400],
+  unauthorized: ['请先登录后再使用 AI 服务。', false, 401],
   request_too_large: ['选中文本过长，请缩短后重试。', false, 413],
   rate_limited: ['请求太频繁，请稍后再试。', true, 429],
   quota_exceeded: ['今日 AI 试用额度已用完，请明天再试。', false, 429],
   provider_unavailable: ['AI 服务暂时不可用，请稍后重试。', true, 503],
   provider_timeout: ['AI 服务响应超时，请稍后重试。', true, 504],
   provider_error: ['AI 服务暂时出错，请稍后重试。', true, 502],
+  provider_rate_limited: ['AI 供应商当前繁忙，请稍后重试。', true, 503],
   internal_error: ['服务暂时不可用，请稍后重试。', true, 500],
 }
 
@@ -62,6 +64,14 @@ function clientKey(request) {
   return request.headers.get('x-anonymous-id') || request.headers.get('x-forwarded-for')?.split(',')[0].trim() || 'anonymous'
 }
 
+async function authenticateRequest(request, env, verifier) {
+  const authorization = request.headers.get('authorization') || ''
+  const token = authorization.startsWith('Bearer ') ? authorization.slice(7).trim() : ''
+  if (verifier && token) return verifier(token, request)
+  if (env.AI_REQUIRE_AUTH === 'true' && !token) return null
+  return { id: token ? `token:${token.slice(0, 16)}` : clientKey(request), anonymous: !token }
+}
+
 function safeLog(logger, event, fields = {}) {
   logger?.({ event, ...fields })
 }
@@ -84,7 +94,10 @@ function makeProvider(env, fetchImpl) {
         { role: 'user', content: `Source language: ${sourceLanguage}\nContext: ${context || '(none)'}\nText:\n${text}` },
       ] }),
     })
-    if (!response.ok) throw Object.assign(new Error(`provider status ${response.status}`), { code: 'provider_error' })
+    if (!response.ok) {
+      const code = response.status === 429 ? 'provider_rate_limited' : response.status === 401 || response.status === 403 ? 'provider_unavailable' : 'provider_error'
+      throw Object.assign(new Error(`provider status ${response.status}`), { code, status: response.status })
+    }
     const payload = await response.json()
     const content = payload?.choices?.[0]?.message?.content
     if (typeof content !== 'string' || !content.trim()) throw Object.assign(new Error('empty provider response'), { code: 'provider_error' })
@@ -99,7 +112,7 @@ function makeProvider(env, fetchImpl) {
   }
 }
 
-export function createAiGateway({ env = {}, fetchImpl = fetch, logger = console.warn, now = () => Date.now(), provider, store } = {}) {
+export function createAiGateway({ env = {}, fetchImpl = fetch, logger = console.warn, now = () => Date.now(), provider, store, authVerifier } = {}) {
   const cache = new Map()
   const usage = new Map()
   const requests = new Map()
@@ -120,7 +133,9 @@ export function createAiGateway({ env = {}, fetchImpl = fetch, logger = console.
     try { body = await request.json() } catch { return fail('invalid_request', cors) }
     const input = normaliseRequest(body, kind)
     if (input.error) return fail(input.error, cors)
-    const identity = clientKey(request)
+    const identityResult = await authenticateRequest(request, env, authVerifier)
+    if (!identityResult?.id) return fail('unauthorized', cors)
+    const identity = identityResult.id
     const nowValue = now()
     const windowStart = nowValue - 60_000
     const recent = (requests.get(identity) || []).filter((time) => time > windowStart)
@@ -129,6 +144,9 @@ export function createAiGateway({ env = {}, fetchImpl = fetch, logger = console.
     const day = todayKey()
     const quotaKey = `${identity}:${day}`
     const key = await digest(JSON.stringify({ kind, text: input.text, sourceLanguage: input.sourceLanguage, targetLanguage: input.targetLanguage, context: input.context }))
+    const idempotencyKey = `${identity}:${input.requestId}`
+    const previous = store?.getIdempotency ? await store.getIdempotency(idempotencyKey) : null
+    if (previous?.expiresAt > nowValue) return json(previous.value, 200, cors)
     const cached = store?.getCache ? await store.getCache(key) : cache.get(key)
     if (cached && cached.expiresAt > nowValue) return json({ ...cached.value, cached: true }, 200, cors)
     const consumed = store?.getUsage ? await store.getUsage(quotaKey) : usage.get(quotaKey) || 0
@@ -157,6 +175,7 @@ export function createAiGateway({ env = {}, fetchImpl = fetch, logger = console.
     const cacheEntry = { value, expiresAt: nowValue + cacheTtlMs }
     if (store?.setCache) await store.setCache(key, cacheEntry)
     else cache.set(key, cacheEntry)
+    if (store?.setIdempotency) await store.setIdempotency(idempotencyKey, { value, expiresAt: nowValue + cacheTtlMs })
     safeLog(logger, 'ai_request_succeeded', { kind, requestId: input.requestId, provider: result.provider, cached: false })
     return json(value, 200, cors)
   }
