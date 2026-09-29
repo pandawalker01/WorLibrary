@@ -19,7 +19,7 @@ const errorDefinitions = {
 
 function gatewayError(code, detail) {
   const [message, retryable, status] = errorDefinitions[code] ?? errorDefinitions.internal_error
-  return { code, message: detail && code === 'provider_error' ? message : message, retryable, status }
+  return { code, message, retryable, status }
 }
 
 function json(data, status = 200, headers = {}) {
@@ -115,6 +115,7 @@ function makeProvider(env, fetchImpl) {
 export function createAiGateway({ env = {}, fetchImpl = fetch, logger = console.warn, now = () => Date.now(), provider, store, authVerifier } = {}) {
   const cache = new Map()
   const usage = new Map()
+  const idempotency = new Map()
   const requests = new Map()
   const dailyQuota = Number(env.AI_DAILY_QUOTA || DEFAULT_DAILY_QUOTA)
   const rateLimit = Number(env.AI_RATE_LIMIT || DEFAULT_RATE_LIMIT)
@@ -123,7 +124,7 @@ export function createAiGateway({ env = {}, fetchImpl = fetch, logger = console.
   const callProvider = provider || makeProvider(env, fetchImpl)
 
   return async function handle(request) {
-    const cors = { 'access-control-allow-origin': env.ALLOWED_ORIGIN || '*', 'access-control-allow-headers': 'content-type, x-anonymous-id', 'access-control-allow-methods': 'POST, OPTIONS' }
+    const cors = { 'access-control-allow-origin': env.ALLOWED_ORIGIN || '*', 'access-control-allow-headers': 'authorization, content-type, x-anonymous-id', 'access-control-allow-methods': 'POST, OPTIONS' }
     if (request.method === 'OPTIONS') return new Response(null, { status: 204, headers: cors })
     if (request.method !== 'POST') return fail('invalid_request', cors)
     const url = new URL(request.url)
@@ -145,8 +146,8 @@ export function createAiGateway({ env = {}, fetchImpl = fetch, logger = console.
     const quotaKey = `${identity}:${day}`
     const key = await digest(JSON.stringify({ kind, text: input.text, sourceLanguage: input.sourceLanguage, targetLanguage: input.targetLanguage, context: input.context }))
     const idempotencyKey = `${identity}:${input.requestId}`
-    const previous = store?.getIdempotency ? await store.getIdempotency(idempotencyKey) : null
-    if (previous?.expiresAt > nowValue) return json(previous.value, 200, cors)
+    const previous = store?.getIdempotency ? await store.getIdempotency(idempotencyKey) : idempotency.get(idempotencyKey)
+    if (previous?.expiresAt > nowValue) return json({ ...previous.value, cached: true }, 200, cors)
     const cached = store?.getCache ? await store.getCache(key) : cache.get(key)
     if (cached && cached.expiresAt > nowValue) return json({ ...cached.value, cached: true }, 200, cors)
     const consumed = store?.getUsage ? await store.getUsage(quotaKey) : usage.get(quotaKey) || 0
@@ -176,6 +177,7 @@ export function createAiGateway({ env = {}, fetchImpl = fetch, logger = console.
     if (store?.setCache) await store.setCache(key, cacheEntry)
     else cache.set(key, cacheEntry)
     if (store?.setIdempotency) await store.setIdempotency(idempotencyKey, { value, expiresAt: nowValue + cacheTtlMs })
+    else idempotency.set(idempotencyKey, { value, expiresAt: nowValue + cacheTtlMs })
     safeLog(logger, 'ai_request_succeeded', { kind, requestId: input.requestId, provider: result.provider, cached: false })
     return json(value, 200, cors)
   }
