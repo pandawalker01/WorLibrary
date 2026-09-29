@@ -12,7 +12,7 @@ supabase link --project-ref <staging-project-ref>
 supabase db push
 ```
 
-`supabase db push` 会执行 `supabase/migrations/0001_initial_sync.sql`。该 migration 的 trigger 和 policy 使用 `drop ... if exists`，可安全重复执行。
+`supabase db push` 会执行 `supabase/migrations/0001_initial_sync.sql`。该 migration 的 trigger、policy 和 `editions.book_id` 兼容列可安全重复执行。
 
 在 staging 的 SQL Editor 执行：
 

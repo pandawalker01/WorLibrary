@@ -22,10 +22,11 @@ create table if not exists public.works (
 );
 create table if not exists public.editions (
   id uuid primary key, user_id uuid not null references auth.users(id) on delete cascade,
-  work_id uuid references public.works(id) on delete cascade, title text not null, author text,
+  work_id uuid references public.works(id) on delete cascade, book_id text, title text not null, author text,
   language text, progress numeric not null default 0 check (progress >= 0 and progress <= 100), location text,
   file_name text, file_type text, file_size bigint, cover text, created_at timestamptz not null default now(), updated_at timestamptz not null default now()
 );
+alter table public.editions add column if not exists book_id text;
 create table if not exists public.reading_progress (
   edition_id uuid primary key references public.editions(id) on delete cascade, user_id uuid not null references auth.users(id) on delete cascade,
   progress numeric not null default 0 check (progress >= 0 and progress <= 100), location text, updated_at timestamptz not null default now()
