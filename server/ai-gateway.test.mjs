@@ -36,6 +36,32 @@ test('provider failures map to a user-safe error', async () => {
   assert.equal((await response.json()).error.code, 'provider_error')
 })
 
+test('provider configuration stays server-side and upstream status maps cleanly', async () => {
+  const missingKey = createAiGateway({ env: { AI_BASE_URL: 'https://provider.invalid/v1' }, logger: () => {} })
+  const unavailable = await missingKey(request('/api/translate', { text: 'hello', requestId: 'missing-key' }))
+  assert.equal(unavailable.status, 503)
+  assert.equal((await unavailable.json()).error.code, 'provider_unavailable')
+  let receivedUrl = ''
+  const rateLimited = createAiGateway({ env: { AI_API_KEY: 'server-only', AI_BASE_URL: 'https://provider.test/v1' }, fetchImpl: async (url) => { receivedUrl = url; return new Response('{}', { status: 429 }) }, logger: () => {} })
+  const response = await rateLimited(request('/api/translate', { text: 'hello', requestId: 'upstream-rate' }))
+  assert.equal(response.status, 503)
+  assert.equal((await response.json()).error.code, 'provider_rate_limited')
+  assert.equal(receivedUrl, 'https://provider.test/v1/chat/completions')
+})
+
+test('provider status and timeout errors use stable gateway codes', async () => {
+  for (const [providerStatus, expectedStatus, expectedCode] of [[401, 503, 'provider_unavailable'], [403, 503, 'provider_unavailable'], [500, 502, 'provider_error']]) {
+    const gateway = createAiGateway({ env: { AI_API_KEY: 'server-only' }, fetchImpl: async () => new Response('{}', { status: providerStatus }), logger: () => {} })
+    const response = await gateway(request('/api/translate', { text: `status-${providerStatus}`, requestId: `status-${providerStatus}` }))
+    assert.equal(response.status, expectedStatus)
+    assert.equal((await response.json()).error.code, expectedCode)
+  }
+  const timeout = createAiGateway({ env: { AI_TIMEOUT_MS: '1' }, provider: ({ signal }) => new Promise((_, reject) => signal.addEventListener('abort', () => reject(Object.assign(new Error('aborted'), { name: 'AbortError' })))), logger: () => {} })
+  const response = await timeout(request('/api/translate', { text: 'timeout', requestId: 'timeout-1' }))
+  assert.equal(response.status, 504)
+  assert.equal((await response.json()).error.code, 'provider_timeout')
+})
+
 test('auth, user rate limiting, and request idempotency are supported by adapters', async () => {
   const records = new Map()
   const store = {

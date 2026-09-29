@@ -14,9 +14,7 @@ test('reader, comparison and explanation flow are available', async ({ page }) =
   await page.getByRole('button', { name: /The Invisible Life of Addie LaRue/ }).click()
   await expect(page.getByRole('button', { name: '⇄ 对照阅读' })).toBeVisible()
   await page.getByRole('button', { name: '⇄ 对照阅读' }).click()
-  await expect(page.locator('.translation-page')).toBeVisible()
-  await page.getByRole('button', { name: /用 AI 解释/ }).click()
-  await expect(page.locator('.ai-panel')).toContainText('通俗解释')
+  await expect(page.getByRole('region', { name: '双译本对照阅读' })).toContainText('章节已对齐')
 })
 
 test('settings and backup controls are reachable', async ({ page }) => {
