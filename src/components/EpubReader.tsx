@@ -22,7 +22,7 @@ type Rendition = {
   destroy: () => void
 }
 
-export default function EpubReader({ book, onNotice, onProgress, onHighlightSaved, preferences }: EpubReaderProps) {
+export default function EpubReader({ book, onNotice, onProgress, onHighlightSaved, targetLanguage = '中文', preferences }: EpubReaderProps) {
   const mountRef = useRef<HTMLDivElement>(null)
   const renditionRef = useRef<Rendition | undefined>(undefined)
   const [status, setStatus] = useState('正在打开本地文件…')
@@ -101,7 +101,7 @@ export default function EpubReader({ book, onNotice, onProgress, onHighlightSave
     if (!pendingSelection || translating) return
     setTranslating(true)
     try {
-      const result = await translateSelection(pendingSelection.text, '中文')
+      const result = await translateSelection(pendingSelection.text, targetLanguage)
       setTranslation(result.translation)
     } catch (error) {
       onNotice(error instanceof Error ? error.message : '翻译失败，请稍后重试')
@@ -114,7 +114,7 @@ export default function EpubReader({ book, onNotice, onProgress, onHighlightSave
     if (!pendingSelection || translating || explaining) return
     setExplaining(true)
     try {
-      const result = await explainSelection(pendingSelection.text, '中文')
+      const result = await explainSelection(pendingSelection.text, targetLanguage)
       setTranslation(result.translation)
       setExplanation(result.explanation)
     } catch (error) {
