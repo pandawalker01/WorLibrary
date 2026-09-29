@@ -39,6 +39,12 @@ create table if not exists public.user_settings (
   user_id uuid primary key references auth.users(id) on delete cascade, settings jsonb not null default '{}'::jsonb, updated_at timestamptz not null default now()
 );
 
+drop trigger if exists profiles_updated_at on public.profiles;
+drop trigger if exists works_updated_at on public.works;
+drop trigger if exists editions_updated_at on public.editions;
+drop trigger if exists progress_updated_at on public.reading_progress;
+drop trigger if exists highlights_updated_at on public.highlights;
+drop trigger if exists settings_updated_at on public.user_settings;
 create trigger profiles_updated_at before update on public.profiles for each row execute function public.set_updated_at();
 create trigger works_updated_at before update on public.works for each row execute function public.set_updated_at();
 create trigger editions_updated_at before update on public.editions for each row execute function public.set_updated_at();
@@ -54,6 +60,13 @@ alter table public.reading_progress enable row level security;
 alter table public.highlights enable row level security;
 alter table public.user_settings enable row level security;
 
+drop policy if exists "own profile" on public.profiles;
+drop policy if exists "own devices" on public.devices;
+drop policy if exists "own works" on public.works;
+drop policy if exists "own editions" on public.editions;
+drop policy if exists "own progress" on public.reading_progress;
+drop policy if exists "own highlights" on public.highlights;
+drop policy if exists "own settings" on public.user_settings;
 create policy "own profile" on public.profiles for all using (id = auth.uid()) with check (id = auth.uid());
 create policy "own devices" on public.devices for all using (user_id = auth.uid()) with check (user_id = auth.uid());
 create policy "own works" on public.works for all using (user_id = auth.uid()) with check (user_id = auth.uid());
@@ -65,4 +78,5 @@ create policy "own settings" on public.user_settings for all using (user_id = au
 create or replace function public.handle_new_user() returns trigger language plpgsql security definer set search_path = public as $$
 begin insert into public.profiles (id, is_anonymous) values (new.id, coalesce((new.raw_app_meta_data->>'is_anonymous')::boolean, false)) on conflict (id) do nothing; return new; end;
 $$;
+drop trigger if exists on_auth_user_created on auth.users;
 create trigger on_auth_user_created after insert on auth.users for each row execute function public.handle_new_user();
