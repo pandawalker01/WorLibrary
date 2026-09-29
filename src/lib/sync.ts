@@ -14,6 +14,7 @@ export type LocalSyncAdapter = {
 
 type SyncQueueState = { pending: boolean; attempts: number; nextAttemptAt: number; lastError?: string }
 const syncQueueKey = 'wor-library.sync.queue'
+const deletionQueueKey = 'wor-library.sync.deleted-highlights'
 
 function readQueue(): SyncQueueState {
   if (typeof localStorage === 'undefined') return { pending: false, attempts: 0, nextAttemptAt: 0 }
@@ -24,12 +25,23 @@ function writeQueue(state: SyncQueueState) { if (typeof localStorage !== 'undefi
 export function enqueueSync() { writeQueue({ ...readQueue(), pending: true, nextAttemptAt: 0 }) }
 export function getSyncQueueState(): SyncQueueState { return readQueue() }
 
+function readDeletedHighlights(): string[] {
+  if (typeof localStorage === 'undefined') return []
+  try { return JSON.parse(localStorage.getItem(deletionQueueKey) ?? '[]') as string[] } catch { return [] }
+}
+
+function queueDeletedHighlight(id: string) {
+  if (typeof localStorage !== 'undefined') localStorage.setItem(deletionQueueKey, JSON.stringify([...new Set([...readDeletedHighlights(), id])]))
+}
+
 export async function flushQueuedSync(remote: RemoteClient, local: LocalSyncAdapter): Promise<{ uploaded: number; downloaded: number }> {
   const current = readQueue()
   if (!current.pending) return { uploaded: 0, downloaded: 0 }
   if (current.nextAttemptAt > Date.now()) throw new Error('同步将在稍后自动重试')
   try {
+    for (const id of readDeletedHighlights()) await remote.remove('highlights', `id=eq.${encodeURIComponent(id)}`)
     const result = await syncLibrary(remote, local)
+    if (typeof localStorage !== 'undefined') localStorage.removeItem(deletionQueueKey)
     writeQueue({ pending: false, attempts: 0, nextAttemptAt: 0 })
     return result
   } catch (error) {
@@ -40,7 +52,10 @@ export async function flushQueuedSync(remote: RemoteClient, local: LocalSyncAdap
   }
 }
 
-export async function deleteRemoteHighlight(remote: RemoteClient, id: string): Promise<void> { await remote.remove('highlights', `id=eq.${encodeURIComponent(id)}`) }
+export async function deleteRemoteHighlight(remote: RemoteClient, id: string): Promise<void> {
+  try { await remote.remove('highlights', `id=eq.${encodeURIComponent(id)}`) }
+  catch (error) { queueDeletedHighlight(id); throw error }
+}
 
 const databaseName = 'wor-library'
 const databaseVersion = 2
