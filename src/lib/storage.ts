@@ -108,7 +108,7 @@ export async function listBooks(): Promise<StoredBook[]> {
 
 export async function saveBook(file: File, index: number): Promise<StoredBook> {
   const extension = extensionOf(file.name)
-  if (!['epub', 'pdf', 'mobi', 'cbz'].includes(extension)) throw new Error(`暂不支持 .${extension || 'unknown'} 文件`)
+  if (!['epub', 'pdf'].includes(extension)) throw new Error(`暂不支持 .${extension || 'unknown'} 文件，目前仅支持 EPUB 和 PDF`)
   if (file.size > 100 * 1024 * 1024) throw new Error(`${file.name} 超过 100 MB 限制`)
   const existing = await listBooks()
   if (existing.some((book) => book.fileName === file.name && book.fileSize === file.size)) {
