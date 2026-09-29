@@ -13,6 +13,8 @@ export type StoredBook = {
   storage: 'opfs' | 'indexeddb'
   createdAt: number
   location?: string
+  workId?: string
+  editionId?: string
 }
 
 export type Highlight = {
@@ -27,11 +29,16 @@ export type Highlight = {
 
 export type LibraryBackup = { version: 2; exportedAt: string; books: StoredBook[]; highlights: Highlight[]; files: Record<string, string> }
 
+import type { Alignment, Edition, Work } from './edition'
+
 const DB_NAME = 'wor-library'
-const DB_VERSION = 2
+const DB_VERSION = 3
 const BOOKS_STORE = 'books'
 const BLOBS_STORE = 'book-blobs'
 const HIGHLIGHTS_STORE = 'highlights'
+const WORKS_STORE = 'works'
+const EDITIONS_STORE = 'editions'
+const ALIGNMENTS_STORE = 'alignments'
 
 function openDatabase(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
@@ -42,6 +49,9 @@ function openDatabase(): Promise<IDBDatabase> {
       if (!db.objectStoreNames.contains(BOOKS_STORE)) db.createObjectStore(BOOKS_STORE, { keyPath: 'id' })
       if (!db.objectStoreNames.contains(BLOBS_STORE)) db.createObjectStore(BLOBS_STORE)
       if (!db.objectStoreNames.contains(HIGHLIGHTS_STORE)) db.createObjectStore(HIGHLIGHTS_STORE, { keyPath: 'id' })
+      if (!db.objectStoreNames.contains(WORKS_STORE)) db.createObjectStore(WORKS_STORE, { keyPath: 'id' })
+      if (!db.objectStoreNames.contains(EDITIONS_STORE)) db.createObjectStore(EDITIONS_STORE, { keyPath: 'id' })
+      if (!db.objectStoreNames.contains(ALIGNMENTS_STORE)) db.createObjectStore(ALIGNMENTS_STORE, { keyPath: 'id' })
     }
     request.onsuccess = () => resolve(request.result)
   })
@@ -112,8 +122,57 @@ export async function saveBook(file: File, index: number): Promise<StoredBook> {
     storage,
     createdAt: Date.now(),
   }
+  const workId = crypto.randomUUID()
+  const editionId = crypto.randomUUID()
+  book.workId = workId
+  book.editionId = editionId
   await transaction('books', 'readwrite', (store) => store.put(book))
+  const work: Work = { id: workId, title: book.title, author: book.author, editionIds: [editionId] }
+  const edition: Edition = { id: editionId, workId, label: book.title, language: book.language, format: extension as Edition['format'], bookId: book.id, progress: 0 }
+  await transaction(WORKS_STORE, 'readwrite', (store) => store.put(work))
+  await transaction(EDITIONS_STORE, 'readwrite', (store) => store.put(edition))
   return book
+}
+
+export async function listWorks(): Promise<Work[]> {
+  return transaction<Work[]>(WORKS_STORE, 'readonly', (store) => store.getAll())
+}
+
+export async function listEditions(workId?: string): Promise<Edition[]> {
+  const editions = await transaction<Edition[]>(EDITIONS_STORE, 'readonly', (store) => store.getAll())
+  return editions.filter((edition) => !workId || edition.workId === workId)
+}
+
+export async function listAlignments(workId?: string): Promise<Alignment[]> {
+  const alignments = await transaction<Alignment[]>(ALIGNMENTS_STORE, 'readonly', (store) => store.getAll())
+  return alignments.filter((alignment) => !workId || alignment.workId === workId)
+}
+
+export async function linkBookEditions(leftBookId: string, rightBookId: string): Promise<{ work: Work; alignment: Alignment }> {
+  const books = await listBooks()
+  const left = books.find((book) => book.id === leftBookId)
+  const right = books.find((book) => book.id === rightBookId)
+  if (!left || !right || leftBookId === rightBookId) throw new Error('请选择两本不同的本地书籍')
+  const editions = await listEditions()
+  const leftEdition = editions.find((edition) => edition.bookId === leftBookId)
+  const rightEdition = editions.find((edition) => edition.bookId === rightBookId)
+  if (!leftEdition || !rightEdition) throw new Error('找不到版本元数据，请重新导入书籍')
+  const work: Work = { id: leftEdition.workId, title: left.title, author: left.author, editionIds: [leftEdition.id, rightEdition.id] }
+  const alignment: Alignment = { id: crypto.randomUUID(), workId: work.id, leftEditionId: leftEdition.id, rightEditionId: rightEdition.id, confidence: 0 }
+  await transaction(WORKS_STORE, 'readwrite', (store) => store.put(work))
+  await transaction(EDITIONS_STORE, 'readwrite', (store) => store.put({ ...rightEdition, workId: work.id }))
+  await transaction('books', 'readwrite', (store) => {
+    store.put({ ...left, workId: work.id, editionId: leftEdition.id })
+    return store.put({ ...right, workId: work.id, editionId: rightEdition.id })
+  })
+  await transaction(ALIGNMENTS_STORE, 'readwrite', (store) => store.put(alignment))
+  return { work, alignment }
+}
+
+export async function saveEditionProgress(editionId: string, location: string, progress: number): Promise<void> {
+  const current = await transaction<Edition | undefined>(EDITIONS_STORE, 'readonly', (store) => store.get(editionId))
+  if (!current) return
+  await transaction(EDITIONS_STORE, 'readwrite', (store) => store.put({ ...current, location, progress: Math.max(0, Math.min(100, progress)) }))
 }
 
 export async function getBookFile(book: StoredBook): Promise<File> {

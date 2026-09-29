@@ -7,7 +7,9 @@ import './highlights.css'
 import type { Highlight } from './lib/storage'
 import './library.css'
 import './settings.css'
-import { deleteBook, listBooks, saveBook, type StoredBook } from './lib/storage'
+import { deleteBook, linkBookEditions, listAlignments, listBooks, listEditions, saveBook, saveEditionProgress, type StoredBook } from './lib/storage'
+import type { Alignment, Edition } from './lib/edition'
+import EditionComparisonReader from './components/EditionComparisonReader'
 
 type View = 'library' | 'reader' | 'highlights' | 'settings'
 type DisplayBook = Pick<StoredBook, 'id' | 'title' | 'author' | 'language' | 'progress' | 'cover'> & Partial<Pick<StoredBook, 'fileName' | 'fileType' | 'storage' | 'createdAt' | 'location'>>
@@ -27,10 +29,12 @@ function App() {
   const [assistantOpen, setAssistantOpen] = useState(false)
   const [notice, setNotice] = useState('')
   const [searchQuery, setSearchQuery] = useState('')
+  const [editions, setEditions] = useState<Edition[]>([])
+  const [alignments, setAlignments] = useState<Alignment[]>([])
   const fileInput = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
-    void listBooks().then((savedBooks) => setBooks([...sampleBooks, ...savedBooks]))
+    void Promise.all([listBooks(), listEditions(), listAlignments()]).then(([savedBooks, savedEditions, savedAlignments]) => { setBooks([...sampleBooks, ...savedBooks]); setEditions(savedEditions); setAlignments(savedAlignments) })
   }, [])
 
 
@@ -49,10 +53,33 @@ function App() {
     try {
       const saved = await Promise.all(files.map((file, index) => saveBook(file, index)))
       setBooks((current) => [...current, ...saved])
+      setEditions(await listEditions())
       toast(`已保存 ${saved.length} 本书 · 文件不会上传`)
     } catch (error) {
       toast(error instanceof Error ? error.message : '保存失败，请重试')
     }
+  }
+
+  async function linkCurrentEdition() {
+    const candidates = books.filter((book) => book.storage && book.fileName && book.id !== selectedBook.id)
+    if (candidates.length === 0) { toast('请先导入另一本译本'); return }
+    const choice = window.prompt(`输入要关联的书籍编号：\n${candidates.map((book, index) => `${index + 1}. ${book.title}`).join('\n')}`, '1')
+    const target = candidates[Number(choice) - 1]
+    if (!target) { toast('未选择有效译本'); return }
+    try {
+      const result = await linkBookEditions(selectedBook.id, target.id)
+      setBooks((current) => current.map((book) => book.id === selectedBook.id || book.id === target.id ? { ...book, workId: result.work.id } : book))
+      setEditions(await listEditions())
+      setAlignments(await listAlignments())
+      toast(`已关联《${selectedBook.title}》与《${target.title}》`)
+    } catch (error) { toast(error instanceof Error ? error.message : '关联译本失败') }
+  }
+
+  function updateEditionProgress(bookId: string, progress: number, location: string) {
+    setSelectedBook((current) => current.id === bookId ? { ...current, progress, location } : current)
+    setBooks((current) => current.map((item) => item.id === bookId ? { ...item, progress, location } : item))
+    const edition = editions.find((item) => item.bookId === bookId)
+    if (edition) { setEditions((current) => current.map((item) => item.id === edition.id ? { ...item, progress, location } : item)); void saveEditionProgress(edition.id, location, progress) }
   }
 
   async function removeBook(book: DisplayBook) {
@@ -108,8 +135,16 @@ function App() {
 
         {view === 'reader' && <section className="reader-view">
           <div className="reader-header"><button className="back-button" onClick={() => setView('library')}>← <span>书库</span></button><div className="reader-title"><strong>{selectedBook.title}</strong><small>{selectedBook.author} · Chapter 4</small></div><div className="reader-tools"><button onClick={() => setCompare(!compare)}>{compare ? '↹ 退出对照' : '⇄ 对照阅读'}</button><button onClick={() => setView('settings')}>{language.slice(0, 1)}</button><button onClick={() => toast('阅读排版设置将在阅读引擎接入后启用')}>Aa</button></div></div>
-          <div className="edition-strip"><span>正在阅读</span><button className="edition active">EN <strong>English original</strong></button><button className="edition" onClick={() => toast('译本切换将在 Edition 模型接入后启用')}>中 <strong>简体中文</strong></button><button className="link-edition" onClick={() => toast('请在本地导入另一个版本后关联')}>＋ 关联译本</button></div>
-          {selectedBook.fileName?.toLowerCase().endsWith('.epub') && selectedBook.storage ? <EpubReader book={selectedBook as StoredBook} onNotice={toast} onProgress={(progress, location) => { setSelectedBook((current) => ({ ...current, progress, location })); setBooks((current) => current.map((item) => item.id === selectedBook.id ? { ...item, progress, location } : item)) }} /> : selectedBook.fileName?.toLowerCase().endsWith('.pdf') && selectedBook.storage ? <PdfReader book={selectedBook as StoredBook} onNotice={toast} onProgress={(progress, location) => { setSelectedBook((current) => ({ ...current, progress, location })); setBooks((current) => current.map((item) => item.id === selectedBook.id ? { ...item, progress, location } : item)) }} /> : <div className={compare ? 'reading-stage comparing' : 'reading-stage'}><article className="page primary-page"><div className="chapter-label">CHAPTER IV · A LIFE, UNLIVED</div><h2>One day, in the middle of a perfectly ordinary life, something extraordinary happened.</h2><p>Adeline LaRue had always believed the world was made of doors. A door was not just a passage from one room to another; it was a promise.</p><p className="selectable" onMouseUp={() => toast('已选择文字 · 点击“用 AI 解释”查看示例')}>But freedom, she would learn, is a word with a thousand meanings, and some of them are cages.</p><p>She did not know yet which doors would open for her, or which would close. She only knew that she had to keep walking.</p><button className="selection-tip" onClick={() => setAssistantOpen(true)}>选中这段文字 <strong>用 AI 解释 ✦</strong></button><footer className="page-footer"><span>041</span><i /><span>THE INVISIBLE LIFE</span></footer></article>{compare && <article className="page translation-page"><div className="chapter-label">第四章 · 未曾活过的一生</div><h2>平凡人生的正中央，某一天发生了一件非凡的事。</h2><p>阿黛琳·拉吕一直相信，世界是由门构成的。门不仅是通道；它更像一个承诺，意味着门的另一侧或许有什么能改变她生命的形状。</p><p>但她后来会明白，自由这个词有一千种含义，其中有些，恰恰是牢笼。</p><footer className="page-footer"><span>041</span><i /><span>无形人生</span></footer></article>}</div>}
+          {(() => {
+            const currentEdition = editions.find((edition) => edition.bookId === selectedBook.id)
+            const relatedEdition = currentEdition ? editions.find((edition) => edition.workId === currentEdition.workId && edition.id !== currentEdition.id) : undefined
+            const relatedBook = relatedEdition ? books.find((book) => book.id === relatedEdition.bookId) : undefined
+            const renderReader = (book: DisplayBook, translated = false) => book.fileName?.toLowerCase().endsWith('.epub') && book.storage ? <EpubReader book={book as StoredBook} onNotice={toast} onProgress={(progress, location) => updateEditionProgress(book.id, progress, location)} /> : book.fileName?.toLowerCase().endsWith('.pdf') && book.storage ? <PdfReader book={book as StoredBook} onNotice={toast} onProgress={(progress, location) => updateEditionProgress(book.id, progress, location)} /> : <div className="reading-stage"><article className={`page ${translated ? 'translation-page' : 'primary-page'}`}><div className="chapter-label">{translated ? '第四章 · 未曾活过的一生' : 'CHAPTER IV · A LIFE, UNLIVED'}</div><h2>{translated ? '平凡人生的正中央，某一天发生了一件非凡的事。' : 'One day, in the middle of a perfectly ordinary life, something extraordinary happened.'}</h2><p>{translated ? '阿黛琳·拉吕一直相信，世界是由门构成的。门不仅是通道；它更像一个承诺。' : 'Adeline LaRue had always believed the world was made of doors. A door was not just a passage from one room to another; it was a promise.'}</p><p className="selectable">{translated ? '但她后来会明白，自由这个词有一千种含义，其中有些，恰恰是牢笼。' : 'But freedom, she would learn, is a word with a thousand meanings, and some of them are cages.'}</p></article></div>
+            const comparisonLeft = currentEdition ?? { id: 'demo-en', workId: 'demo-work', label: 'English original', language: 'EN', format: 'epub' as const, bookId: selectedBook.id, progress: selectedBook.progress }
+            const comparisonRight = relatedEdition ?? { id: 'demo-zh', workId: 'demo-work', label: '简体中文', language: '中', format: 'epub' as const, bookId: selectedBook.id, progress: selectedBook.progress }
+            const comparisonBook = relatedBook ?? selectedBook
+            return <><div className="edition-strip"><span>正在阅读</span><button className="edition active">{currentEdition?.language ?? 'EN'} <strong>{currentEdition?.label ?? 'English original'}</strong></button>{relatedEdition && <button className="edition" onClick={() => { const next = books.find((book) => book.id === relatedEdition.bookId); if (next) { setSelectedBook(next); setCompare(false) } }}>{relatedEdition.language} <strong>{relatedEdition.label}</strong></button>}<button className="link-edition" onClick={() => { void linkCurrentEdition() }}>＋ 关联译本</button></div>{compare ? <EditionComparisonReader left={comparisonLeft} right={comparisonRight} alignment={alignments.find((item) => item.leftEditionId === comparisonLeft.id || item.rightEditionId === comparisonLeft.id) ?? { id: 'demo-alignment', workId: comparisonLeft.workId, leftEditionId: comparisonLeft.id, rightEditionId: comparisonRight.id, confidence: 1 }} leftContent={renderReader(selectedBook)} rightContent={renderReader(comparisonBook, true)} onSwitch={(edition) => { const next = books.find((book) => book.id === edition.bookId); if (next) setSelectedBook(next) }} /> : renderReader(selectedBook)}</>
+          })()}
           {assistantOpen && <aside className="ai-panel"><div className="panel-top"><span>✦</span><strong>阅读助手</strong><button onClick={() => setAssistantOpen(false)}>×</button></div><p className="ai-label">ENGLISH → {language}</p><blockquote>“But freedom, she would learn, is a word with a thousand meanings, and some of them are cages.”</blockquote><section><h3>翻译</h3><p>但她后来会明白，自由这个词有一千种含义，其中有些，恰恰是牢笼。</p></section><section><h3>通俗解释</h3><p>自由并不总是轻松美好的。有时我们以为自己在选择，却被选择的代价、规则或恐惧困住了。</p></section><small>AI 解释仅供学习参考 · 本地 Demo</small></aside>}
           <div className="reader-bottom"><span>{selectedBook.progress}%</span><div><i style={{ width: `${selectedBook.progress}%` }} /></div><span>4 / 11</span><button onClick={() => toast('OCR 是下一步真实服务接入点')}>◎ 扫描页？识别文字</button></div>
         </section>}
