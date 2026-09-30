@@ -14,18 +14,28 @@ const anonKey = import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined
 export function createRemoteClient(session: AuthSession): RemoteClient {
   if (!url || !anonKey) throw new Error('尚未配置 Supabase')
   async function request<T>(table: RemoteTable, init: RequestInit = {}, query = ''): Promise<T> {
-    const response = await fetch(`${url}/rest/v1/${table}${query ? `?${query}` : ''}`, {
-      ...init,
-      headers: {
-        apikey: anonKey!, Authorization: `Bearer ${session.accessToken}`, 'Content-Type': 'application/json', Prefer: 'return=representation', ...(init.headers ?? {}),
-      },
-    })
-    if (!response.ok) {
-      const detail = await response.text()
-      throw new Error(`同步请求失败（${response.status}）：${detail.slice(0, 200)}`)
+    const controller = new AbortController()
+    const timeout = globalThis.setTimeout(() => controller.abort(), 15_000)
+    try {
+      const response = await fetch(`${url}/rest/v1/${table}${query ? `?${query}` : ''}`, {
+        ...init,
+        signal: init.signal ?? controller.signal,
+        headers: {
+          apikey: anonKey!, Authorization: `Bearer ${session.accessToken}`, 'Content-Type': 'application/json', Prefer: 'return=representation', ...(init.headers ?? {}),
+        },
+      })
+      if (!response.ok) {
+        const detail = await response.text()
+        throw new Error(`同步请求失败（${response.status}）：${detail.slice(0, 200)}`)
+      }
+      if (response.status === 204) return undefined as T
+      return await response.json() as T
+    } catch (error) {
+      if (error instanceof DOMException && error.name === 'AbortError') throw new Error('同步请求超时，请检查网络后重试')
+      throw error
+    } finally {
+      globalThis.clearTimeout(timeout)
     }
-    if (response.status === 204) return undefined as T
-    return await response.json() as T
   }
   return {
     select: <T>(table: RemoteTable, query = '') => request<T[]>(table, { method: 'GET', headers: { Accept: 'application/json' } }, query),

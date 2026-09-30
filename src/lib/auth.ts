@@ -52,6 +52,32 @@ function saveSession(session: AuthSession | null) {
   else localStorage.removeItem(sessionKey)
 }
 
+/** Consume the Supabase implicit-flow redirect once after a magic-link click. */
+async function consumeAuthRedirect(): Promise<AuthSession | null> {
+  if (typeof window === 'undefined' || !window.location.hash) return null
+  const params = new URLSearchParams(window.location.hash.slice(1))
+  const accessToken = params.get('access_token')
+  const refreshToken = params.get('refresh_token')
+  if (!accessToken || !refreshToken) return null
+  const rawExpiresIn = Number(params.get('expires_in') ?? '')
+  let user: AuthUser = { id: 'magic-link-user', email: params.get('email') ?? undefined, isAnonymous: false }
+  if (supabaseUrl && supabaseAnonKey) {
+    try {
+      const response = await fetch(`${supabaseUrl}/auth/v1/user`, { headers: { apikey: supabaseAnonKey, Authorization: `Bearer ${accessToken}` } })
+      if (response.ok) user = userFromResponse(await response.json() as Record<string, unknown>)
+    } catch { /* keep a short-lived fallback identity until the next refresh */ }
+  }
+  const session: AuthSession = {
+    accessToken,
+    refreshToken,
+    expiresAt: Number.isFinite(rawExpiresIn) && rawExpiresIn > 0 ? Date.now() + rawExpiresIn * 1000 : undefined,
+    user,
+  }
+  saveSession(session)
+  window.history.replaceState({}, document.title, `${window.location.pathname}${window.location.search}`)
+  return session
+}
+
 export function getStoredSession(): AuthSession | null {
   if (typeof window === 'undefined') return null
   try {
@@ -99,7 +125,7 @@ export async function signOut(): Promise<void> {
 }
 
 export async function getSession(): Promise<AuthSession | null> {
-  const session = getStoredSession()
+  const session = await consumeAuthRedirect() ?? getStoredSession()
   if (!session) return null
   if (session.expiresAt && session.expiresAt < Date.now() + 30_000) return refreshSession(session)
   return session
