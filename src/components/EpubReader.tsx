@@ -24,6 +24,11 @@ type Rendition = {
   destroy: () => void
 }
 
+function highlightStyles(color: Highlight['color']): Record<string, string> {
+  const fill = color === 'rose' ? '#bf6d76' : color === 'blue' ? '#6886a7' : '#e6b160'
+  return { fill, 'fill-opacity': '0.35' }
+}
+
 export default function EpubReader({ book, onNotice, onProgress, onHighlightSaved, targetLanguage = '中文', preferences }: EpubReaderProps) {
   const mountRef = useRef<HTMLDivElement>(null)
   const renditionRef = useRef<Rendition | undefined>(undefined)
@@ -32,6 +37,7 @@ export default function EpubReader({ book, onNotice, onProgress, onHighlightSave
   const [showContents, setShowContents] = useState(false)
   const [pendingSelection, setPendingSelection] = useState<{ text: string; cfi: string }>()
   const [selectionColor, setSelectionColor] = useState<Highlight['color']>('gold')
+  const selectionColorRef = useRef<Highlight['color']>('gold')
   const [translation, setTranslation] = useState('')
   const [explanation, setExplanation] = useState('')
   const [translating, setTranslating] = useState(false)
@@ -40,6 +46,8 @@ export default function EpubReader({ book, onNotice, onProgress, onHighlightSave
   const [pageLabel, setPageLabel] = useState('')
   const [chapterLabel, setChapterLabel] = useState('')
   const [readerPreferences, setReaderPreferences] = useState<ReaderPreferences>({ ...DEFAULT_READER_PREFERENCES, ...preferences })
+
+  useEffect(() => { selectionColorRef.current = selectionColor }, [selectionColor])
 
   useEffect(() => { setReaderPreferences((current) => ({ ...current, ...preferences })) }, [preferences?.fontScale, preferences?.theme])
 
@@ -80,11 +88,11 @@ export default function EpubReader({ book, onNotice, onProgress, onHighlightSave
           setPendingSelection({ text, cfi })
           setTranslation('')
           setExplanation('')
-          rendition?.annotations?.highlight(cfi, { fill: '#e6b160', 'fill-opacity': '0.35' })
+          rendition?.annotations?.highlight(cfi, highlightStyles(selectionColorRef.current))
         })
         await rendition.display(book.location)
         const savedHighlights = await listHighlights(book.id)
-        savedHighlights.forEach((highlight) => rendition?.annotations?.highlight(highlight.location, { fill: '#e6b160', 'fill-opacity': '0.35' }))
+        savedHighlights.forEach((highlight) => rendition?.annotations?.highlight(highlight.location, highlightStyles(highlight.color)))
         setStatus('')
       } catch (error) {
         setStatus(error instanceof Error ? error.message : '无法打开这本 EPUB')
@@ -119,10 +127,14 @@ export default function EpubReader({ book, onNotice, onProgress, onHighlightSave
 
   async function persistSelection() {
     if (!pendingSelection) return
-    const highlight = await saveHighlight({ bookId: book.id, text: pendingSelection.text, location: pendingSelection.cfi, color: selectionColor })
-    onHighlightSaved?.(highlight)
-    setPendingSelection(undefined)
-    onNotice('摘录已保存到本地')
+    try {
+      const highlight = await saveHighlight({ bookId: book.id, text: pendingSelection.text, location: pendingSelection.cfi, color: selectionColor })
+      onHighlightSaved?.(highlight)
+      setPendingSelection(undefined)
+      onNotice('摘录已保存到本地')
+    } catch (error) {
+      onNotice(error instanceof Error ? error.message : '摘录保存失败，请稍后重试')
+    }
   }
 
   async function translatePendingSelection() {
@@ -166,7 +178,7 @@ export default function EpubReader({ book, onNotice, onProgress, onHighlightSave
       <button onClick={() => { void persistSelection() }}>保存摘录</button>
       <button className="ghost" onClick={() => setPendingSelection(undefined)}>取消</button>
     </div>}
-    {translation && <div className="epub-translation-result"><span>译文</span>{translation}{explanation && <><span>解释</span>{explanation}</>}</div>}
+    {translation && <div className="epub-translation-result" data-testid="translation-result" aria-live="polite"><span>译文</span>{translation}{explanation && <><span>解释</span>{explanation}</>}</div>}
     {showContents && <nav className="epub-contents" aria-label="章节目录">{chapters.map((chapter) => <button key={chapter.href} onClick={() => { void renditionRef.current?.display(chapter.href); setShowContents(false) }}>{chapter.label}</button>)}</nav>}
     <div className="epub-reader-frame" ref={mountRef} />
   </div>

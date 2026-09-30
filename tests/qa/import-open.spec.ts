@@ -41,3 +41,38 @@ test('P0: imported EPUB provides explicit pagination and reaches the next chapte
   const restoredReader = page.frameLocator('.epub-reader-frame iframe')
   await expect(restoredReader.getByText('ORCHARD_FIXTURE_SECOND_PAGE')).toBeVisible({ timeout: 10_000 })
 })
+
+test('P1: selecting EPUB text exposes translation, explanation and local highlight actions', async ({ page }) => {
+  await page.route('**/api/translate', async (route) => {
+    await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ translation: '果园里的第一句话', provider: 'qa', cached: false }) })
+  })
+  await page.route('**/api/explain', async (route) => {
+    await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ translation: '果园里的第一句话', explanation: '这是用于验证划词解释的测试文本。', provider: 'qa', cached: false }) })
+  })
+  await page.goto('/')
+  await importFixture(page)
+  await page.getByRole('button', { name: /reader fixture/i }).click()
+  const reader = page.frameLocator('.epub-reader-frame iframe')
+  const text = reader.getByText('ORCHARD_FIXTURE_FIRST_PAGE')
+  await expect(text).toBeVisible({ timeout: 10_000 })
+  await text.evaluate((node) => {
+    const selection = node.ownerDocument?.defaultView?.getSelection()
+    const range = node.ownerDocument?.createRange()
+    if (!selection || !range) return
+    range.selectNodeContents(node)
+    selection.removeAllRanges()
+    selection.addRange(range)
+    node.dispatchEvent(new Event('selectionchange', { bubbles: true }))
+  })
+  await expect(page.getByRole('button', { name: '翻译' })).toBeVisible({ timeout: 5_000 })
+  await page.getByRole('button', { name: '翻译' }).click()
+  await expect(page.getByTestId('translation-result')).toContainText('果园里的第一句话')
+  await page.getByRole('button', { name: '解释' }).click()
+  await expect(page.getByTestId('translation-result')).toContainText('这是用于验证划词解释的测试文本。')
+  await page.getByRole('button', { name: '玫红' }).click()
+  await page.getByRole('button', { name: '保存摘录' }).click()
+  await expect(page.getByRole('status')).toContainText('摘录已保存到本地')
+  await page.getByRole('button', { name: '摘录' }).click()
+  await expect(page.getByRole('heading', { name: '摘录空间' })).toBeVisible()
+  await expect(page.getByText('ORCHARD_FIXTURE_FIRST_PAGE')).toBeVisible()
+})
