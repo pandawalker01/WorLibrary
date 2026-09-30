@@ -7,6 +7,27 @@ test('library opens and filters books', async ({ page }) => {
   await search.fill('Kafka')
   await expect(page.getByRole('heading', { name: '变形记' })).toBeVisible()
   await expect(page.getByRole('heading', { name: 'The Invisible Life of Addie LaRue' })).not.toBeVisible()
+  await expect(page.getByRole('status')).toContainText('找到 1 本匹配书籍')
+})
+
+test('library search includes imported file names and stays usable on a narrow screen', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 })
+  await page.goto('/')
+  const search = page.getByRole('textbox', { name: '搜索书库' })
+  await expect(search).toBeVisible()
+  await expect(page.getByRole('navigation', { name: '主导航' })).toBeVisible()
+  await expect(page.getByRole('button', { name: '导入书籍' })).toBeVisible()
+  await search.fill('English')
+  await expect(page.getByRole('heading', { name: 'The Invisible Life of Addie LaRue' })).toBeVisible()
+})
+
+test('reader controls remain visible on a narrow screen', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 })
+  await page.goto('/')
+  await page.getByRole('button', { name: /The Invisible Life of Addie LaRue/ }).click()
+  await expect(page.getByRole('button', { name: '← 书库' })).toBeVisible()
+  await expect(page.getByRole('button', { name: '⇄ 对照阅读' })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Aa' })).toBeVisible()
 })
 
 test('library filter controls expose reading and edition views', async ({ page }) => {

@@ -23,4 +23,4 @@
 .highlight-editor button.muted { color: #8e877c; }
 .highlights-empty { margin-top: 50px; padding: 70px 20px; border: 1px dashed #bdb4a5; text-align: center; color: #8e877c; }
 .highlights-empty span { display: block; color: #bf553d; font-size: 26px; }.highlights-empty strong { display: block; margin-top: 12px; font-size: 16px; font-weight: 500; }.highlights-empty p { margin: 8px 0 0; font-size: 12px; }
-@media (max-width: 760px) { .highlights-view { margin-top: 55px; }.highlights-heading { display: block; }.highlights-heading label { margin-top: 24px; }.highlights-filters { display: grid; }.highlight-list { grid-template-columns: 1fr; } }
+@media (max-width: 760px) { .highlights-view { margin-top: 55px; }.highlights-heading { display: block; }.highlights-heading label { margin-top: 24px; }.highlights-filters { display: grid; }.highlights-filters input, .highlights-filters select { width: 100%; min-width: 0; }.highlight-list { grid-template-columns: 1fr; }.highlight-card { padding: 20px 18px 16px; }.highlight-actions { flex-wrap: wrap; justify-content: flex-start; gap: 11px; }.highlight-colors { margin-left: 0; } }
