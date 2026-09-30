@@ -27,7 +27,6 @@ required('VITE_SUPABASE_ANON_KEY')
 
 if (production) {
   required('AI_PROVIDER')
-  required('AI_BASE_URL')
   required('AI_MODEL')
   required('AI_API_KEY')
   url('AI_BASE_URL')

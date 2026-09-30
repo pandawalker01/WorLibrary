@@ -3,6 +3,7 @@ const DEFAULT_DAILY_QUOTA = 20
 const DEFAULT_RATE_LIMIT = 10
 const DEFAULT_TIMEOUT_MS = 12_000
 const DEFAULT_CACHE_TTL_MS = 24 * 60 * 60 * 1_000
+const DEFAULT_RETRY_ATTEMPTS = 2
 
 const errorDefinitions = {
   invalid_request: ['请求内容无效，请检查选中文本和语言设置。', false, 400],
@@ -64,6 +65,11 @@ function clientKey(request) {
   return request.headers.get('x-anonymous-id') || request.headers.get('x-forwarded-for')?.split(',')[0].trim() || 'anonymous'
 }
 
+function positiveNumber(value, fallback, { min = 1, max = Number.MAX_SAFE_INTEGER } = {}) {
+  const parsed = Number(value)
+  return Number.isFinite(parsed) && parsed >= min ? Math.min(parsed, max) : fallback
+}
+
 async function authenticateRequest(request, env, verifier) {
   const authorization = request.headers.get('authorization') || ''
   const token = authorization.startsWith('Bearer ') ? authorization.slice(7).trim() : ''
@@ -77,11 +83,19 @@ function safeLog(logger, event, fields = {}) {
 }
 
 function makeProvider(env, fetchImpl) {
-  const apiKey = env.AI_API_KEY
+  const environment = env.AI_ENV || env.NODE_ENV || 'development'
+  const providerName = env.AI_PROVIDER || 'openai'
+  if (providerName === 'mock') {
+    if (environment === 'production') return async () => { throw Object.assign(new Error('mock provider is disabled in production'), { code: 'provider_unavailable' }) }
+    return async ({ kind, text, targetLanguage }) => kind === 'translate'
+      ? { translation: `[${targetLanguage}] ${text}`, model: 'mock', provider: 'mock' }
+      : { translation: `[${targetLanguage}] ${text}`, explanation: '开发环境模拟解释，仅用于本地联调。', model: 'mock', provider: 'mock' }
+  }
+  const apiKey = typeof env.AI_API_KEY === 'string' ? env.AI_API_KEY.trim() : ''
   const baseUrl = (env.AI_BASE_URL || 'https://api.openai.com/v1').replace(/\/$/, '')
   const model = env.AI_MODEL || 'gpt-4o-mini'
   return async ({ kind, text, sourceLanguage, targetLanguage, context, signal }) => {
-    if (!apiKey) throw Object.assign(new Error('AI_API_KEY is not configured'), { code: 'provider_unavailable' })
+    if (!apiKey || !/^https?:\/\//i.test(baseUrl) || !model.trim()) throw Object.assign(new Error('AI provider is not configured'), { code: 'provider_unavailable' })
     const task = kind === 'translate'
       ? `Translate the selected text to ${targetLanguage}. Return only the translation.`
       : `Translate the selected text to ${targetLanguage}, then explain its meaning in plain language in ${targetLanguage}. Return valid JSON with keys "translation" and "explanation".`
@@ -117,10 +131,12 @@ export function createAiGateway({ env = {}, fetchImpl = fetch, logger = console.
   const usage = new Map()
   const idempotency = new Map()
   const requests = new Map()
-  const dailyQuota = Number(env.AI_DAILY_QUOTA || DEFAULT_DAILY_QUOTA)
-  const rateLimit = Number(env.AI_RATE_LIMIT || DEFAULT_RATE_LIMIT)
-  const timeoutMs = Number(env.AI_TIMEOUT_MS || DEFAULT_TIMEOUT_MS)
-  const cacheTtlMs = Number(env.AI_CACHE_TTL_MS || DEFAULT_CACHE_TTL_MS)
+  const dailyQuota = positiveNumber(env.AI_DAILY_QUOTA || DEFAULT_DAILY_QUOTA, DEFAULT_DAILY_QUOTA, { max: 1_000_000 })
+  const rateLimit = positiveNumber(env.AI_RATE_LIMIT || DEFAULT_RATE_LIMIT, DEFAULT_RATE_LIMIT, { max: 1_000 })
+  const timeoutMs = positiveNumber(env.AI_TIMEOUT_MS || DEFAULT_TIMEOUT_MS, DEFAULT_TIMEOUT_MS, { max: 120_000 })
+  const cacheTtlMs = positiveNumber(env.AI_CACHE_TTL_MS || DEFAULT_CACHE_TTL_MS, DEFAULT_CACHE_TTL_MS, { max: 7 * 24 * 60 * 60 * 1_000 })
+  const retryAttempts = Math.round(positiveNumber(env.AI_RETRY_ATTEMPTS || DEFAULT_RETRY_ATTEMPTS, DEFAULT_RETRY_ATTEMPTS, { max: 3 }))
+  const retryDelayMs = positiveNumber(env.AI_RETRY_DELAY_MS || 1, 0, { min: 0, max: 2_000 })
   const callProvider = provider || makeProvider(env, fetchImpl)
 
   return async function handle(request) {
@@ -152,24 +168,26 @@ export function createAiGateway({ env = {}, fetchImpl = fetch, logger = console.
     if (cached && cached.expiresAt > nowValue) return json({ ...cached.value, cached: true }, 200, cors)
     const consumed = store?.getUsage ? await store.getUsage(quotaKey) : usage.get(quotaKey) || 0
     if (consumed >= dailyQuota) return fail('quota_exceeded', cors)
-    const controller = new AbortController()
-    const timeout = setTimeout(() => controller.abort(), timeoutMs)
     let result
     try {
       let lastError
-      for (let attempt = 0; attempt < 2; attempt += 1) {
+      for (let attempt = 0; attempt < retryAttempts; attempt += 1) {
+        const controller = new AbortController()
+        const timeout = setTimeout(() => controller.abort(), timeoutMs)
         try { result = await callProvider({ ...input, signal: controller.signal }); break } catch (error) {
           lastError = error
           if (error?.name === 'AbortError' || error?.code === 'provider_timeout') throw Object.assign(new Error('provider timeout'), { code: 'provider_timeout' })
-          if (attempt === 0) await Promise.resolve()
-        }
+          const retryable = error?.code === 'provider_error' || error?.code === 'provider_rate_limited'
+          if (!retryable || attempt === retryAttempts - 1) throw error
+          if (retryDelayMs > 0) await new Promise((resolve) => setTimeout(resolve, retryDelayMs))
+        } finally { clearTimeout(timeout) }
       }
       if (!result) throw lastError || new Error('provider failed')
     } catch (error) {
       const code = error?.code || (error?.name === 'AbortError' ? 'provider_timeout' : 'provider_error')
       safeLog(logger, 'ai_request_failed', { kind, requestId: input.requestId, code })
       return fail(code, cors)
-    } finally { clearTimeout(timeout) }
+    }
     if (store?.incrementUsage) await store.incrementUsage(quotaKey)
     else usage.set(quotaKey, consumed + 1)
     const value = { ...result, cached: false }

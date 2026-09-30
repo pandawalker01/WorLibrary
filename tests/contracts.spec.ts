@@ -71,6 +71,23 @@ test('translation gateway returns success, cache hits, provider failures and COR
   expect((await failure.json()).error.code).toBe('provider_timeout')
 })
 
+test('translation provider contract keeps keys server-side and blocks the development mock in production', async () => {
+  const clientSource = await readFile('src/lib/translation.ts', 'utf8')
+  const gatewaySource = await readFile('server/ai-gateway.mjs', 'utf8')
+  expect(clientSource).not.toContain('AI_API_KEY')
+  expect(clientSource).not.toContain('VITE_AI_API_KEY')
+  expect(gatewaySource).toContain("providerName === 'mock'")
+
+  const productionMock = createAiGateway({ env: { AI_PROVIDER: 'mock', AI_ENV: 'production' }, logger: () => {} })
+  const response = await productionMock(new Request('https://app.example.com/api/translate', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', 'x-anonymous-id': 'contract' },
+    body: JSON.stringify({ text: 'Hello', requestId: 'production-mock' }),
+  }))
+  expect(response.status).toBe(503)
+  expect((await response.json()).error.code).toBe('provider_unavailable')
+})
+
 test('edition fallback and migration are covered by release checks', async () => {
   const editionSource = await readFile('src/lib/edition.ts', 'utf8')
   const migration = await readFile('supabase/migrations/0001_initial_sync.sql', 'utf8')

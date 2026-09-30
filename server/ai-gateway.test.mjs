@@ -49,6 +49,41 @@ test('provider configuration stays server-side and upstream status maps cleanly'
   assert.equal(receivedUrl, 'https://provider.test/v1/chat/completions')
 })
 
+test('mock provider is development-only and never requires a browser key', async () => {
+  const development = createAiGateway({ env: { AI_PROVIDER: 'mock', AI_ENV: 'development' }, logger: () => {} })
+  const response = await development(request('/api/translate', { text: 'hello', targetLanguage: 'zh-CN', requestId: 'mock-1' }))
+  assert.equal(response.status, 200)
+  const payload = await response.json()
+  assert.equal(payload.provider, 'mock')
+  assert.equal(payload.translation, '[zh-CN] hello')
+
+  const production = createAiGateway({ env: { AI_PROVIDER: 'mock', AI_ENV: 'production' }, logger: () => {} })
+  const blocked = await production(request('/api/translate', { text: 'hello', requestId: 'mock-production' }))
+  assert.equal(blocked.status, 503)
+  assert.equal((await blocked.json()).error.code, 'provider_unavailable')
+})
+
+test('gateway retries only transient provider failures and validates bounded config', async () => {
+  let calls = 0
+  const gateway = createAiGateway({
+    env: { AI_RETRY_ATTEMPTS: '2', AI_RETRY_DELAY_MS: '0', AI_TIMEOUT_MS: 'not-a-number' },
+    provider: async () => {
+      calls += 1
+      if (calls === 1) throw Object.assign(new Error('busy'), { code: 'provider_error' })
+      return { translation: 'recovered', provider: 'test' }
+    },
+    logger: () => {},
+  })
+  const response = await gateway(request('/api/translate', { text: 'retry', requestId: 'retry-1' }))
+  assert.equal(response.status, 200)
+  assert.equal(calls, 2)
+
+  calls = 0
+  const authFailure = createAiGateway({ provider: async () => { calls += 1; throw Object.assign(new Error('bad credentials'), { code: 'provider_unavailable' }) }, logger: () => {} })
+  assert.equal((await authFailure(request('/api/translate', { text: 'no-retry', requestId: 'no-retry-1' }))).status, 503)
+  assert.equal(calls, 1)
+})
+
 test('provider status and timeout errors use stable gateway codes', async () => {
   for (const [providerStatus, expectedStatus, expectedCode] of [[401, 503, 'provider_unavailable'], [403, 503, 'provider_unavailable'], [500, 502, 'provider_error']]) {
     const gateway = createAiGateway({ env: { AI_API_KEY: 'server-only' }, fetchImpl: async () => new Response('{}', { status: providerStatus }), logger: () => {} })
