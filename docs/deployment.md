@@ -10,6 +10,29 @@
 
 生产和 staging 的平台密钥只放在部署平台的环境变量中，不提交 `.env`。AI/OCR 密钥只能由 API 网关使用；浏览器构建产物不得包含供应商密钥。
 
+### 环境变量契约
+
+复制 `.env.example` 到部署平台的环境变量面板（不要提交 `.env`）。在构建前可执行：
+
+```sh
+npm run validate:env
+```
+
+生产发布前执行 `npm run validate:env -- --production`，它会检查 Supabase URL/anon key、AI 网关配置和 URL 格式，并拒绝 `VITE_` 前缀的供应商密钥。`VITE_SUPABASE_ANON_KEY` 可以出现在浏览器构建中；`AI_API_KEY`、Supabase service-role key 和部署平台 token 绝不能出现。
+
+### Supabase 数据库迁移
+
+使用 Supabase CLI 在目标项目执行迁移，不要直接把本地书籍文件上传到数据库：
+
+```sh
+npx supabase link --project-ref <project-ref>
+npx supabase db push
+```
+
+`supabase/migrations/0001_initial_sync.sql` 创建用户资料、作品、版本、进度、摘录和设置表；`0002_production_hardening.sql` 增加索引、显式 authenticated 权限，并校验版本/进度/摘录只能引用同一用户的数据。迁移使用 `if not exists` 或 `drop policy if exists`，可安全地在已执行 0001 的项目上继续执行。
+
+上线前用一个测试账号验证：A 用户不能读取/修改 B 用户的版本、进度或摘录；匿名用户不能访问同步表；删除账号后级联删除其数据。没有真实 Supabase 凭据时，只能完成 SQL 静态检查和本地构建，不能声称 RLS 已在线验证。
+
 ## GitHub Actions
 
 `.github/workflows/ci.yml` 对 Pull Request 和 `main` 推送执行类型检查、构建和 Playwright Chromium 冒烟测试。预览发布需要在 GitHub 的 `staging` environment 配置 `VERCEL_TOKEN`、`VERCEL_ORG_ID`、`VERCEL_PROJECT_ID`；生产发布使用 `production` environment，并开启 required reviewers 作为人工确认。

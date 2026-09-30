@@ -7,6 +7,7 @@
     "dev": "vite",
     "build": "tsc -b && vite build",
     "qa": "node scripts/run-qa-agent.mjs",
+    "validate:env": "node scripts/validate-env.mjs",
     "test:gateway": "node --test server/ai-gateway.test.mjs",
     "preview": "vite preview",
     "typecheck": "tsc -b --pretty false"
