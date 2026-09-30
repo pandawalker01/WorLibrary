@@ -24,7 +24,7 @@ test('P1: imported PDF renders, paginates with controls and supports keyboard na
   await page.locator('input[type=file][accept*=".pdf"]').setInputFiles({ name: 'pdf-fixture.pdf', mimeType: 'application/pdf', buffer: pdfFixture() })
   await expect(page.getByRole('heading', { name: 'pdf fixture' })).toBeVisible()
   await page.getByRole('button', { name: /pdf fixture/i }).click()
-  await expect(page.getByText(/PDF 本地阅读 · 第 1 \/ 1 页/)).toBeVisible({ timeout: 15_000 })
+  await expect(page.getByText(/PDF 本地阅读 · 第 1 \/ 1 页 ·/)).toBeVisible({ timeout: 15_000 })
   await expect(page.getByRole('button', { name: '上一页' })).toBeDisabled()
   await expect(page.getByRole('button', { name: '下一页' })).toBeDisabled()
   await expect(page.getByRole('button', { name: '放大页面' })).toBeVisible()
