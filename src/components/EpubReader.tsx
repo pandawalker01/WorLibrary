@@ -17,6 +17,8 @@ type EpubReaderProps = {
 
 type Rendition = {
   display: (target?: string) => Promise<void>
+  next?: () => Promise<void>
+  prev?: () => Promise<void>
   on: (event: string, callback: (...args: any[]) => void) => void
   annotations?: { highlight: (cfi: string, styles?: Record<string, string>, data?: Record<string, unknown>) => void }
   destroy: () => void
@@ -34,6 +36,9 @@ export default function EpubReader({ book, onNotice, onProgress, onHighlightSave
   const [explanation, setExplanation] = useState('')
   const [translating, setTranslating] = useState(false)
   const [explaining, setExplaining] = useState(false)
+  const [readingProgress, setReadingProgress] = useState(0)
+  const [pageLabel, setPageLabel] = useState('')
+  const [chapterLabel, setChapterLabel] = useState('')
   const [readerPreferences, setReaderPreferences] = useState<ReaderPreferences>({ ...DEFAULT_READER_PREFERENCES, ...preferences })
 
   useEffect(() => { setReaderPreferences((current) => ({ ...current, ...preferences })) }, [preferences?.fontScale, preferences?.theme])
@@ -51,7 +56,8 @@ export default function EpubReader({ book, onNotice, onProgress, onHighlightSave
         await loadedBook.ready
         if (!active || !mountRef.current) return
         const navigation = await loadedBook.loaded.navigation
-        setChapters(navigation.toc ?? [])
+        const toc = navigation.toc ?? []
+        setChapters(toc)
         await loadedBook.locations.generate(1024)
         rendition = loadedBook.renderTo(mountRef.current, { width: '100%', height: '650px', allowScriptedContent: false })
         renditionRef.current = rendition
@@ -59,6 +65,12 @@ export default function EpubReader({ book, onNotice, onProgress, onHighlightSave
           const cfi = location.start?.cfi
           if (!cfi) return
           const progress = Math.round(loadedBook.locations.percentageFromCfi(cfi) * 100)
+          const displayed = location.start?.displayed
+          setReadingProgress(progress)
+          setPageLabel(displayed?.page && displayed?.total ? `${displayed.page} / ${displayed.total}` : `${progress}%`)
+          const href = location.start?.href
+          const chapter = toc.find((item) => href && (href === item.href || href.endsWith(item.href)))
+          setChapterLabel(chapter?.label ?? '')
           void saveReadingProgress(book.id, cfi, progress)
           onProgress(progress, cfi)
         })
@@ -88,6 +100,22 @@ export default function EpubReader({ book, onNotice, onProgress, onHighlightSave
       setPendingSelection(undefined)
     }
   }, [book.id, book.fileName, book.storage, onNotice])
+
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      const target = event.target as HTMLElement | null
+      if (target && (['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName) || target.isContentEditable)) return
+      if (event.key === 'ArrowRight') {
+        event.preventDefault()
+        void renditionRef.current?.next?.()
+      } else if (event.key === 'ArrowLeft') {
+        event.preventDefault()
+        void renditionRef.current?.prev?.()
+      }
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [])
 
   async function persistSelection() {
     if (!pendingSelection) return
@@ -129,6 +157,7 @@ export default function EpubReader({ book, onNotice, onProgress, onHighlightSave
       <span>{status || 'EPUB 本地阅读'}</span>
       <div className="reader-toolbar-actions"><button onClick={() => setReaderPreferences((current) => ({ ...current, fontScale: clampFontScale(current.fontScale - 0.05) }))} aria-label="减小字号">A−</button><button onClick={() => setReaderPreferences((current) => ({ ...current, fontScale: clampFontScale(current.fontScale + 0.05) }))} aria-label="增大字号">A＋</button><button onClick={() => setReaderPreferences((current) => ({ ...current, theme: cycleTheme(current.theme) }))}>{readerThemeLabel(readerPreferences.theme)}</button>{chapters.length > 0 && <button onClick={() => setShowContents(!showContents)}>{showContents ? '收起目录' : `目录 · ${chapters.length}`}</button>}</div>
     </div>
+    <div className="epub-navigation" aria-label="EPUB 翻页"><button aria-label="上一页" onClick={() => { void renditionRef.current?.prev?.() }} disabled={!renditionRef.current || readingProgress <= 0}>上一页</button><span data-testid="epub-progress">{chapterLabel ? `${chapterLabel} · ` : ''}{pageLabel || '准备阅读'}</span><button aria-label="下一页" onClick={() => { void renditionRef.current?.next?.() }} disabled={!renditionRef.current || readingProgress >= 100}>下一页</button></div>
     {pendingSelection && <div className="epub-selection-bar">
       <span title={pendingSelection.text}>{pendingSelection.text}</span>
       <button className="translate-button" onClick={() => { void translatePendingSelection() }}>{translating ? '翻译中…' : '翻译'}</button>
