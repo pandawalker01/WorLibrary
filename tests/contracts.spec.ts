@@ -2,6 +2,7 @@ import { expect, test } from '@playwright/test'
 import { readFile } from 'node:fs/promises'
 import { createAiGateway } from '../server/ai-gateway.mjs'
 import { syncLibrary } from '../src/lib/sync'
+import { createRemoteClient, RemoteRequestError } from '../src/lib/remote'
 import type { StoredBook } from '../src/lib/storage'
 
 test('login contract exposes anonymous and magic-link paths without provider secrets', async () => {
@@ -26,6 +27,29 @@ test('sync merges remote rows and uploads only metadata', async () => {
   })
   expect(result.downloaded).toBe(1)
   expect(written?.books.map((book) => book.id)).toEqual(['local', 'remote'])
+})
+
+test('sync uploads the merged winner instead of overwriting newer remote data', async () => {
+  const localBook: StoredBook = { id: 'same', title: 'Local', author: 'Author', language: 'en', progress: 10, fileName: 'local.epub', fileType: 'application/epub+zip', fileSize: 12, storage: 'indexeddb', cover: 'ink', createdAt: Date.now() - 10_000 }
+  const remoteBook = { id: 'same', title: 'Remote', author: 'Author', language: 'zh', progress: 80, file_name: 'remote.epub', file_type: 'application/epub+zip', file_size: 4, cover: 'red', created_at: new Date().toISOString(), updated_at: new Date().toISOString() }
+  let uploadedBooks: unknown[] = []
+  await syncLibrary({ select: async () => [remoteBook], upsert: async (table, rows) => { if (table === 'editions') uploadedBooks = Array.isArray(rows) ? rows : [rows]; return rows as never }, remove: async () => undefined }, { read: async () => ({ books: [localBook], highlights: [] }), write: async () => undefined })
+  expect((uploadedBooks[0] as { title: string }).title).toBe('Remote')
+})
+
+test('remote client retries transient failures but does not retry auth errors', async () => {
+  const originalFetch = globalThis.fetch
+  let calls = 0
+  globalThis.fetch = (async () => { calls += 1; if (calls === 1) return new Response('busy', { status: 503 }); return new Response('[]', { status: 200, headers: { 'content-type': 'application/json' } }) }) as typeof fetch
+  const session = { accessToken: 'token', refreshToken: 'refresh', user: { id: 'user', isAnonymous: true } }
+  const client = createRemoteClient(session, { url: 'https://sync.example.com', anonKey: 'test-key' })
+  await expect(client.select('editions')).resolves.toEqual([])
+  expect(calls).toBe(2)
+  calls = 0
+  globalThis.fetch = (async () => { calls += 1; return new Response('unauthorized', { status: 401 }) }) as typeof fetch
+  await expect(client.select('editions')).rejects.toBeInstanceOf(RemoteRequestError)
+  expect(calls).toBe(1)
+  globalThis.fetch = originalFetch
 })
 
 test('translation gateway returns success, cache hits, provider failures and CORS', async () => {

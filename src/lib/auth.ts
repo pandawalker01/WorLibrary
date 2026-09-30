@@ -127,13 +127,18 @@ export async function signOut(): Promise<void> {
 export async function getSession(): Promise<AuthSession | null> {
   const session = await consumeAuthRedirect() ?? getStoredSession()
   if (!session) return null
-  if (session.expiresAt && session.expiresAt < Date.now() + 30_000) return refreshSession(session)
+  if (session.expiresAt && session.expiresAt < Date.now() + 30_000) {
+    try { return await refreshSession(session) } catch {
+      saveSession(null)
+      return null
+    }
+  }
   return session
 }
 
 export function onAuthStateChange(listener: AuthStateListener): () => void {
   if (typeof window === 'undefined') return () => undefined
-  const handler = () => { void getSession().then(listener) }
+  const handler = () => { void getSession().then(listener).catch(() => listener(null)) }
   window.addEventListener('storage', handler)
   return () => window.removeEventListener('storage', handler)
 }

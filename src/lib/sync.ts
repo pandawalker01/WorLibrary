@@ -25,6 +25,8 @@ function writeQueue(state: SyncQueueState) { if (typeof localStorage !== 'undefi
 export function enqueueSync() { writeQueue({ ...readQueue(), pending: true, nextAttemptAt: 0 }) }
 export function getSyncQueueState(): SyncQueueState { return readQueue() }
 
+let activeFlush: Promise<{ uploaded: number; downloaded: number }> | undefined
+
 function readDeletedHighlights(): string[] {
   if (typeof localStorage === 'undefined') return []
   try { return JSON.parse(localStorage.getItem(deletionQueueKey) ?? '[]') as string[] } catch { return [] }
@@ -35,6 +37,12 @@ function queueDeletedHighlight(id: string) {
 }
 
 export async function flushQueuedSync(remote: RemoteClient, local: LocalSyncAdapter): Promise<{ uploaded: number; downloaded: number }> {
+  if (activeFlush) return activeFlush
+  activeFlush = flushQueuedSyncInternal(remote, local)
+  try { return await activeFlush } finally { activeFlush = undefined }
+}
+
+async function flushQueuedSyncInternal(remote: RemoteClient, local: LocalSyncAdapter): Promise<{ uploaded: number; downloaded: number }> {
   const current = readQueue()
   if (!current.pending) return { uploaded: 0, downloaded: 0 }
   if (current.nextAttemptAt > Date.now()) throw new Error('同步将在稍后自动重试')
@@ -136,9 +144,11 @@ export async function syncLibrary(remote: RemoteClient, local: LocalSyncAdapter)
     const current = highlights.get(remoteHighlight.id)
     if (!current || remoteHighlight.createdAt > current.createdAt) highlights.set(remoteHighlight.id, remoteHighlight)
   }
-  await remote.upsert('editions', snapshot.books.map(toBookRow))
-  await remote.upsert('highlights', snapshot.highlights.map(toHighlightRow))
   const merged = { ...snapshot, books: [...books.values()], highlights: [...highlights.values()] }
+  // Upload the merged view, never the stale local snapshot. This preserves the
+  // last-write-wins decision when another device has newer data.
+  await remote.upsert('editions', merged.books.map(toBookRow))
+  await remote.upsert('highlights', merged.highlights.map(toHighlightRow))
   await local.write(merged)
   return { uploaded: snapshot.books.length + snapshot.highlights.length, downloaded: Math.max(0, merged.books.length - snapshot.books.length) + Math.max(0, merged.highlights.length - snapshot.highlights.length) }
 }
