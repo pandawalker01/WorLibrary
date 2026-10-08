@@ -47,6 +47,7 @@ function openDatabase(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
     const request = indexedDB.open(DB_NAME, DB_VERSION)
     request.onerror = () => reject(request.error)
+    request.onblocked = () => reject(new Error('本地书库正在被旧页面占用，请关闭其他 WorLibrary 页面后刷新重试'))
     request.onupgradeneeded = () => {
       const db = request.result
       if (!db.objectStoreNames.contains(BOOKS_STORE)) db.createObjectStore(BOOKS_STORE, { keyPath: 'id' })
@@ -57,15 +58,26 @@ function openDatabase(): Promise<IDBDatabase> {
       if (!db.objectStoreNames.contains(ALIGNMENTS_STORE)) db.createObjectStore(ALIGNMENTS_STORE, { keyPath: 'id' })
       if (!db.objectStoreNames.contains(TEXT_INDEX_STORE)) db.createObjectStore(TEXT_INDEX_STORE, { keyPath: 'bookId' })
     }
-    request.onsuccess = () => resolve(request.result)
+    request.onsuccess = () => {
+      const db = request.result
+      // An older tab must release its connection when a newer schema is ready.
+      // Otherwise a future import can wait forever on a blocked upgrade.
+      db.onversionchange = () => db.close()
+      resolve(db)
+    }
   })
 }
 
 function transaction<T>(storeName: string, mode: IDBTransactionMode, operation: (store: IDBObjectStore) => IDBRequest<T>): Promise<T> {
   return openDatabase().then((db) => new Promise((resolve, reject) => {
-    const request = operation(db.transaction(storeName, mode).objectStore(storeName))
-    request.onerror = () => reject(request.error)
-    request.onsuccess = () => resolve(request.result)
+    const tx = db.transaction(storeName, mode)
+    const request = operation(tx.objectStore(storeName))
+    let value: T
+    request.onerror = () => { db.close(); reject(request.error) }
+    request.onsuccess = () => { value = request.result }
+    tx.oncomplete = () => { db.close(); resolve(value) }
+    tx.onabort = () => { db.close(); reject(tx.error ?? request.error) }
+    tx.onerror = () => { db.close(); reject(tx.error ?? request.error) }
   }))
 }
 
