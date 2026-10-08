@@ -32,13 +32,14 @@ export type LibraryBackup = { version: 2; exportedAt: string; books: StoredBook[
 import type { Alignment, Edition, Work } from './edition'
 
 const DB_NAME = 'wor-library'
-const DB_VERSION = 3
+const DB_VERSION = 4
 const BOOKS_STORE = 'books'
 const BLOBS_STORE = 'book-blobs'
 const HIGHLIGHTS_STORE = 'highlights'
 const WORKS_STORE = 'works'
 const EDITIONS_STORE = 'editions'
 const ALIGNMENTS_STORE = 'alignments'
+const TEXT_INDEX_STORE = 'text-index'
 
 function openDatabase(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
@@ -52,6 +53,7 @@ function openDatabase(): Promise<IDBDatabase> {
       if (!db.objectStoreNames.contains(WORKS_STORE)) db.createObjectStore(WORKS_STORE, { keyPath: 'id' })
       if (!db.objectStoreNames.contains(EDITIONS_STORE)) db.createObjectStore(EDITIONS_STORE, { keyPath: 'id' })
       if (!db.objectStoreNames.contains(ALIGNMENTS_STORE)) db.createObjectStore(ALIGNMENTS_STORE, { keyPath: 'id' })
+      if (!db.objectStoreNames.contains(TEXT_INDEX_STORE)) db.createObjectStore(TEXT_INDEX_STORE, { keyPath: 'bookId' })
     }
     request.onsuccess = () => resolve(request.result)
   })
@@ -206,6 +208,28 @@ export async function getBookFile(book: StoredBook): Promise<File> {
   return new File([blob], book.fileName, { type: book.fileType })
 }
 
+export type BookTextIndex = { bookId: string; text: string; updatedAt: number }
+
+/** Store extracted text locally for search. This store is intentionally excluded from sync snapshots. */
+export async function saveBookTextIndex(bookId: string, text: string): Promise<void> {
+  const normalized = text.replace(/\s+/g, ' ').trim()
+  if (!normalized) return
+  await transaction(TEXT_INDEX_STORE, 'readwrite', (store) => store.put({ bookId, text: normalized.slice(0, 2_000_000), updatedAt: Date.now() } satisfies BookTextIndex))
+}
+
+export async function searchBookTextIndex(query: string): Promise<Array<{ bookId: string; snippet: string }>> {
+  const normalized = query.trim().toLocaleLowerCase()
+  if (!normalized) return []
+  const indexes = await transaction<BookTextIndex[]>(TEXT_INDEX_STORE, 'readonly', (store) => store.getAll())
+  return indexes.filter((index) => index.text.toLocaleLowerCase().includes(normalized)).map((index) => {
+    const source = index.text
+    const at = source.toLocaleLowerCase().indexOf(normalized)
+    const start = Math.max(0, at - 55)
+    const end = Math.min(source.length, at + normalized.length + 95)
+    return { bookId: index.bookId, snippet: `${start > 0 ? '…' : ''}${source.slice(start, end)}${end < source.length ? '…' : ''}` }
+  })
+}
+
 export async function saveReadingProgress(bookId: string, location: string, progress: number): Promise<void> {
   const current = await transaction<StoredBook | undefined>('books', 'readonly', (store) => store.get(bookId))
   if (!current) return
@@ -246,6 +270,7 @@ export async function deleteHighlight(id: string): Promise<void> {
 export async function deleteBook(book: StoredBook): Promise<void> {
   await transaction(BOOKS_STORE, 'readwrite', (store) => store.delete(book.id))
   await transaction(BLOBS_STORE, 'readwrite', (store) => store.delete(book.id))
+  await transaction(TEXT_INDEX_STORE, 'readwrite', (store) => store.delete(book.id))
   const storageManager = navigator.storage as StorageManager & { getDirectory?: () => Promise<FileSystemDirectoryHandle> }
   if (book.storage === 'opfs' && storageManager.getDirectory) {
     try {

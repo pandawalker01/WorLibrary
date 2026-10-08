@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type CSSProperties } from 'react'
 import ePub from 'epubjs'
-import { getBookFile, listHighlights, saveHighlight, saveReadingProgress, type Highlight, type StoredBook } from '../lib/storage'
+import { getBookFile, listHighlights, saveBookTextIndex, saveHighlight, saveReadingProgress, type Highlight, type StoredBook } from '../lib/storage'
 import { translateSelection } from '../lib/translation'
 import { explainSelection } from '../lib/explanation'
 import { clampFontScale, cycleTheme, DEFAULT_READER_PREFERENCES, readerThemeLabel, type ReaderPreferences } from '../lib/reader'
@@ -66,6 +66,20 @@ export default function EpubReader({ book, onNotice, onProgress, onHighlightSave
         const navigation = await loadedBook.loaded.navigation
         const toc = navigation.toc ?? []
         setChapters(toc)
+        // Build a local-only full text index once the EPUB is opened. The extracted text
+        // never leaves IndexedDB and is not included in remote sync snapshots.
+        const sections = ((loadedBook as any).spine?.spineItems ?? []) as Array<{ load?: (request: unknown) => Promise<{ textContent?: string | null }>; unload?: () => void }>
+        const indexedText: string[] = []
+        for (const section of sections) {
+          if (!active || !section.load) break
+          try {
+            const contents = await section.load((loadedBook as any).load.bind(loadedBook))
+            const text = contents.textContent?.replace(/\s+/g, ' ').trim()
+            if (text) indexedText.push(text)
+          } catch { /* a malformed chapter should not prevent reading */ }
+          section.unload?.()
+        }
+        if (indexedText.length > 0) void saveBookTextIndex(book.id, indexedText.join(' '))
         await loadedBook.locations.generate(1024)
         rendition = loadedBook.renderTo(mountRef.current, { width: '100%', height: '650px', allowScriptedContent: false })
         renditionRef.current = rendition

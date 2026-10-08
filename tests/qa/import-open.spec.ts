@@ -42,6 +42,19 @@ test('P0: imported EPUB provides explicit pagination and reaches the next chapte
   await expect(restoredReader.getByText('ORCHARD_FIXTURE_SECOND_PAGE')).toBeVisible({ timeout: 10_000 })
 })
 
+test('P2: local full-text search finds imported EPUB text without uploading the file', async ({ page }) => {
+  await page.goto('/')
+  await importFixture(page)
+  await page.getByRole('button', { name: /reader fixture/i }).click()
+  const reader = page.frameLocator('.epub-reader-frame iframe')
+  await expect(reader.getByText('ORCHARD_FIXTURE_FIRST_PAGE')).toBeVisible({ timeout: 10_000 })
+  await page.getByRole('button', { name: '← 书库' }).click()
+  const search = page.getByRole('textbox', { name: '搜索书库' })
+  await search.fill('ORCHARD_FIXTURE_SECOND_PAGE')
+  await expect(page.getByRole('heading', { name: 'reader fixture' })).toBeVisible({ timeout: 10_000 })
+  await expect(page.getByText(/正文命中：.*ORCHARD_FIXTURE_SECOND_PAGE/)).toBeVisible()
+})
+
 test('P1: selecting EPUB text exposes translation, explanation and local highlight actions', async ({ page }) => {
   await page.route('**/api/translate', async (route) => {
     await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ translation: '果园里的第一句话', provider: 'qa', cached: false }) })

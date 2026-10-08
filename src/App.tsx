@@ -7,7 +7,7 @@ import './highlights.css'
 import type { Highlight } from './lib/storage'
 import './library.css'
 import './settings.css'
-import { deleteBook, linkBookEditions, listAlignments, listBooks, listEditions, saveBook, saveEditionProgress, type StoredBook } from './lib/storage'
+import { deleteBook, linkBookEditions, listAlignments, listBooks, listEditions, saveBook, saveEditionProgress, searchBookTextIndex, type StoredBook } from './lib/storage'
 import type { Alignment, Edition } from './lib/edition'
 import EditionComparisonReader from './components/EditionComparisonReader'
 import AuthPanel from './components/AuthPanel'
@@ -35,6 +35,7 @@ function App() {
   const [searchQuery, setSearchQuery] = useState('')
   const [libraryFilter, setLibraryFilter] = useState<'all' | 'reading' | 'multi'>('all')
   const [sortNewest, setSortNewest] = useState(true)
+  const [textMatches, setTextMatches] = useState<Record<string, string>>({})
   const [editions, setEditions] = useState<Edition[]>([])
   const [alignments, setAlignments] = useState<Alignment[]>([])
   const [session, setSession] = useState<AuthSession | null>(null)
@@ -66,6 +67,17 @@ function App() {
     const timer = window.setInterval(scheduleSync, 5000)
     return () => window.clearInterval(timer)
   }, [view, scheduleSync])
+
+  useEffect(() => {
+    let cancelled = false
+    const query = searchQuery.trim()
+    if (!query) { setTextMatches({}); return }
+    void searchBookTextIndex(query).then((matches) => {
+      if (cancelled) return
+      setTextMatches(Object.fromEntries(matches.map((match) => [match.bookId, match.snippet])))
+    }).catch(() => { if (!cancelled) setTextMatches({}) })
+    return () => { cancelled = true }
+  }, [searchQuery])
 
 
   const toast = useCallback((message: string) => {
@@ -127,7 +139,7 @@ function App() {
   const normalizedSearch = searchQuery.trim().toLowerCase()
   const editionCounts = editions.reduce<Record<string, number>>((counts, edition) => { counts[edition.workId] = (counts[edition.workId] ?? 0) + 1; return counts }, {})
   const filteredBooks = books
-    .filter((book) => [book.title, book.author, book.language, book.fileName ?? '', book.fileType ?? ''].some((field) => field.toLowerCase().includes(normalizedSearch)))
+    .filter((book) => !normalizedSearch || [book.title, book.author, book.language, book.fileName ?? '', book.fileType ?? ''].some((field) => field.toLowerCase().includes(normalizedSearch)) || Boolean(textMatches[book.id]))
     .filter((book) => libraryFilter === 'all' || (libraryFilter === 'reading' ? book.progress > 0 && book.progress < 100 : Boolean(book.workId && editionCounts[book.workId] > 1)))
     .sort((left, right) => sortNewest ? (right.createdAt ?? 0) - (left.createdAt ?? 0) : left.title.localeCompare(right.title))
 
@@ -154,11 +166,11 @@ function App() {
 
         {view === 'library' && <section className="library-view">
           <div className="hero"><div><p className="eyebrow">YOUR SHELF</p><h1>把世界的书，<em>读成自己的语言。</em></h1></div><p className="hero-copy">导入你的书，关联不同译本。划线即可获得翻译与解释——即使离线，也能继续阅读和思考。</p></div>
-          <div className="library-search"><span aria-hidden="true">⌕</span><input value={searchQuery} onChange={(event) => setSearchQuery(event.target.value)} placeholder="搜索书名、作者、语言或文件名" aria-label="搜索书库" />{searchQuery && <button onClick={() => setSearchQuery('')} aria-label="清除搜索">×</button>}</div>
+          <div className="library-search"><span aria-hidden="true">⌕</span><input value={searchQuery} onChange={(event) => setSearchQuery(event.target.value)} placeholder="搜索书名、作者或正文（本地）" aria-label="搜索书库" />{searchQuery && <button onClick={() => setSearchQuery('')} aria-label="清除搜索">×</button>}</div>
           <div className="shelf-toolbar"><div className="filter-row"><button className={libraryFilter === 'all' ? 'filter active' : 'filter'} onClick={() => setLibraryFilter('all')}>全部 <b>{String(books.length).padStart(2, '0')}</b></button><button className={libraryFilter === 'reading' ? 'filter active' : 'filter'} onClick={() => setLibraryFilter('reading')}>正在读 <b>{String(books.filter((book) => book.progress > 0 && book.progress < 100).length).padStart(2, '0')}</b></button><button className={libraryFilter === 'multi' ? 'filter active' : 'filter'} onClick={() => setLibraryFilter('multi')}>多译本 <b>{String(books.filter((book) => Boolean(book.workId && editionCounts[book.workId] > 1)).length).padStart(2, '0')}</b></button></div><button className="sort-button" onClick={() => setSortNewest((current) => !current)}>{sortNewest ? '最近阅读 ↓' : '书名排序 A–Z'}</button></div>
           {normalizedSearch && <p className="library-search-result" role="status">找到 {filteredBooks.length} 本匹配书籍</p>}
           <div className="shelf">
-            {filteredBooks.map((book) => <button className="book-card" key={book.id} onClick={() => { setSelectedBook(book); setView('reader') }}><div className={`cover ${book.cover}`}><span>{book.id === 'invisible' ? <>THE<br />INVISIBLE<br />LIFE</> : book.id === 'stranger' ? "L'ÉTRANGER" : <>变<br />形<br />记</>}</span><small>{book.author}</small></div><div className="book-info"><p className="book-lang">{book.language}</p><h2>{book.title}</h2><p>{book.author}</p><div className="progress"><i style={{ width: `${book.progress}%` }} /></div><small>{book.progress}% · 本地阅读</small></div></button>)}
+            {filteredBooks.map((book) => <button className="book-card" key={book.id} onClick={() => { setSelectedBook(book); setView('reader') }}><div className={`cover ${book.cover}`}><span>{book.id === 'invisible' ? <>THE<br />INVISIBLE<br />LIFE</> : book.id === 'stranger' ? "L'ÉTRANGER" : <>变<br />形<br />记</>}</span><small>{book.author}</small></div><div className="book-info"><p className="book-lang">{book.language}</p><h2>{book.title}</h2><p>{book.author}</p>{textMatches[book.id] && <p className="book-search-snippet" title={textMatches[book.id]}>正文命中：{textMatches[book.id]}</p>}<div className="progress"><i style={{ width: `${book.progress}%` }} /></div><small>{book.progress}% · 本地阅读</small></div></button>)}
             {books.length > 0 && filteredBooks.length === 0 && <div className="library-no-results">没有找到匹配的书籍或筛选结果</div>}
             <button className="import-card" onClick={importBooks}><span>＋</span><strong>导入我的书</strong><small>EPUB · PDF</small></button>
           </div>
