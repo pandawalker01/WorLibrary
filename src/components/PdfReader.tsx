@@ -56,7 +56,7 @@ export default function PdfReader({ book, onNotice, onProgress, targetLanguage =
         const file = await getBookFile(book)
         const loaded = await pdfjsLib.getDocument({ data: await file.arrayBuffer() }).promise as unknown as PdfDocument
         if (!active) {
-          await loaded.destroy()
+          if (typeof loaded.destroy === 'function') await loaded.destroy()
           return
         }
         setDocument(loaded)
