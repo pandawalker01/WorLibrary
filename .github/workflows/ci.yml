@@ -23,11 +23,17 @@ jobs:
           node-version: 20
           cache: npm
       - run: npm ci
-      - run: npm run typecheck
-      - run: npm run build
-      - run: npm run test:gateway
       - run: npx playwright install --with-deps chromium
-      - run: npx playwright test
+      - name: Run machine-readable quality gate
+        env:
+          # Contract-only values: CI tests use local mocks and never contact these services.
+          VITE_SUPABASE_URL: https://ci.example.test
+          VITE_SUPABASE_ANON_KEY: ci-anon-key
+          AI_PROVIDER: openai
+          AI_MODEL: ci-model
+          AI_API_KEY: ci-placeholder-not-a-secret
+          AI_BASE_URL: https://provider.example.test/v1
+        run: npm run quality
 
   preview:
     if: github.event_name == 'pull_request'

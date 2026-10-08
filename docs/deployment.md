@@ -37,6 +37,16 @@ npm run test:production
 
 该命令只验证本地构建契约和网关逻辑，不代表真实 Supabase/RLS 或供应商凭据已连通。
 
+### 可机读发布质量门禁
+
+发布或 CI 可执行单一命令：
+
+```sh
+npm run quality
+```
+
+它会运行生产环境契约、类型检查、构建、AI 网关测试和全部 Playwright 测试，并生成 `test-results/release-report.json`。报告中的 `classification: "configuration"` 表示缺少部署凭据或环境变量，门禁会以退出码 `2` 标记为 `blocked`；`classification: "code"` 的失败则以退出码 `1` 标记为 `failed`。如果测试服务器无法启动，报告会标记 `classification: "infrastructure"` 与 `blocked`，而不会误报为产品代码失败。这使测试 Agent 能区分“需要部署人员配置”“需要修复测试环境”与“需要开发修复”的问题。
+
 ### Supabase 数据库迁移
 
 使用 Supabase CLI 在目标项目执行迁移，不要直接把本地书籍文件上传到数据库：

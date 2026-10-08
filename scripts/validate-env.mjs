@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 
 const production = process.argv.includes('--production') || process.env.REQUIRE_PRODUCTION_ENV === 'true'
+const jsonOutput = process.argv.includes('--json')
 const values = process.env
 const missing = []
 const invalid = []
@@ -34,9 +35,14 @@ if (production) {
 }
 
 if (missing.length || invalid.length) {
-  if (missing.length) console.error(`Missing environment variables: ${missing.join(', ')}`)
-  for (const message of invalid) console.error(`Invalid environment: ${message}`)
+  if (jsonOutput) {
+    console.log(JSON.stringify({ status: 'blocked', classification: 'configuration', production, missing, invalid }))
+  } else {
+    if (missing.length) console.error(`Missing environment variables: ${missing.join(', ')}`)
+    for (const message of invalid) console.error(`Invalid environment: ${message}`)
+  }
   process.exit(1)
 }
 
-console.log(production ? 'Production environment contract: OK' : 'Browser environment contract: OK')
+if (jsonOutput) console.log(JSON.stringify({ status: 'passed', classification: 'configuration', production, missing: [], invalid: [] }))
+else console.log(production ? 'Production environment contract: OK' : 'Browser environment contract: OK')

@@ -3,6 +3,7 @@
 ## 发布前检查清单
 
 - [ ] `npm ci && npm run typecheck && npm run build` 全部通过。
+- [ ] `npm run quality` 生成 `test-results/release-report.json`；只有 `releaseReady: true` 才可发布。`blocked` 需要补齐部署配置，`failed` 需要修复代码或测试。
 - [ ] Playwright 冒烟覆盖书库搜索、阅读/对照、AI 解释入口和备份控件。
 - [ ] staging 可访问，HTTPS 和安全响应头齐全。
 - [ ] 用测试文件验证 EPUB/PDF 导入、阅读位置、摘录和备份恢复。
