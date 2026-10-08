@@ -1,6 +1,7 @@
 import { expect, test } from '@playwright/test'
 import { readFile } from 'node:fs/promises'
 import { createAiGateway } from '../server/ai-gateway.mjs'
+import { createOcrGateway } from '../server/ocr-gateway.mjs'
 import { syncLibrary } from '../src/lib/sync'
 import { createRemoteClient, RemoteRequestError } from '../src/lib/remote'
 import type { StoredBook } from '../src/lib/storage'
@@ -86,6 +87,27 @@ test('translation provider contract keeps keys server-side and blocks the develo
   }))
   expect(response.status).toBe(503)
   expect((await response.json()).error.code).toBe('provider_unavailable')
+})
+
+test('OCR contract uses a server-side provider, development mock, and stable timeout errors', async () => {
+  const clientSource = await readFile('src/lib/ocr.ts', 'utf8')
+  const gatewaySource = await readFile('server/ocr-gateway.mjs', 'utf8')
+  expect(clientSource).not.toContain('OCR_API_KEY')
+  expect(clientSource).not.toContain('VITE_OCR_API_KEY')
+  expect(gatewaySource).toContain("providerName === 'mock'")
+  const image = 'data:image/png;base64,aGVsbG8='
+  const development = createOcrGateway({ env: { OCR_PROVIDER: 'mock', OCR_ENV: 'development' }, logger: () => {} })
+  const success = await development(new Request('https://app.example.com/api/ocr/page', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ image, requestId: 'ocr-dev' }) }))
+  expect(success.status).toBe(200)
+  expect((await success.json()).provider).toBe('mock')
+  const production = createOcrGateway({ env: { OCR_PROVIDER: 'mock', OCR_ENV: 'production' }, logger: () => {} })
+  const blocked = await production(new Request('https://app.example.com/api/ocr/page', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ image, requestId: 'ocr-prod' }) }))
+  expect(blocked.status).toBe(503)
+  expect((await blocked.json()).error.code).toBe('provider_unavailable')
+  const timeout = createOcrGateway({ provider: ({ signal }) => new Promise((_, reject) => signal.addEventListener('abort', () => reject(Object.assign(new Error('aborted'), { name: 'AbortError' })))), env: { OCR_TIMEOUT_MS: '1' }, logger: () => {} })
+  const timedOut = await timeout(new Request('https://app.example.com/api/ocr/page', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ image, requestId: 'ocr-timeout' }) }))
+  expect(timedOut.status).toBe(504)
+  expect((await timedOut.json()).error.code).toBe('provider_timeout')
 })
 
 test('edition fallback and migration are covered by release checks', async () => {
