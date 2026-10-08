@@ -89,6 +89,26 @@ function extensionOf(fileName: string) {
   return fileName.split('.').pop()?.toLowerCase() ?? ''
 }
 
+type ImportedMetadata = { title?: string; author?: string }
+
+async function readImportedMetadata(file: File, extension: string): Promise<ImportedMetadata> {
+  if (extension !== 'epub') return {}
+  try {
+    const { default: ePub } = await import('epubjs')
+    const publication = ePub(await file.arrayBuffer())
+    await publication.ready
+    const metadata = await (publication.loaded as unknown as { metadata: Promise<{ title?: string; creator?: string }> }).metadata
+    publication.destroy()
+    return {
+      title: metadata.title?.trim() || undefined,
+      author: metadata.creator?.trim() || undefined,
+    }
+  } catch {
+    // A malformed book can still be stored and retried in the reader later.
+    return {}
+  }
+}
+
 async function ensureEditionForBook(book: StoredBook): Promise<StoredBook> {
   if (book.workId && book.editionId) return book
   const workId = crypto.randomUUID()
@@ -131,6 +151,7 @@ export async function saveBook(file: File, index: number): Promise<StoredBook> {
     throw new Error(`${file.name} 已在书库中，无需重复导入`)
   }
 
+  const metadata = await readImportedMetadata(file, extension)
   const id = crypto.randomUUID()
   let storage: StoredBook['storage'] = 'indexeddb'
   try {
@@ -142,8 +163,8 @@ export async function saveBook(file: File, index: number): Promise<StoredBook> {
 
   const book: StoredBook = {
     id,
-    title: titleFromFile(file.name),
-    author: '本地导入',
+    title: metadata.title ?? titleFromFile(file.name),
+    author: metadata.author ?? '本地导入',
     language: `本地 · ${extension.toUpperCase()}`,
     progress: 0,
     cover: (['ink', 'sun', 'red'] as CoverTone[])[index % 3],

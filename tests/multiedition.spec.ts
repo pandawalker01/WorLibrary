@@ -8,9 +8,8 @@ test('opens the two-column edition comparison reader', async ({ page }) => {
     { name: 'reader-fixture-english.epub', mimeType: 'application/epub+zip', buffer: Buffer.from(fixture, 'base64') },
     { name: 'reader-fixture-chinese.epub', mimeType: 'application/epub+zip', buffer: Buffer.from(fixture, 'base64') },
   ])
-  await expect(page.getByRole('heading', { name: 'reader fixture english' })).toBeVisible()
-  await expect(page.getByRole('heading', { name: 'reader fixture chinese' })).toBeVisible()
-  await page.getByRole('button', { name: /reader fixture english/i }).click()
+  await expect(page.getByRole('heading', { name: 'Reader Fixture' })).toHaveCount(2)
+  await page.getByRole('button', { name: /Reader Fixture/i }).first().click()
   page.once('dialog', (dialog) => dialog.accept('1'))
   await page.getByRole('button', { name: '＋ 关联译本' }).click()
   await expect(page.getByRole('status')).toContainText('已关联')

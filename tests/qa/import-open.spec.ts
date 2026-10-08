@@ -98,7 +98,7 @@ test('P1: selecting EPUB text exposes translation, explanation and local highlig
   await page.getByPlaceholder('写下你的理解…').fill('编辑后的本地笔记')
   await page.getByRole('button', { name: '保存备注' }).click()
   await expect(page.getByText('编辑后的本地笔记')).toBeVisible()
-  await page.getByRole('combobox', { name: '筛选书籍' }).selectOption({ label: 'reader fixture' })
+  await page.getByRole('combobox', { name: '筛选书籍' }).selectOption({ label: 'Reader Fixture' })
   await expect(page.getByText('ORCHARD_FIXTURE_FIRST_PAGE')).toBeVisible()
   await page.getByRole('button', { name: '删除' }).click()
   await expect(page.getByText('还没有摘录')).toBeVisible()
