@@ -25,6 +25,8 @@ export type Highlight = {
   note?: string
   color: 'gold' | 'rose' | 'blue'
   createdAt: number
+  /** Local edit time used only for metadata conflict resolution during sync. */
+  updatedAt?: number
 }
 
 export type LibraryBackup = { version: 2; exportedAt: string; books: StoredBook[]; highlights: Highlight[]; files: Record<string, string>; works?: Work[]; editions?: Edition[]; alignments?: Alignment[] }
@@ -241,7 +243,8 @@ export async function saveReadingProgress(bookId: string, location: string, prog
 }
 
 export async function saveHighlight(input: Omit<Highlight, 'id' | 'createdAt'>): Promise<Highlight> {
-  const highlight: Highlight = { ...input, id: crypto.randomUUID(), createdAt: Date.now() }
+  const now = Date.now()
+  const highlight: Highlight = { ...input, id: crypto.randomUUID(), createdAt: now, updatedAt: now }
   await transaction(HIGHLIGHTS_STORE, 'readwrite', (store) => store.put(highlight))
   return highlight
 }
@@ -254,13 +257,13 @@ export async function listHighlights(bookId?: string): Promise<Highlight[]> {
 export async function updateHighlightNote(id: string, note: string): Promise<void> {
   const current = await transaction<Highlight | undefined>(HIGHLIGHTS_STORE, 'readonly', (store) => store.get(id))
   if (!current) return
-  await transaction(HIGHLIGHTS_STORE, 'readwrite', (store) => store.put({ ...current, note }))
+  await transaction(HIGHLIGHTS_STORE, 'readwrite', (store) => store.put({ ...current, note, updatedAt: Date.now() }))
 }
 
 export async function updateHighlightColor(id: string, color: Highlight['color']): Promise<void> {
   const current = await transaction<Highlight | undefined>(HIGHLIGHTS_STORE, 'readonly', (store) => store.get(id))
   if (!current) return
-  await transaction(HIGHLIGHTS_STORE, 'readwrite', (store) => store.put({ ...current, color }))
+  await transaction(HIGHLIGHTS_STORE, 'readwrite', (store) => store.put({ ...current, color, updatedAt: Date.now() }))
 }
 
 export async function deleteHighlight(id: string): Promise<void> {

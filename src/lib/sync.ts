@@ -126,7 +126,7 @@ function toBookRow(book: StoredBook): SyncRow {
 }
 
 function toHighlightRow(highlight: Highlight): SyncRow {
-  return { id: highlight.id, book_id: highlight.bookId, edition_id: highlight.bookId, text: highlight.text, location: highlight.location, note: highlight.note ?? null, color: highlight.color, created_at: new Date(highlight.createdAt).toISOString(), updated_at: new Date(highlight.createdAt).toISOString() }
+  return { id: highlight.id, book_id: highlight.bookId, edition_id: highlight.bookId, text: highlight.text, location: highlight.location, note: highlight.note ?? null, color: highlight.color, created_at: new Date(highlight.createdAt).toISOString(), updated_at: new Date(highlight.updatedAt ?? highlight.createdAt).toISOString() }
 }
 
 export async function syncLibrary(remote: RemoteClient, local: LocalSyncAdapter): Promise<{ uploaded: number; downloaded: number }> {
@@ -140,9 +140,11 @@ export async function syncLibrary(remote: RemoteClient, local: LocalSyncAdapter)
   }
   const highlights = new Map(snapshot.highlights.map((highlight) => [highlight.id, highlight]))
   for (const row of remoteHighlights) {
-    const remoteHighlight: Highlight = { id: row.id, bookId: String(row.book_id ?? row.edition_id), text: String(row.text), location: String(row.location), note: typeof row.note === 'string' ? row.note : undefined, color: row.color === 'rose' || row.color === 'blue' ? row.color : 'gold', createdAt: Date.parse(String(row.created_at)) || Date.now() }
+    const createdAt = Date.parse(String(row.created_at)) || Date.now()
+    const updatedAt = Date.parse(String(row.updated_at)) || createdAt
+    const remoteHighlight: Highlight = { id: row.id, bookId: String(row.book_id ?? row.edition_id), text: String(row.text), location: String(row.location), note: typeof row.note === 'string' ? row.note : undefined, color: row.color === 'rose' || row.color === 'blue' ? row.color : 'gold', createdAt, updatedAt }
     const current = highlights.get(remoteHighlight.id)
-    if (!current || remoteHighlight.createdAt > current.createdAt) highlights.set(remoteHighlight.id, remoteHighlight)
+    if (!current || updatedAt > (current.updatedAt ?? current.createdAt)) highlights.set(remoteHighlight.id, remoteHighlight)
   }
   const merged = { ...snapshot, books: [...books.values()], highlights: [...highlights.values()] }
   // Upload the merged view, never the stale local snapshot. This preserves the

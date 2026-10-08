@@ -88,4 +88,18 @@ test('P1: selecting EPUB text exposes translation, explanation and local highlig
   await page.getByRole('button', { name: '摘录' }).click()
   await expect(page.getByRole('heading', { name: '摘录空间' })).toBeVisible()
   await expect(page.getByText('ORCHARD_FIXTURE_FIRST_PAGE')).toBeVisible()
+
+  // Notes are metadata only: the source EPUB remains in local OPFS/IndexedDB.
+  await page.getByRole('button', { name: '添加备注' }).click()
+  await page.getByPlaceholder('写下你的理解…').fill('仅保存在这台设备上的阅读笔记')
+  await page.getByRole('button', { name: '保存备注' }).click()
+  await expect(page.getByText('仅保存在这台设备上的阅读笔记')).toBeVisible()
+  await page.getByRole('button', { name: '编辑备注' }).click()
+  await page.getByPlaceholder('写下你的理解…').fill('编辑后的本地笔记')
+  await page.getByRole('button', { name: '保存备注' }).click()
+  await expect(page.getByText('编辑后的本地笔记')).toBeVisible()
+  await page.getByRole('combobox', { name: '筛选书籍' }).selectOption({ label: 'reader fixture' })
+  await expect(page.getByText('ORCHARD_FIXTURE_FIRST_PAGE')).toBeVisible()
+  await page.getByRole('button', { name: '删除' }).click()
+  await expect(page.getByText('还没有摘录')).toBeVisible()
 })
