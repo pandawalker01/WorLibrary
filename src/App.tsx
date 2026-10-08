@@ -39,6 +39,8 @@ function App() {
   const [editions, setEditions] = useState<Edition[]>([])
   const [alignments, setAlignments] = useState<Alignment[]>([])
   const [session, setSession] = useState<AuthSession | null>(null)
+  const [isOnline, setIsOnline] = useState(() => navigator.onLine)
+  const [updateReady, setUpdateReady] = useState(false)
   const fileInput = useRef<HTMLInputElement>(null)
   const syncTimer = useRef<number | undefined>(undefined)
 
@@ -61,7 +63,18 @@ function App() {
   }, [])
 
   useEffect(() => { void getSession().then((next) => { setSession(next); if (next) void syncNow() }) }, [syncNow])
-  useEffect(() => { const onOnline = () => { void syncNow() }; window.addEventListener('online', onOnline); return () => window.removeEventListener('online', onOnline) }, [syncNow])
+  useEffect(() => {
+    const onOnline = () => { setIsOnline(true); void syncNow() }
+    const onOffline = () => setIsOnline(false)
+    window.addEventListener('online', onOnline)
+    window.addEventListener('offline', onOffline)
+    return () => { window.removeEventListener('online', onOnline); window.removeEventListener('offline', onOffline) }
+  }, [syncNow])
+  useEffect(() => {
+    const onUpdateReady = () => setUpdateReady(true)
+    window.addEventListener('worlibrary:update-ready', onUpdateReady)
+    return () => window.removeEventListener('worlibrary:update-ready', onUpdateReady)
+  }, [])
   useEffect(() => {
     if (view !== 'reader') return
     const timer = window.setInterval(scheduleSync, 5000)
@@ -152,10 +165,11 @@ function App() {
           <button className={view === 'highlights' ? 'nav-item active' : 'nav-item'} onClick={() => setView('highlights')}><span>02</span>摘录</button>
           <button className={view === 'settings' ? 'nav-item active' : 'nav-item'} onClick={() => setView('settings')}><span>03</span>设置</button>
         </nav>
-        <div className="rail-foot"><i />离线可读</div>
+        <div className={`rail-foot ${isOnline ? '' : 'is-offline'}`} title={isOnline ? '应用壳已缓存；已导入书籍可离线阅读' : '当前离线：仅可访问已缓存应用和本地书籍'}><i />{isOnline ? '离线可读' : '当前离线'}</div>
       </aside>
 
       <main className="content">
+        {!isOnline && <div className="offline-banner" role="status">当前离线：已导入的本地书籍仍可阅读；翻译、OCR 与同步将在联网后恢复。</div>}
         <header className="topbar">
           <p className="eyebrow">PERSONAL WORLD LIBRARY / 001</p>
           <div className="top-actions">
@@ -204,6 +218,7 @@ function App() {
       </main>
       {view === 'settings' && <AuthPanel onNotice={toast} onSessionChange={setSession} />}
       {notice && <div className="toast" role="status">{notice}</div>}
+      {updateReady && <div className="update-toast" role="status">有新版本可用<button onClick={() => window.dispatchEvent(new Event('worlibrary:activate-update'))}>立即更新</button></div>}
       <DataTransfer onNotice={toast} onImported={() => { void listBooks().then((savedBooks) => setBooks([...sampleBooks, ...savedBooks])) }} />
       <input ref={fileInput} onChange={handleFiles} type="file" hidden accept=".epub,.pdf,.mobi,.cbz" multiple />
     </div>

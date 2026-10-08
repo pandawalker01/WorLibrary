@@ -1,0 +1,10 @@
+{
+  "name": "WorLibrary",
+  "short_name": "WorLibrary",
+  "description": "把世界的书，读成自己的语言。",
+  "lang": "zh-CN",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#f4f0e8",
+  "theme_color": "#f4f0e8"
+}
