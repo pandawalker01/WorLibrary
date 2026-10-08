@@ -20,6 +20,14 @@ npm run validate:env
 
 生产发布前执行 `npm run validate:env -- --production`，它会检查 Supabase URL/anon key、AI 网关配置和 URL 格式，并拒绝 `VITE_` 前缀的供应商密钥。`VITE_SUPABASE_ANON_KEY` 可以出现在浏览器构建中；`AI_API_KEY`、Supabase service-role key 和部署平台 token 绝不能出现。
 
+部署平台的健康探针使用 `GET /api/health`（也支持 `GET /health`）。响应只包含服务状态、AI provider 名称和是否已配置，不会返回密钥或用户数据；探针应要求 HTTP 200，并设置 10 秒以内的超时。每次请求的 `x-request-id` 会在响应和服务端结构化日志中保留，便于从前端错误追踪到网关日志。生产构建可用一条命令执行：
+
+```sh
+npm run test:production
+```
+
+该命令只验证本地构建契约和网关逻辑，不代表真实 Supabase/RLS 或供应商凭据已连通。
+
 ### Supabase 数据库迁移
 
 使用 Supabase CLI 在目标项目执行迁移，不要直接把本地书籍文件上传到数据库：

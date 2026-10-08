@@ -21,6 +21,19 @@ test('translate succeeds and repeated content is served from cache', async () =>
   assert.equal(calls, 1)
 })
 
+test('health probe is safe, cache-free, and carries a trace id', async () => {
+  const gateway = createAiGateway({ env: { AI_PROVIDER: 'openai', AI_API_KEY: 'server-only', AI_MODEL: 'model', AI_BASE_URL: 'https://provider.test/v1' }, logger: () => {} })
+  const response = await gateway(new Request('https://example.test/api/health', { headers: { 'x-request-id': 'probe-123' } }))
+  assert.equal(response.status, 200)
+  assert.equal(response.headers.get('cache-control'), 'no-store')
+  assert.equal(response.headers.get('x-request-id'), 'probe-123')
+  const payload = await response.json()
+  assert.deepEqual(Object.keys(payload).sort(), ['provider', 'providerConfigured', 'service', 'status', 'timestamp'])
+  assert.equal(payload.status, 'ok')
+  assert.equal(payload.providerConfigured, true)
+  assert.equal(JSON.stringify(payload).includes('server-only'), false)
+})
+
 test('quota exhaustion returns a stable error code', async () => {
   const gateway = createAiGateway({ env: { AI_DAILY_QUOTA: '1' }, provider: async () => ({ translation: '译文', provider: 'test' }), logger: () => {} })
   assert.equal((await gateway(request('/api/translate', { text: 'one', requestId: 'quota-1' }))).status, 200)

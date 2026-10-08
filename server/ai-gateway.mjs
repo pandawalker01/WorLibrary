@@ -35,6 +35,25 @@ function fail(code, headers = {}) {
   return json({ error: { code: error.code, message: error.message, retryable: error.retryable } }, error.status, headers)
 }
 
+function requestIdFor(request) {
+  const supplied = request.headers.get('x-request-id')?.trim()
+  return supplied ? supplied.slice(0, 128) : crypto.randomUUID()
+}
+
+function healthResponse(env, requestId) {
+  const provider = env.AI_PROVIDER || 'openai'
+  const configured = provider === 'mock'
+    ? (env.NODE_ENV || env.AI_ENV || 'development') !== 'production'
+    : Boolean(env.AI_API_KEY && env.AI_MODEL && /^https?:\/\//i.test(env.AI_BASE_URL || 'https://api.openai.com/v1'))
+  return json({
+    status: 'ok',
+    service: 'worlibrary-ai-gateway',
+    provider,
+    providerConfigured: configured,
+    timestamp: new Date().toISOString(),
+  }, 200, { 'cache-control': 'no-store', 'x-request-id': requestId })
+}
+
 function normaliseLanguage(value, fallback) {
   return typeof value === 'string' && value.trim() ? value.trim().slice(0, 32) : fallback
 }
@@ -140,10 +159,12 @@ export function createAiGateway({ env = {}, fetchImpl = fetch, logger = console.
   const callProvider = provider || makeProvider(env, fetchImpl)
 
   return async function handle(request) {
-    const cors = { 'access-control-allow-origin': env.ALLOWED_ORIGIN || '*', 'access-control-allow-headers': 'authorization, content-type, x-anonymous-id', 'access-control-allow-methods': 'POST, OPTIONS' }
+    const requestId = requestIdFor(request)
+    const cors = { 'access-control-allow-origin': env.ALLOWED_ORIGIN || '*', 'access-control-allow-headers': 'authorization, content-type, x-anonymous-id, x-request-id', 'access-control-allow-methods': 'GET, POST, OPTIONS', 'x-request-id': requestId }
     if (request.method === 'OPTIONS') return new Response(null, { status: 204, headers: cors })
-    if (request.method !== 'POST') return fail('invalid_request', cors)
     const url = new URL(request.url)
+    if (request.method === 'GET' && (url.pathname === '/health' || url.pathname === '/api/health')) return healthResponse(env, requestId)
+    if (request.method !== 'POST') return fail('invalid_request', cors)
     const kind = url.pathname.endsWith('/explain') ? 'explain' : url.pathname.endsWith('/translate') ? 'translate' : null
     if (!kind) return new Response('Not found', { status: 404, headers: cors })
     let body
@@ -185,7 +206,7 @@ export function createAiGateway({ env = {}, fetchImpl = fetch, logger = console.
       if (!result) throw lastError || new Error('provider failed')
     } catch (error) {
       const code = error?.code || (error?.name === 'AbortError' ? 'provider_timeout' : 'provider_error')
-      safeLog(logger, 'ai_request_failed', { kind, requestId: input.requestId, code })
+      safeLog(logger, 'ai_request_failed', { kind, requestId: input.requestId, traceId: requestId, code })
       return fail(code, cors)
     }
     if (store?.incrementUsage) await store.incrementUsage(quotaKey)
@@ -196,7 +217,7 @@ export function createAiGateway({ env = {}, fetchImpl = fetch, logger = console.
     else cache.set(key, cacheEntry)
     if (store?.setIdempotency) await store.setIdempotency(idempotencyKey, { value, expiresAt: nowValue + cacheTtlMs })
     else idempotency.set(idempotencyKey, { value, expiresAt: nowValue + cacheTtlMs })
-    safeLog(logger, 'ai_request_succeeded', { kind, requestId: input.requestId, provider: result.provider, cached: false })
+    safeLog(logger, 'ai_request_succeeded', { kind, requestId: input.requestId, traceId: requestId, provider: result.provider, cached: false })
     return json(value, 200, cors)
   }
 }
