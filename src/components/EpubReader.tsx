@@ -3,7 +3,7 @@ import ePub from 'epubjs'
 import { getBookFile, listHighlights, saveBookTextIndex, saveHighlight, saveReadingProgress, type Highlight, type StoredBook } from '../lib/storage'
 import { translateSelection } from '../lib/translation'
 import { explainSelection } from '../lib/explanation'
-import { clampFontScale, cycleTheme, DEFAULT_READER_PREFERENCES, readerThemeLabel, type ReaderPreferences } from '../lib/reader'
+import { clampFontScale, cycleTheme, loadReaderPreferences, readerThemeLabel, saveReaderPreferences, type ReaderPreferences } from '../lib/reader'
 import '../epub-reader.css'
 
 type EpubReaderProps = {
@@ -21,7 +21,23 @@ type Rendition = {
   prev?: () => Promise<void>
   on: (event: string, callback: (...args: any[]) => void) => void
   annotations?: { highlight: (cfi: string, styles?: Record<string, string>, data?: Record<string, unknown>) => void }
+  themes?: {
+    fontSize: (size: string) => void
+    override: (name: string, value: string, priority?: string) => void
+  }
   destroy: () => void
+}
+
+function applyReaderPreferences(rendition: Rendition | undefined, preferences: ReaderPreferences) {
+  if (!rendition?.themes) return
+  const colors = preferences.theme === 'night'
+    ? { background: '#242220', foreground: '#e9e1d5' }
+    : preferences.theme === 'sepia'
+      ? { background: '#f0e4cf', foreground: '#514536' }
+      : { background: '#f8f5ed', foreground: '#514c45' }
+  rendition.themes.fontSize(`${Math.round(preferences.fontScale * 100)}%`)
+  rendition.themes.override('background-color', colors.background, 'important')
+  rendition.themes.override('color', colors.foreground, 'important')
 }
 
 function highlightStyles(color: Highlight['color']): Record<string, string> {
@@ -45,11 +61,16 @@ export default function EpubReader({ book, onNotice, onProgress, onHighlightSave
   const [readingProgress, setReadingProgress] = useState(0)
   const [pageLabel, setPageLabel] = useState('')
   const [chapterLabel, setChapterLabel] = useState('')
-  const [readerPreferences, setReaderPreferences] = useState<ReaderPreferences>({ ...DEFAULT_READER_PREFERENCES, ...preferences })
+  const [readerPreferences, setReaderPreferences] = useState<ReaderPreferences>(() => ({ ...loadReaderPreferences(), ...preferences }))
 
   useEffect(() => { selectionColorRef.current = selectionColor }, [selectionColor])
 
   useEffect(() => { setReaderPreferences((current) => ({ ...current, ...preferences })) }, [preferences?.fontScale, preferences?.theme])
+
+  useEffect(() => {
+    saveReaderPreferences(readerPreferences)
+    applyReaderPreferences(renditionRef.current, readerPreferences)
+  }, [readerPreferences])
 
   useEffect(() => {
     let active = true
@@ -83,6 +104,7 @@ export default function EpubReader({ book, onNotice, onProgress, onHighlightSave
         await loadedBook.locations.generate(1024)
         rendition = loadedBook.renderTo(mountRef.current, { width: '100%', height: '650px', allowScriptedContent: false })
         renditionRef.current = rendition
+        applyReaderPreferences(rendition, readerPreferences)
         rendition.on('relocated', (location) => {
           const cfi = location.start?.cfi
           if (!cfi) return

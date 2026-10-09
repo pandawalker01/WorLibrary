@@ -68,6 +68,22 @@ test('P0: imported EPUB provides explicit pagination and reaches the next chapte
   await expect(restoredReader.getByText('ORCHARD_FIXTURE_SECOND_PAGE')).toBeVisible({ timeout: 10_000 })
 })
 
+test('P1: EPUB font size and theme survive a refresh and reopening the book', async ({ page }) => {
+  await page.goto('/')
+  await importFixture(page)
+  await page.getByRole('button', { name: /reader fixture/i }).click()
+  await expect(page.frameLocator('.epub-reader-frame iframe').getByText('ORCHARD_FIXTURE_FIRST_PAGE')).toBeVisible({ timeout: 10_000 })
+  await page.getByRole('button', { name: '增大字号' }).click()
+  await page.getByRole('button', { name: '纸张' }).click()
+  await expect(page.locator('.epub-reader-shell')).toHaveClass(/reader-theme-sepia/)
+  await expect(page.locator('.epub-reader-shell')).toHaveAttribute('style', /--reader-font-scale: 1.05/)
+  await page.reload()
+  await page.getByRole('button', { name: /reader fixture/i }).click()
+  await expect(page.frameLocator('.epub-reader-frame iframe').getByText('ORCHARD_FIXTURE_FIRST_PAGE')).toBeVisible({ timeout: 10_000 })
+  await expect(page.locator('.epub-reader-shell')).toHaveClass(/reader-theme-sepia/)
+  await expect(page.locator('.epub-reader-shell')).toHaveAttribute('style', /--reader-font-scale: 1.05/)
+})
+
 test('P2: local full-text search finds imported EPUB text without uploading the file', async ({ page }) => {
   await page.goto('/')
   await importFixture(page)
