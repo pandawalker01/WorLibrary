@@ -13,8 +13,14 @@ export type LocalSyncAdapter = {
 }
 
 type SyncQueueState = { pending: boolean; attempts: number; nextAttemptAt: number; lastError?: string }
+export type SyncActivity = {
+  phase: 'idle' | 'syncing' | 'success' | 'failed'
+  updatedAt: number
+  error?: string
+}
 const syncQueueKey = 'wor-library.sync.queue'
 const deletionQueueKey = 'wor-library.sync.deleted-highlights'
+const syncActivityKey = 'wor-library.sync.activity'
 
 function readQueue(): SyncQueueState {
   if (typeof localStorage === 'undefined') return { pending: false, attempts: 0, nextAttemptAt: 0 }
@@ -24,6 +30,21 @@ function readQueue(): SyncQueueState {
 function writeQueue(state: SyncQueueState) { if (typeof localStorage !== 'undefined') localStorage.setItem(syncQueueKey, JSON.stringify(state)) }
 export function enqueueSync() { writeQueue({ ...readQueue(), pending: true, nextAttemptAt: 0 }) }
 export function getSyncQueueState(): SyncQueueState { return readQueue() }
+
+export function getSyncActivity(): SyncActivity {
+  if (typeof localStorage === 'undefined') return { phase: 'idle', updatedAt: 0 }
+  try {
+    const value = JSON.parse(localStorage.getItem(syncActivityKey) ?? '') as Partial<SyncActivity>
+    if (value.phase === 'syncing' || value.phase === 'success' || value.phase === 'failed' || value.phase === 'idle') return { phase: value.phase, updatedAt: Number(value.updatedAt) || 0, error: typeof value.error === 'string' ? value.error : undefined }
+  } catch { /* use the default local-only state */ }
+  return { phase: 'idle', updatedAt: 0 }
+}
+
+function writeSyncActivity(activity: SyncActivity) {
+  if (typeof window === 'undefined') return
+  localStorage.setItem(syncActivityKey, JSON.stringify(activity))
+  window.dispatchEvent(new Event('worlibrary:sync-status'))
+}
 
 let activeFlush: Promise<{ uploaded: number; downloaded: number }> | undefined
 
@@ -46,16 +67,20 @@ async function flushQueuedSyncInternal(remote: RemoteClient, local: LocalSyncAda
   const current = readQueue()
   if (!current.pending) return { uploaded: 0, downloaded: 0 }
   if (current.nextAttemptAt > Date.now()) throw new Error('同步将在稍后自动重试')
+  writeSyncActivity({ phase: 'syncing', updatedAt: Date.now() })
   try {
     for (const id of readDeletedHighlights()) await remote.remove('highlights', `id=eq.${encodeURIComponent(id)}`)
     const result = await syncLibrary(remote, local)
     if (typeof localStorage !== 'undefined') localStorage.removeItem(deletionQueueKey)
     writeQueue({ pending: false, attempts: 0, nextAttemptAt: 0 })
+    writeSyncActivity({ phase: 'success', updatedAt: Date.now() })
     return result
   } catch (error) {
     const attempts = current.attempts + 1
     const delay = Math.min(5 * 60_000, 2 ** Math.min(attempts, 8) * 1000)
-    writeQueue({ pending: true, attempts, nextAttemptAt: Date.now() + delay, lastError: error instanceof Error ? error.message : '同步失败' })
+    const message = error instanceof Error ? error.message : '同步失败'
+    writeQueue({ pending: true, attempts, nextAttemptAt: Date.now() + delay, lastError: message })
+    writeSyncActivity({ phase: 'failed', updatedAt: Date.now(), error: message })
     throw error
   }
 }
