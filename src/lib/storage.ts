@@ -104,6 +104,41 @@ function blobToDataUrl(blob: Blob): Promise<string> {
   })
 }
 
+type EpubManifestItem = { href?: string; mediaType?: string; 'media-type'?: string }
+type EpubPublication = {
+  coverUrl?: () => Promise<string | undefined>
+  packaging?: { manifest?: Record<string, EpubManifestItem> }
+  resolve?: (href: string) => string
+  archive?: { getBlob?: (path: string) => Promise<Blob> | undefined }
+}
+
+async function imageDataUrl(blob: Blob | undefined): Promise<string | undefined> {
+  if (!blob || !blob.type.startsWith('image/') || blob.size > MAX_COVER_BYTES) return undefined
+  return blobToDataUrl(blob)
+}
+
+/**
+ * Some EPUBs use an ordinary image in the manifest without declaring it as
+ * `cover-image`. Prefer a cover-named image, then the first usable image.
+ */
+async function findManifestCover(publication: EpubPublication): Promise<string | undefined> {
+  const manifest = publication.packaging?.manifest
+  const resolve = publication.resolve
+  const getBlob = publication.archive?.getBlob?.bind(publication.archive)
+  if (!manifest || !resolve || !getBlob) return undefined
+  const images = Object.values(manifest).filter((item) => (item.mediaType ?? item['media-type'] ?? '').startsWith('image/') && item.href)
+  images.sort((left, right) => Number(!/cover|title|front/i.test(left.href ?? '')) - Number(!/cover|title|front/i.test(right.href ?? '')))
+  for (const image of images) {
+    try {
+      const cover = await imageDataUrl(await getBlob(resolve(image.href!)))
+      if (cover) return cover
+    } catch {
+      // Continue through the manifest: one corrupt image should not hide a later cover.
+    }
+  }
+  return undefined
+}
+
 async function readImportedMetadata(file: File, extension: string): Promise<ImportedMetadata> {
   if (extension !== 'epub') return {}
   try {
@@ -113,12 +148,13 @@ async function readImportedMetadata(file: File, extension: string): Promise<Impo
     const metadata = await (publication.loaded as unknown as { metadata: Promise<{ title?: string; creator?: string }> }).metadata
     let coverImage: string | undefined
     try {
-      const coverUrl = await (publication as unknown as { coverUrl?: () => Promise<string | undefined> }).coverUrl?.()
+      const epub = publication as unknown as EpubPublication
+      const coverUrl = await epub.coverUrl?.()
       if (coverUrl) {
         const response = await fetch(coverUrl)
-        const cover = await response.blob()
-        if (cover.type.startsWith('image/') && cover.size <= MAX_COVER_BYTES) coverImage = await blobToDataUrl(cover)
+        coverImage = await imageDataUrl(await response.blob())
       }
+      coverImage ??= await findManifestCover(epub)
     } catch {
       // Cover art is optional; a readable EPUB should never fail to import because of it.
     }
