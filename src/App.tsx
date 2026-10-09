@@ -25,7 +25,7 @@ const sampleBooks: DisplayBook[] = [
 ]
 
 function App() {
-  const [books, setBooks] = useState<DisplayBook[]>(sampleBooks)
+  const [books, setBooks] = useState<DisplayBook[]>([])
   const [view, setView] = useState<View>('library')
   const [language, setLanguage] = useState('中文')
   const [selectedBook, setSelectedBook] = useState<DisplayBook>(sampleBooks[0])
@@ -60,7 +60,7 @@ function App() {
   }, [syncNow])
 
   useEffect(() => {
-    void Promise.all([listBooks(), listEditions(), listAlignments()]).then(([savedBooks, savedEditions, savedAlignments]) => { setBooks([...sampleBooks, ...savedBooks]); setEditions(savedEditions); setAlignments(savedAlignments) })
+    void Promise.all([listBooks(), listEditions(), listAlignments()]).then(([savedBooks, savedEditions, savedAlignments]) => { setBooks(savedBooks); setEditions(savedEditions); setAlignments(savedAlignments) })
   }, [])
 
   useEffect(() => { void getSession().then((next) => { setSession(next); if (next) void syncNow() }) }, [syncNow])
@@ -201,6 +201,7 @@ function App() {
           {normalizedSearch && <p className="library-search-result" role="status">找到 {filteredBooks.length} 本匹配书籍</p>}
           <div className="shelf">
             {filteredBooks.map((book) => <button className="book-card" key={book.id} onClick={() => { setSelectedBook(book); setView('reader') }}><div className={`cover ${book.cover}`}><span>{book.id === 'invisible' ? <>THE<br />INVISIBLE<br />LIFE</> : book.id === 'stranger' ? "L'ÉTRANGER" : <>变<br />形<br />记</>}</span><small>{book.author}</small></div><div className="book-info"><p className="book-lang">{book.language}</p><h2>{book.title}</h2><p>{book.author}</p>{textMatches[book.id] && <p className="book-search-snippet" title={textMatches[book.id]}>正文命中：{textMatches[book.id]}</p>}<div className="progress"><i style={{ width: `${book.progress}%` }} /></div><small>{book.progress}% · 本地阅读</small></div></button>)}
+            {books.length === 0 && <div className="library-no-results">你的书架还是空的。导入 EPUB 或 PDF 后，书籍会只保存在这台设备上。</div>}
             {books.length > 0 && filteredBooks.length === 0 && <div className="library-no-results">没有找到匹配的书籍或筛选结果</div>}
             <button className="import-card" onClick={importBooks}><span>＋</span><strong>导入我的书</strong><small>EPUB · PDF</small></button>
           </div>
@@ -236,7 +237,7 @@ function App() {
       {view === 'settings' && <AuthPanel onNotice={toast} onSessionChange={setSession} />}
       {notice && <div className="toast" role="status">{notice}</div>}
       {updateReady && <div className="update-toast" role="status">有新版本可用<button onClick={() => window.dispatchEvent(new Event('worlibrary:activate-update'))}>立即更新</button></div>}
-      <DataTransfer onNotice={toast} onImported={() => { void listBooks().then((savedBooks) => setBooks([...sampleBooks, ...savedBooks])) }} />
+      <DataTransfer onNotice={toast} onImported={() => { void listBooks().then((savedBooks) => setBooks(savedBooks)) }} />
       <input ref={fileInput} onChange={handleFiles} type="file" hidden accept=".epub,.pdf,.mobi,.cbz" multiple />
     </div>
   )

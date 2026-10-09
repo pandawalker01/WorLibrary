@@ -1,30 +1,41 @@
+import { readFile } from 'node:fs/promises'
+import { resolve } from 'node:path'
 import { test, expect } from '@playwright/test'
 
-test('library opens and filters books', async ({ page }) => {
+const fixturePath = resolve('tests/fixtures/reader-fixture.epub.b64')
+
+async function importFixture(page: import('@playwright/test').Page) {
+  const encoded = await readFile(fixturePath, 'utf8')
+  await page.locator('input[type=file][accept*=".epub"]').setInputFiles({
+    name: 'reader-fixture.epub', mimeType: 'application/epub+zip', buffer: Buffer.from(encoded.trim(), 'base64'),
+  })
+  await expect(page.getByRole('heading', { name: 'Reader Fixture' })).toBeVisible()
+}
+
+test('library opens to an empty local shelf and guides the first import', async ({ page }) => {
   await page.goto('/')
   await expect(page.getByRole('heading', { name: '把世界的书，' })).toBeVisible()
-  const search = page.getByRole('textbox', { name: '搜索书库' })
-  await search.fill('Kafka')
-  await expect(page.getByRole('heading', { name: '变形记' })).toBeVisible()
-  await expect(page.getByRole('heading', { name: 'The Invisible Life of Addie LaRue' })).not.toBeVisible()
-  await expect(page.getByRole('status')).toContainText('找到 1 本匹配书籍')
+  await expect(page.getByText('你的书架还是空的。导入 EPUB 或 PDF 后，书籍会只保存在这台设备上。')).toBeVisible()
+  await expect(page.getByRole('button', { name: '导入书籍' })).toBeVisible()
 })
 
 test('library search includes imported file names and stays usable on a narrow screen', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 })
   await page.goto('/')
+  await importFixture(page)
   const search = page.getByRole('textbox', { name: '搜索书库' })
   await expect(search).toBeVisible()
   await expect(page.getByRole('navigation', { name: '主导航' })).toBeVisible()
   await expect(page.getByRole('button', { name: '导入书籍' })).toBeVisible()
-  await search.fill('English')
-  await expect(page.getByRole('heading', { name: 'The Invisible Life of Addie LaRue' })).toBeVisible()
+  await search.fill('Reader Fixture')
+  await expect(page.getByRole('heading', { name: 'Reader Fixture' })).toBeVisible()
 })
 
 test('reader controls remain visible on a narrow screen', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 })
   await page.goto('/')
-  await page.getByRole('button', { name: /The Invisible Life of Addie LaRue/ }).click()
+  await importFixture(page)
+  await page.getByRole('button', { name: /Reader Fixture/ }).click()
   await expect(page.getByRole('button', { name: '← 书库' })).toBeVisible()
   await expect(page.getByRole('button', { name: '⇄ 对照阅读' })).toBeVisible()
   await expect(page.getByRole('button', { name: 'Aa' })).toBeVisible()
@@ -32,8 +43,9 @@ test('reader controls remain visible on a narrow screen', async ({ page }) => {
 
 test('library filter controls expose reading and edition views', async ({ page }) => {
   await page.goto('/')
+  await importFixture(page)
   await page.getByRole('button', { name: /正在读/ }).click()
-  await expect(page.getByRole('heading', { name: 'The Invisible Life of Addie LaRue' })).toBeVisible()
+  await expect(page.getByText('没有找到匹配的书籍或筛选结果')).toBeVisible()
   await page.getByRole('button', { name: /多译本/ }).click()
   await expect(page.getByText('没有找到匹配的书籍或筛选结果')).toBeVisible()
 })
@@ -47,7 +59,8 @@ test('highlights view provides text and book filters', async ({ page }) => {
 
 test('reader, comparison and explanation flow are available', async ({ page }) => {
   await page.goto('/')
-  await page.getByRole('button', { name: /The Invisible Life of Addie LaRue/ }).click()
+  await importFixture(page)
+  await page.getByRole('button', { name: /Reader Fixture/ }).click()
   await expect(page.getByRole('button', { name: '⇄ 对照阅读' })).toBeVisible()
   await page.getByRole('button', { name: '⇄ 对照阅读' }).click()
   await expect(page.getByRole('status')).toContainText('请先导入并关联另一个译本')
