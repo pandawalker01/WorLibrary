@@ -186,6 +186,30 @@ export async function saveBook(file: File, index: number): Promise<StoredBook> {
   return book
 }
 
+/** Correct shelf metadata locally without touching the imported source file. */
+export async function updateBookMetadata(bookId: string, input: Pick<StoredBook, 'title' | 'author'>): Promise<StoredBook> {
+  const current = await transaction<StoredBook | undefined>(BOOKS_STORE, 'readonly', (store) => store.get(bookId))
+  if (!current) throw new Error('找不到这本本地书籍，请刷新后重试')
+  const title = input.title.trim()
+  const author = input.author.trim()
+  if (!title) throw new Error('请填写书名')
+  if (!author) throw new Error('请填写作者；未知作者可填写“未知作者”')
+
+  const updated = { ...current, title, author }
+  await transaction(BOOKS_STORE, 'readwrite', (store) => store.put(updated))
+  const workId = updated.workId
+  const editionId = updated.editionId
+  if (workId) {
+    const work = await transaction<Work | undefined>(WORKS_STORE, 'readonly', (store) => store.get(workId))
+    if (work) await transaction(WORKS_STORE, 'readwrite', (store) => store.put({ ...work, title, author }))
+  }
+  if (editionId) {
+    const edition = await transaction<Edition | undefined>(EDITIONS_STORE, 'readonly', (store) => store.get(editionId))
+    if (edition) await transaction(EDITIONS_STORE, 'readwrite', (store) => store.put({ ...edition, label: title }))
+  }
+  return updated
+}
+
 export async function listWorks(): Promise<Work[]> {
   return transaction<Work[]>(WORKS_STORE, 'readonly', (store) => store.getAll())
 }

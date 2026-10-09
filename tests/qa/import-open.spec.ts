@@ -23,6 +23,21 @@ test('P0: imported EPUB renders fixture content instead of demo content', async 
   await expect(reader.getByText('ORCHARD_FIXTURE_FIRST_PAGE')).toBeVisible({ timeout: 10_000 })
 })
 
+test('P0: imported EPUB metadata can be corrected without re-importing the file', async ({ page }) => {
+  await page.goto('/')
+  await importFixture(page)
+  await page.getByRole('button', { name: '设置' }).click()
+  await page.getByRole('button', { name: '编辑信息' }).click()
+  await page.getByRole('textbox', { name: '书名' }).fill('校正后的书名')
+  await page.getByRole('textbox', { name: '作者' }).fill('校正后的作者')
+  await page.getByRole('button', { name: '保存信息' }).click()
+  await expect(page.getByRole('status')).toContainText('书籍信息已在本地更新')
+  await page.getByRole('button', { name: '01 书库' }).click()
+  await expect(page.getByRole('heading', { name: '校正后的书名' })).toBeVisible()
+  await page.getByRole('button', { name: /校正后的书名/ }).click()
+  await expect(page.frameLocator('.epub-reader-frame iframe').getByText('ORCHARD_FIXTURE_FIRST_PAGE')).toBeVisible({ timeout: 10_000 })
+})
+
 test('P0: imported EPUB provides explicit pagination and reaches the next chapter', async ({ page }) => {
   await page.goto('/')
   await importFixture(page)
