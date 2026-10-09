@@ -30,6 +30,14 @@ test('P0: imported EPUB metadata can be corrected without re-importing the file'
   await importFixture(page)
   await page.getByRole('button', { name: '设置' }).click()
   await expect(page.getByRole('button', { name: '重新读取封面' })).toBeVisible()
+  await page.getByRole('button', { name: '上传本地封面' }).click()
+  await page.locator('input[accept="image/*"]').setInputFiles({
+    name: 'cover.png', mimeType: 'image/png', buffer: Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Y9Jc8AAAAAASUVORK5CYII=', 'base64'),
+  })
+  await expect(page.getByRole('status')).toContainText('已设置本地书籍封面')
+  await page.getByRole('button', { name: '01 书库' }).click()
+  await expect(page.getByRole('img', { name: 'Reader Fixture 封面' })).toBeVisible()
+  await page.getByRole('button', { name: '设置' }).click()
   await page.getByRole('button', { name: '编辑信息' }).click()
   await page.getByRole('textbox', { name: '书名' }).fill('校正后的书名')
   await page.getByRole('textbox', { name: '作者' }).fill('校正后的作者')

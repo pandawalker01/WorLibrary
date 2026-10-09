@@ -285,6 +285,17 @@ export async function refreshBookCover(bookId: string): Promise<StoredBook> {
   return updated
 }
 
+/** Store a user-selected shelf cover locally when an EPUB does not expose one. */
+export async function updateBookCover(bookId: string, file: File): Promise<StoredBook> {
+  const current = await transaction<StoredBook | undefined>(BOOKS_STORE, 'readonly', (store) => store.get(bookId))
+  if (!current) throw new Error('找不到这本本地书籍，请刷新后重试')
+  if (!file.type.startsWith('image/')) throw new Error('请选择图片文件作为封面')
+  if (file.size > MAX_COVER_BYTES) throw new Error('封面图片不能超过 2 MB')
+  const updated = { ...current, coverImage: await blobToDataUrl(file) }
+  await transaction(BOOKS_STORE, 'readwrite', (store) => store.put(updated))
+  return updated
+}
+
 export async function listWorks(): Promise<Work[]> {
   return transaction<Work[]>(WORKS_STORE, 'readonly', (store) => store.getAll())
 }
