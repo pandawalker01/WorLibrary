@@ -7,6 +7,8 @@ export type StoredBook = {
   language: string
   progress: number
   cover: CoverTone
+  /** A small, locally stored data URL extracted from the EPUB package. Never synced. */
+  coverImage?: string
   fileName: string
   fileType: string
   fileSize: number
@@ -89,7 +91,18 @@ function extensionOf(fileName: string) {
   return fileName.split('.').pop()?.toLowerCase() ?? ''
 }
 
-type ImportedMetadata = { title?: string; author?: string }
+type ImportedMetadata = { title?: string; author?: string; coverImage?: string }
+
+const MAX_COVER_BYTES = 2 * 1024 * 1024
+
+function blobToDataUrl(blob: Blob): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onerror = () => reject(reader.error)
+    reader.onload = () => typeof reader.result === 'string' ? resolve(reader.result) : reject(new Error('封面读取失败'))
+    reader.readAsDataURL(blob)
+  })
+}
 
 async function readImportedMetadata(file: File, extension: string): Promise<ImportedMetadata> {
   if (extension !== 'epub') return {}
@@ -98,10 +111,22 @@ async function readImportedMetadata(file: File, extension: string): Promise<Impo
     const publication = ePub(await file.arrayBuffer())
     await publication.ready
     const metadata = await (publication.loaded as unknown as { metadata: Promise<{ title?: string; creator?: string }> }).metadata
+    let coverImage: string | undefined
+    try {
+      const coverUrl = await (publication as unknown as { coverUrl?: () => Promise<string | undefined> }).coverUrl?.()
+      if (coverUrl) {
+        const response = await fetch(coverUrl)
+        const cover = await response.blob()
+        if (cover.type.startsWith('image/') && cover.size <= MAX_COVER_BYTES) coverImage = await blobToDataUrl(cover)
+      }
+    } catch {
+      // Cover art is optional; a readable EPUB should never fail to import because of it.
+    }
     publication.destroy()
     return {
       title: metadata.title?.trim() || undefined,
       author: metadata.creator?.trim() || undefined,
+      coverImage,
     }
   } catch {
     // A malformed book can still be stored and retried in the reader later.
@@ -168,6 +193,7 @@ export async function saveBook(file: File, index: number): Promise<StoredBook> {
     language: `本地 · ${extension.toUpperCase()}`,
     progress: 0,
     cover: (['ink', 'sun', 'red'] as CoverTone[])[index % 3],
+    coverImage: metadata.coverImage,
     fileName: file.name,
     fileType: file.type || `application/${extension}`,
     fileSize: file.size,
