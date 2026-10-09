@@ -19,6 +19,8 @@ test('P0: imported EPUB renders fixture content instead of demo content', async 
   await page.goto('/')
   await importFixture(page)
   await page.getByRole('button', { name: /reader fixture/i }).click()
+  await expect(page.getByText('Chapter 4', { exact: true })).not.toBeVisible()
+  await expect(page.getByText('进度已保存到本机', { exact: true })).toBeVisible()
   const reader = page.frameLocator('.epub-reader-frame iframe')
   await expect(reader.getByText('ORCHARD_FIXTURE_FIRST_PAGE')).toBeVisible({ timeout: 10_000 })
 })
