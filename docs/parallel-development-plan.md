@@ -6,6 +6,33 @@
 
 当前基线：`main`，最新功能包括 EPUB/PDF 本地阅读、进度恢复、摘录空间、PDF/EPUB 选区摘录、书库搜索、本地备份恢复和翻译网关前端链路。
 
+## 当前固定执行模型（长期有效）
+
+以下分工是 WorLibrary 后续开发的默认工作方式，优先级高于本文历史任务的 Agent 编号描述。除非主 Agent 明确调整，每一轮都按此划分并行任务。
+
+| 角色 | 固定分支 | 负责目标 | 不负责的内容 |
+| --- | --- | --- | --- |
+| Agent A | `codex/reader-multiedition` | EPUB/PDF 兼容、翻页与排版、目录、阅读位置、划线摘录、多译本与对照阅读 | 鉴权、云同步、AI 服务与部署配置 |
+| Agent B | `codex/ai-gateway` | 划词翻译、解释、词汇/学习能力、AI 网关、缓存、限流、错误反馈 | 阅读器渲染、数据库迁移与身份体系 |
+| Agent C | `codex/backend-auth-sync` | 账号、匿名试用、鉴权、权限、阅读数据同步、远端元数据与冲突处理 | 原始书籍文件上传、阅读器 UI、供应商 AI 密钥 |
+| Agent D | `codex/deploy-quality` | QA 自动化、真实用户路径验收、竞品能力清单、问题复现回归、发布质量与部署检查 | 改写业务存储模型或阅读器核心逻辑 |
+| 主 Agent | `main` | 任务拆分、公共契约、`storage` 变更审查、合并、全量回归、发布与推送 | 与执行 Agent 长期争抢同一模块 |
+
+### 每轮固定流程
+
+1. 主 Agent 先读取 `main` 的现状、QA 结果和用户反馈，再向 A–D 下发互不冲突的任务。
+2. A–D 只能在各自分支或 worktree 提交；不得直接更新 `main`。
+3. 每个 Agent 交付提交号、变更文件、已跑测试、遗留风险和建议的下一步。
+4. 主 Agent 审查公共接口与迁移，依次集成，运行类型检查、生产构建和全量 Playwright/QA。
+5. 仅主 Agent 在验收通过后推送 `main`，并向用户汇报功能进度、已知限制和需要的外部配置。
+
+### 调度原则
+
+- 同一文件或同一公共契约只允许一个执行 Agent 在一个周期内主改；例如 `src/lib/storage.ts`、`src/App.tsx`、`package.json`、`vite.config.ts` 由主 Agent 协调。
+- 用户报告的 P0 问题（导入、打开、翻页、数据丢失、权限越界）优先于新功能；主 Agent 可暂停其他任务进行串行修复。
+- Agent D 的验收失败必须形成可复现测试或明确的人工复现步骤，之后才能关闭问题。
+- 没有真实生产凭据时，Agent 可完成接口、模拟与回归；主 Agent 不会伪称生产服务已经上线。
+
 ## 分支规则
 
 分支统一使用以下命名：
@@ -60,7 +87,7 @@ src/pdf-*.css
 - 桌面和窄屏布局均可使用。
 - 不破坏现有 EPUB/PDF 阅读和摘录。
 
-## Agent B：鉴权、数据库与同步
+## Agent C：鉴权、数据库与同步
 
 分支：`codex/backend-auth-sync`
 
@@ -103,7 +130,7 @@ src/components/Auth*.tsx
 - 重复同步具备幂等性。
 - 删除账号可以删除云端个人数据。
 
-## Agent C：AI 翻译与解释网关
+## Agent B：AI 翻译与解释网关
 
 分支：`codex/ai-gateway`
 
@@ -218,15 +245,15 @@ vite.config.ts
 ### 第一批：可以立即并行
 
 1. Agent A：设计 Work/Edition/Alignment 类型和最小双栏原型。
-2. Agent B：Supabase migration、Auth 和 RLS 原型。
-3. Agent C：翻译网关和 explain API。
+2. Agent C：Supabase migration、Auth 和 RLS 原型。
+3. Agent B：翻译网关和 explain API。
 4. Agent D：CI、Playwright 冒烟测试和 staging 文档。
 
 ### 第二批：集成
 
 1. 主 Agent 固化公共数据模型。
-2. 合并 Agent B 的数据库 migration。
-3. 合并 Agent C 的 API 契约和前端适配。
+2. 合并 Agent C 的数据库 migration。
+3. 合并 Agent B 的 API 契约和前端适配。
 4. 合并 Agent A 的多译本界面。
 5. 合并 Agent D 的部署和测试流水线。
 
