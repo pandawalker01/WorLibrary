@@ -183,7 +183,6 @@ export default function PdfReader({ book, onNotice, onProgress, targetLanguage =
     {selectedText && <div className="pdf-selection-bar"><span title={selectedText}>{selectedText}</span><button onClick={() => { void translateSelectedText() }}>{translating ? '翻译中…' : '翻译'}</button></div>}
     {translation && <div className="pdf-translation-result"><span>译文</span>{translation}</div>}
     {ocrText && <div className="pdf-text-layer" aria-label="OCR 当前页文字"><strong>识别结果</strong>{ocrText}</div>}
-    {ocrStatus === 'error' && <p className="pdf-ocr-error" role="status">识别未完成。请检查网络或稍后重试；不会上传整本书。</p>}
     {aiFeedback && <div className="ai-request-feedback" role="status"><strong>{aiFeedback.title}</strong><span>{aiFeedback.detail}</span>{aiFeedback.retryable && selectedText && <button onClick={() => { void translateSelectedText() }}>重试翻译</button>}</div>}
     {ocrText && <div className="pdf-text-layer" aria-label="OCR 当前页文字"><strong>识别结果</strong>{ocrText}</div>}
     {ocrStatus === 'error' && <p className="pdf-ocr-error" role="status">识别未完成。请检查网络或稍后重试；不会上传整本书。</p>}

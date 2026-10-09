@@ -225,7 +225,6 @@ export default function EpubReader({ book, onNotice, onProgress, onHighlightSave
       <button className="ghost" onClick={() => setPendingSelection(undefined)}>取消</button>
     </div>}
     {translation && <div className="epub-translation-result" data-testid="translation-result" aria-live="polite"><span>译文</span>{translation}{explanation && <><span>解释</span>{explanation}</>}</div>}
-    {translation && <div className="epub-translation-result" data-testid="translation-result" aria-live="polite"><span>译文</span>{translation}{explanation && <><span>解释</span>{explanation}</>}</div>}
     {aiFeedback && <div className="ai-request-feedback" role="status"><strong>{aiFeedback.title}</strong><span>{aiFeedback.detail}</span>{aiFeedback.retryable && pendingSelection && <button onClick={() => { void translatePendingSelection() }}>重试翻译</button>}</div>}
     {showContents && <nav className="epub-contents" aria-label="章节目录">{chapters.map((chapter) => <button key={chapter.href} onClick={() => { void renditionRef.current?.display(chapter.href); setShowContents(false) }}>{chapter.label}</button>)}</nav>}
     <div className="epub-reader-frame" ref={mountRef} />
