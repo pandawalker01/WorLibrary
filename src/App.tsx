@@ -7,7 +7,7 @@ import './highlights.css'
 import type { Highlight } from './lib/storage'
 import './library.css'
 import './settings.css'
-import { deleteBook, linkBookEditions, listAlignments, listBooks, listEditions, saveBook, saveEditionProgress, searchBookTextIndex, updateBookMetadata, type StoredBook } from './lib/storage'
+import { deleteBook, linkBookEditions, listAlignments, listBooks, listEditions, refreshBookCover, saveBook, saveEditionProgress, searchBookTextIndex, updateBookMetadata, type StoredBook } from './lib/storage'
 import type { Alignment, Edition } from './lib/edition'
 import EditionComparisonReader from './components/EditionComparisonReader'
 import AuthPanel from './components/AuthPanel'
@@ -42,6 +42,7 @@ function App() {
   const [isOnline, setIsOnline] = useState(() => navigator.onLine)
   const [updateReady, setUpdateReady] = useState(false)
   const [metadataDraft, setMetadataDraft] = useState<StoredBook | null>(null)
+  const [refreshingCoverId, setRefreshingCoverId] = useState<string | null>(null)
   const fileInput = useRef<HTMLInputElement>(null)
   const syncTimer = useRef<number | undefined>(undefined)
 
@@ -163,6 +164,17 @@ function App() {
     } catch (error) { toast(error instanceof Error ? error.message : '书籍信息保存失败，请重试') }
   }
 
+  async function refreshCover(book: DisplayBook) {
+    if (!book.storage || !book.fileName || refreshingCoverId) return
+    setRefreshingCoverId(book.id)
+    try {
+      const updated = await refreshBookCover(book.id)
+      setBooks((current) => current.map((item) => item.id === updated.id ? { ...item, coverImage: updated.coverImage } : item))
+      setSelectedBook((current) => current.id === updated.id ? { ...current, coverImage: updated.coverImage } : current)
+      toast('已从 EPUB 重新读取原书封面')
+    } catch (error) { toast(error instanceof Error ? error.message : '封面读取失败，请稍后重试') } finally { setRefreshingCoverId(null) }
+  }
+
   const selectedEdition = editions.find((edition) => edition.bookId === selectedBook.id)
   const selectedRelatedEdition = selectedEdition ? editions.find((edition) => edition.workId === selectedEdition.workId && edition.id !== selectedEdition.id) : undefined
   const normalizedSearch = searchQuery.trim().toLowerCase()
@@ -231,7 +243,7 @@ function App() {
           <div className="reader-bottom"><span>{selectedBook.progress}%</span><div><i style={{ width: `${selectedBook.progress}%` }} /></div><span>{selectedBook.fileName ? '进度已保存到本机' : '4 / 11'}</span><button onClick={() => toast('OCR 是下一步真实服务接入点')}>◎ 扫描页？识别文字</button></div>
         </section>}
 
-        {view === 'settings' && <section className="settings-view"><div className="settings-wrap"><p className="eyebrow">PREFERENCES</p><h1>你的阅读语言</h1><p className="settings-copy">AI 会把你划线的任意语言文本，翻译并解释成这个语言。</p><div className="language-grid">{['中文', 'English', '日本語', 'Français'].map((item) => <button className={language === item ? 'language-choice active' : 'language-choice'} key={item} onClick={() => { setLanguage(item); toast(`已将 AI 理解语言设为：${item}`) }}>{item}<span>{item === '中文' ? '简体中文' : item === 'English' ? '英语' : item === '日本語' ? '日语' : '法语'}</span></button>)}</div><div className="local-books"><h2>本地书籍管理</h2>{books.filter((book) => book.storage && book.fileName).map((book) => <div className="local-book-row" key={book.id}><span><strong>{book.title}</strong><small>{book.fileName} · {book.storage === 'opfs' ? '设备文件系统' : '浏览器数据库'}</small></span><div className="local-book-actions"><button onClick={() => setMetadataDraft(book as StoredBook)}>编辑信息</button><button className="danger" onClick={() => { void removeBook(book) }}>删除</button></div></div>)}</div><div className="settings-note"><span>◎</span><p><strong>你的书，留在你的设备上。</strong><br />已导入的书籍、阅读进度和摘录均可离线访问；仅在你请求解释或识别文字时，相关内容才会发送至 AI 服务。</p></div></div></section>}
+        {view === 'settings' && <section className="settings-view"><div className="settings-wrap"><p className="eyebrow">PREFERENCES</p><h1>你的阅读语言</h1><p className="settings-copy">AI 会把你划线的任意语言文本，翻译并解释成这个语言。</p><div className="language-grid">{['中文', 'English', '日本語', 'Français'].map((item) => <button className={language === item ? 'language-choice active' : 'language-choice'} key={item} onClick={() => { setLanguage(item); toast(`已将 AI 理解语言设为：${item}`) }}>{item}<span>{item === '中文' ? '简体中文' : item === 'English' ? '英语' : item === '日本語' ? '日语' : '法语'}</span></button>)}</div><div className="local-books"><h2>本地书籍管理</h2>{books.filter((book) => book.storage && book.fileName).map((book) => <div className="local-book-row" key={book.id}><span><strong>{book.title}</strong><small>{book.fileName} · {book.storage === 'opfs' ? '设备文件系统' : '浏览器数据库'}</small></span><div className="local-book-actions">{book.fileName?.toLowerCase().endsWith('.epub') && <button onClick={() => { void refreshCover(book) }} disabled={refreshingCoverId === book.id}>{refreshingCoverId === book.id ? '读取封面中…' : '重新读取封面'}</button>}<button onClick={() => setMetadataDraft(book as StoredBook)}>编辑信息</button><button className="danger" onClick={() => { void removeBook(book) }}>删除</button></div></div>)}</div><div className="settings-note"><span>◎</span><p><strong>你的书，留在你的设备上。</strong><br />已导入的书籍、阅读进度和摘录均可离线访问；仅在你请求解释或识别文字时，相关内容才会发送至 AI 服务。</p></div></div></section>}
       </main>
       {metadataDraft && <div className="metadata-dialog-backdrop" role="presentation"><form className="metadata-dialog" onSubmit={(event) => { void saveMetadata(event) }} aria-label="编辑书籍信息"><div><p className="eyebrow">LOCAL METADATA</p><h2>校正书籍信息</h2><p>只修改书架显示和本地阅读数据，不会改动或上传原始文件。</p></div><label>书名<input name="title" defaultValue={metadataDraft.title} autoFocus /></label><label>作者<input name="author" defaultValue={metadataDraft.author} /></label><div className="metadata-dialog-actions"><button type="button" onClick={() => setMetadataDraft(null)}>取消</button><button type="submit">保存信息</button></div></form></div>}
       {view === 'settings' && <AuthPanel onNotice={toast} onSessionChange={setSession} />}

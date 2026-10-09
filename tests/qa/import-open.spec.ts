@@ -29,6 +29,7 @@ test('P0: imported EPUB metadata can be corrected without re-importing the file'
   await page.goto('/')
   await importFixture(page)
   await page.getByRole('button', { name: '设置' }).click()
+  await expect(page.getByRole('button', { name: '重新读取封面' })).toBeVisible()
   await page.getByRole('button', { name: '编辑信息' }).click()
   await page.getByRole('textbox', { name: '书名' }).fill('校正后的书名')
   await page.getByRole('textbox', { name: '作者' }).fill('校正后的作者')

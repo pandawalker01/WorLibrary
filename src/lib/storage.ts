@@ -236,6 +236,19 @@ export async function updateBookMetadata(bookId: string, input: Pick<StoredBook,
   return updated
 }
 
+/** Re-read only the embedded EPUB cover for books imported before cover support existed. */
+export async function refreshBookCover(bookId: string): Promise<StoredBook> {
+  const current = await transaction<StoredBook | undefined>(BOOKS_STORE, 'readonly', (store) => store.get(bookId))
+  if (!current) throw new Error('找不到这本本地书籍，请刷新后重试')
+  if (extensionOf(current.fileName) !== 'epub') throw new Error('目前只能从 EPUB 中重新读取封面')
+  const file = await getBookFile(current)
+  const { coverImage } = await readImportedMetadata(file, 'epub')
+  if (!coverImage) throw new Error('这本 EPUB 未提供可用封面，将继续使用书架色块')
+  const updated = { ...current, coverImage }
+  await transaction(BOOKS_STORE, 'readwrite', (store) => store.put(updated))
+  return updated
+}
+
 export async function listWorks(): Promise<Work[]> {
   return transaction<Work[]>(WORKS_STORE, 'readonly', (store) => store.getAll())
 }
