@@ -3,6 +3,7 @@ import workerSrc from 'pdfjs-dist/build/pdf.worker.min.mjs?url'
 import { getBookFile, saveBookTextIndex, saveHighlight, saveReadingProgress, type StoredBook } from '../lib/storage'
 import { translateSelection } from '../lib/translation'
 import { recognizePage } from '../lib/ocr'
+import { aiFeedbackFor, type AiFeedback } from '../lib/ai-feedback'
 import { clampFontScale, cycleTheme, DEFAULT_READER_PREFERENCES, readerThemeLabel, type ReaderPreferences } from '../lib/reader'
 import type { Highlight } from '../lib/storage'
 import '../pdf-reader.css'
@@ -43,6 +44,7 @@ export default function PdfReader({ book, onNotice, onProgress, targetLanguage =
   const [zoom, setZoom] = useState(1.35)
   const [ocrStatus, setOcrStatus] = useState<'idle' | 'uploading' | 'recognizing' | 'error'>('idle')
   const [ocrText, setOcrText] = useState('')
+  const [aiFeedback, setAiFeedback] = useState<AiFeedback>()
   const [readerPreferences, setReaderPreferences] = useState<ReaderPreferences>({ ...DEFAULT_READER_PREFERENCES, ...preferences })
 
   useEffect(() => { setReaderPreferences((current) => ({ ...current, ...preferences })) }, [preferences?.fontScale, preferences?.theme])
@@ -145,11 +147,14 @@ export default function PdfReader({ book, onNotice, onProgress, targetLanguage =
   async function translateSelectedText() {
     if (!selectedText || translating) return
     setTranslating(true)
+    setAiFeedback(undefined)
     try {
       const result = await translateSelection(selectedText, targetLanguage)
       setTranslation(result.translation)
     } catch (error) {
-      onNotice(error instanceof Error ? error.message : '翻译失败，请稍后重试')
+      const feedback = aiFeedbackFor(error)
+      setAiFeedback(feedback)
+      onNotice(feedback.title)
     } finally {
       setTranslating(false)
     }
@@ -177,6 +182,9 @@ export default function PdfReader({ book, onNotice, onProgress, targetLanguage =
     {showText && <div ref={textLayerRef} className="pdf-text-layer" aria-label="PDF 当前页文字" onMouseUp={captureSelection}>{pageText}</div>}
     {selectedText && <div className="pdf-selection-bar"><span title={selectedText}>{selectedText}</span><button onClick={() => { void translateSelectedText() }}>{translating ? '翻译中…' : '翻译'}</button></div>}
     {translation && <div className="pdf-translation-result"><span>译文</span>{translation}</div>}
+    {ocrText && <div className="pdf-text-layer" aria-label="OCR 当前页文字"><strong>识别结果</strong>{ocrText}</div>}
+    {ocrStatus === 'error' && <p className="pdf-ocr-error" role="status">识别未完成。请检查网络或稍后重试；不会上传整本书。</p>}
+    {aiFeedback && <div className="ai-request-feedback" role="status"><strong>{aiFeedback.title}</strong><span>{aiFeedback.detail}</span>{aiFeedback.retryable && selectedText && <button onClick={() => { void translateSelectedText() }}>重试翻译</button>}</div>}
     {ocrText && <div className="pdf-text-layer" aria-label="OCR 当前页文字"><strong>识别结果</strong>{ocrText}</div>}
     {ocrStatus === 'error' && <p className="pdf-ocr-error" role="status">识别未完成。请检查网络或稍后重试；不会上传整本书。</p>}
     <div className="pdf-reader-frame"><canvas ref={canvasRef} /></div>

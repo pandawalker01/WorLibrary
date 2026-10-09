@@ -4,6 +4,7 @@ import { getBookFile, listHighlights, saveBookTextIndex, saveHighlight, saveRead
 import { translateSelection } from '../lib/translation'
 import { explainSelection } from '../lib/explanation'
 import { clampFontScale, cycleTheme, loadReaderPreferences, readerThemeLabel, saveReaderPreferences, type ReaderPreferences } from '../lib/reader'
+import { aiFeedbackFor, type AiFeedback } from '../lib/ai-feedback'
 import '../epub-reader.css'
 
 type EpubReaderProps = {
@@ -62,6 +63,7 @@ export default function EpubReader({ book, onNotice, onProgress, onHighlightSave
   const [pageLabel, setPageLabel] = useState('')
   const [chapterLabel, setChapterLabel] = useState('')
   const [readerPreferences, setReaderPreferences] = useState<ReaderPreferences>(() => ({ ...loadReaderPreferences(), ...preferences }))
+  const [aiFeedback, setAiFeedback] = useState<AiFeedback>()
 
   useEffect(() => { selectionColorRef.current = selectionColor }, [selectionColor])
 
@@ -125,6 +127,8 @@ export default function EpubReader({ book, onNotice, onProgress, onHighlightSave
           setTranslation('')
           setExplanation('')
           rendition?.annotations?.highlight(cfi, highlightStyles(selectionColorRef.current))
+          setAiFeedback(undefined)
+          rendition?.annotations?.highlight(cfi, highlightStyles(selectionColorRef.current))
         })
         await rendition.display(book.location)
         const savedHighlights = await listHighlights(book.id)
@@ -176,11 +180,14 @@ export default function EpubReader({ book, onNotice, onProgress, onHighlightSave
   async function translatePendingSelection() {
     if (!pendingSelection || translating) return
     setTranslating(true)
+    setAiFeedback(undefined)
     try {
       const result = await translateSelection(pendingSelection.text, targetLanguage)
       setTranslation(result.translation)
     } catch (error) {
-      onNotice(error instanceof Error ? error.message : '翻译失败，请稍后重试')
+      const feedback = aiFeedbackFor(error)
+      setAiFeedback(feedback)
+      onNotice(feedback.title)
     } finally {
       setTranslating(false)
     }
@@ -189,12 +196,15 @@ export default function EpubReader({ book, onNotice, onProgress, onHighlightSave
   async function explainPendingSelection() {
     if (!pendingSelection || translating || explaining) return
     setExplaining(true)
+    setAiFeedback(undefined)
     try {
       const result = await explainSelection(pendingSelection.text, targetLanguage)
       setTranslation(result.translation)
       setExplanation(result.explanation)
     } catch (error) {
-      onNotice(error instanceof Error ? error.message : '解释失败，请稍后重试')
+      const feedback = aiFeedbackFor(error)
+      setAiFeedback(feedback)
+      onNotice(feedback.title)
     } finally {
       setExplaining(false)
     }
@@ -215,6 +225,8 @@ export default function EpubReader({ book, onNotice, onProgress, onHighlightSave
       <button className="ghost" onClick={() => setPendingSelection(undefined)}>取消</button>
     </div>}
     {translation && <div className="epub-translation-result" data-testid="translation-result" aria-live="polite"><span>译文</span>{translation}{explanation && <><span>解释</span>{explanation}</>}</div>}
+    {translation && <div className="epub-translation-result" data-testid="translation-result" aria-live="polite"><span>译文</span>{translation}{explanation && <><span>解释</span>{explanation}</>}</div>}
+    {aiFeedback && <div className="ai-request-feedback" role="status"><strong>{aiFeedback.title}</strong><span>{aiFeedback.detail}</span>{aiFeedback.retryable && pendingSelection && <button onClick={() => { void translatePendingSelection() }}>重试翻译</button>}</div>}
     {showContents && <nav className="epub-contents" aria-label="章节目录">{chapters.map((chapter) => <button key={chapter.href} onClick={() => { void renditionRef.current?.display(chapter.href); setShowContents(false) }}>{chapter.label}</button>)}</nav>}
     <div className="epub-reader-frame" ref={mountRef} />
   </div>
