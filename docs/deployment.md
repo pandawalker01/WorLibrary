@@ -45,7 +45,16 @@ npm run test:production
 npm run quality
 ```
 
-它会运行生产环境契约、类型检查、构建、AI 网关测试和全部 Playwright 测试，并生成 `test-results/release-report.json`。报告中的 `classification: "configuration"` 表示缺少部署凭据或环境变量，门禁会以退出码 `2` 标记为 `blocked`；`classification: "code"` 的失败则以退出码 `1` 标记为 `failed`。如果测试服务器无法启动，报告会标记 `classification: "infrastructure"` 与 `blocked`，而不会误报为产品代码失败。这使测试 Agent 能区分“需要部署人员配置”“需要修复测试环境”与“需要开发修复”的问题。
+它会运行生产环境契约、类型检查、构建、前端包体预算、AI 网关测试和全部 Playwright 测试，并生成 `test-results/release-report.json`。报告中的 `classification: "configuration"` 表示缺少部署凭据或环境变量，门禁会以退出码 `2` 标记为 `blocked`；`classification: "code"` 的失败则以退出码 `1` 标记为 `failed`。如果测试服务器无法启动，报告会标记 `classification: "infrastructure"` 与 `blocked`，而不会误报为产品代码失败。这使测试 Agent 能区分“需要部署人员配置”“需要修复测试环境”与“需要开发修复”的问题。
+
+构建后的包体预算可单独运行：
+
+```sh
+npm run build
+npm run test:bundle
+```
+
+门禁要求应用入口、EPUB 阅读器、PDF 阅读器和 PDF worker 都拥有独立产物，并同时检查原始大小与 gzip 大小。当前预算分别为 `350/110 kB`、`400/120 kB`、`500/150 kB` 和 `1400/400 kB`（原始/gzip）；超出预算或丢失独立 chunk 均视为代码质量失败。调整预算必须同时说明测量结果、用户可感知收益和回退方案，不能仅通过提高 Vite 的警告阈值掩盖回归。
 
 ### Supabase 数据库迁移
 

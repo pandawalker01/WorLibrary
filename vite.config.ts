@@ -18,4 +18,14 @@ export default defineConfig({
     headers: securityHeaders,
   },
   preview: { port: 4173, headers: securityHeaders },
+  build: {
+    rolldownOptions: {
+      output: {
+        manualChunks: (id) => {
+          if (id.includes('/node_modules/epubjs/')) return 'epub'
+          if (id.includes('/node_modules/pdfjs-dist/')) return 'pdf'
+        },
+      },
+    },
+  },
 })

@@ -10,6 +10,7 @@
     "validate:env": "node scripts/validate-env.mjs",
     "test:gateway": "node --test server/ai-gateway.test.mjs",
     "test:quality": "node --test scripts/quality-gate.test.mjs",
+    "test:bundle": "node scripts/bundle-budget.mjs",
     "quality": "node scripts/quality-gate.mjs",
     "test:production": "npm run validate:env -- --production && npm run typecheck && npm run build && npm run test:gateway",
     "preview": "vite preview",

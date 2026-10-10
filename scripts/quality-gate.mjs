@@ -68,6 +68,7 @@ async function main() {
   for (const [name, command, args] of [
     ['typecheck', npm, ['run', 'typecheck']],
     ['build', npm, ['run', 'build']],
+    ['bundle-budget', npm, ['run', 'test:bundle']],
     ['ai-gateway', npm, ['run', 'test:gateway']],
     ['playwright', npx, ['playwright', 'test', '--reporter=json']],
   ]) {
