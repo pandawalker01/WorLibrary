@@ -98,4 +98,8 @@ test('P0: two-page PDF restores the latest page after refreshing', async ({ page
   await page.reload()
   await page.getByRole('button', { name: /pdf progress/i }).click()
   await expect(page.getByText(/PDF 本地阅读 · 第 2 \/ 2 页 ·/)).toBeVisible({ timeout: 15_000 })
+
+  await page.getByRole('button', { name: '← 书库' }).click()
+  await page.getByRole('button', { name: /pdf progress/i }).click()
+  await expect(page.getByText(/PDF 本地阅读 · 第 2 \/ 2 页 ·/)).toBeVisible({ timeout: 15_000 })
 })

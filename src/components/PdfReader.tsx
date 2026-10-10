@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type CSSProperties } from 'react'
+import { useCallback, useEffect, useRef, useState, type CSSProperties } from 'react'
 import workerSrc from 'pdfjs-dist/build/pdf.worker.min.mjs?url'
 import { getBookFile, saveBookTextIndex, saveHighlight, saveReadingProgress, type StoredBook } from '../lib/storage'
 import { translateSelection } from '../lib/translation'
@@ -36,6 +36,7 @@ export default function PdfReader({ book, onNotice, onProgress, targetLanguage =
   const [document, setDocument] = useState<PdfDocument>()
   const documentRef = useRef<PdfDocument | undefined>(undefined)
   const [page, setPage] = useState(Number(book.location?.replace('pdf:', '')) || 1)
+  const intendedPageRef = useRef(page)
   const [status, setStatus] = useState('正在打开本地 PDF…')
   const [pageText, setPageText] = useState('')
   const [showText, setShowText] = useState(false)
@@ -46,6 +47,33 @@ export default function PdfReader({ book, onNotice, onProgress, targetLanguage =
   const [ocrText, setOcrText] = useState('')
   const [aiFeedback, setAiFeedback] = useState<AiFeedback>()
   const [readerPreferences, setReaderPreferences] = useState<ReaderPreferences>(() => ({ ...loadReaderPreferences(), ...preferences }))
+
+  const persistPageProgress = useCallback((nextPage: number, totalPages: number) => {
+    const location = `pdf:${nextPage}`
+    const progress = Math.round((nextPage / totalPages) * 100)
+    progressWriteRef.current = progressWriteRef.current.catch(() => undefined).then(() => saveReadingProgress(book.id, location, progress))
+    return progressWriteRef.current
+  }, [book.id])
+
+  const moveToPage = useCallback(async (requestedPage: number) => {
+    if (!document) return
+    const nextPage = Math.max(1, Math.min(document.numPages, requestedPage))
+    if (nextPage === page) return
+    // Mark the navigation immediately. An older render can finish while this
+    // write is in flight; it must not append its former page to the queue.
+    intendedPageRef.current = nextPage
+    const location = `pdf:${nextPage}`
+    const progress = Math.round((nextPage / document.numPages) * 100)
+    try {
+      // Do not reveal the new page until its location is durable: a refresh immediately
+      // after a visible page turn must reopen at the page the reader just reached.
+      await persistPageProgress(nextPage, document.numPages)
+    } catch {
+      onNotice('阅读进度暂未保存；请稍后重试')
+    }
+    onProgress(progress, location)
+    setPage(nextPage)
+  }, [document, onNotice, onProgress, page, persistPageProgress])
 
   useEffect(() => { setReaderPreferences((current) => ({ ...current, ...preferences })) }, [preferences?.fontScale, preferences?.pdfZoom, preferences?.theme])
 
@@ -104,33 +132,33 @@ export default function PdfReader({ book, onNotice, onProgress, targetLanguage =
       canvas.width = viewport.width
       canvas.height = viewport.height
       await pdfPage.render({ canvasContext: context, viewport }).promise
-      if (!active) return
+      if (!active || intendedPageRef.current !== page) return
       const textContent = await pdfPage.getTextContent()
-      if (!active) return
+      if (!active || intendedPageRef.current !== page) return
       setPageText(textContent.items.map((item) => item.str ?? '').join(' ').replace(/\s+/g, ' ').trim())
       const progress = Math.round((page / document.numPages) * 100)
       const location = `pdf:${page}`
-      progressWriteRef.current = progressWriteRef.current.catch(() => undefined).then(() => saveReadingProgress(book.id, location, progress))
+      void persistPageProgress(page, document.numPages)
       onProgress(progress, location)
     }).catch(() => onNotice('这一页 PDF 渲染失败，请尝试重新打开'))
     return () => { active = false }
-  }, [document, page, readerPreferences.pdfZoom, book.id, onNotice, onProgress])
+  }, [document, page, readerPreferences.pdfZoom, onNotice, onProgress, persistPageProgress])
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.target instanceof HTMLInputElement || event.target instanceof HTMLTextAreaElement || event.target instanceof HTMLButtonElement) return
       if (event.key === 'ArrowLeft' || event.key === 'PageUp') {
         event.preventDefault()
-        setPage((current) => Math.max(1, current - 1))
+        void moveToPage(page - 1)
       }
       if (event.key === 'ArrowRight' || event.key === 'PageDown' || event.key === ' ') {
         event.preventDefault()
-        setPage((current) => Math.min(document?.numPages ?? current, current + 1))
+        void moveToPage(page + 1)
       }
     }
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
-  }, [document?.numPages])
+  }, [moveToPage, page])
 
   async function saveText(text: string) {
     if (!text) {
@@ -184,7 +212,7 @@ export default function PdfReader({ book, onNotice, onProgress, targetLanguage =
   }
 
   return <div className={`pdf-reader-shell reader-theme-${readerPreferences.theme}`} style={{ '--reader-font-scale': readerPreferences.fontScale } as CSSProperties}>
-    <div className="pdf-reader-toolbar"><span>{status || `PDF 本地阅读 · 第 ${page} / ${document?.numPages ?? '…'} 页 · ${Math.round(readerPreferences.pdfZoom / 1.35 * 100)}%`}</span><div><button onClick={() => setReaderPreferences((current) => ({ ...current, fontScale: clampFontScale(current.fontScale - 0.05) }))} aria-label="减小字号">A−</button><button onClick={() => setReaderPreferences((current) => ({ ...current, fontScale: clampFontScale(current.fontScale + 0.05) }))} aria-label="增大字号">A＋</button><button onClick={() => setReaderPreferences((current) => ({ ...current, pdfZoom: clampPdfZoom(current.pdfZoom - 0.15) }))} aria-label="缩小页面">−</button><button onClick={() => setReaderPreferences((current) => ({ ...current, pdfZoom: clampPdfZoom(current.pdfZoom + 0.15) }))} aria-label="放大页面">＋</button><button onClick={() => setReaderPreferences((current) => ({ ...current, theme: cycleTheme(current.theme) }))}>{readerThemeLabel(readerPreferences.theme)}</button><button onClick={() => { void recognizeCurrentPage() }} disabled={!document || ocrStatus === 'uploading' || ocrStatus === 'recognizing'}>{ocrStatus === 'uploading' ? '准备上传…' : ocrStatus === 'recognizing' ? '识别中…' : '识别当前页'}</button><button disabled={!pageText} onClick={() => setShowText((current) => !current)}>{showText ? '收起文字' : '查看文字'}</button><button disabled={!pageText} onClick={() => { void saveText(pageText) }}>保存整页</button><button disabled={!selectedText} onClick={() => { void saveText(selectedText) }}>保存选中</button><button disabled={!document || page <= 1} onClick={() => setPage((current) => Math.max(1, current - 1))}>上一页</button><button disabled={!document || page >= (document?.numPages ?? 1)} onClick={() => setPage((current) => Math.min(document?.numPages ?? current, current + 1))}>下一页</button></div></div>
+    <div className="pdf-reader-toolbar"><span>{status || `PDF 本地阅读 · 第 ${page} / ${document?.numPages ?? '…'} 页 · ${Math.round(readerPreferences.pdfZoom / 1.35 * 100)}%`}</span><div><button onClick={() => setReaderPreferences((current) => ({ ...current, fontScale: clampFontScale(current.fontScale - 0.05) }))} aria-label="减小字号">A−</button><button onClick={() => setReaderPreferences((current) => ({ ...current, fontScale: clampFontScale(current.fontScale + 0.05) }))} aria-label="增大字号">A＋</button><button onClick={() => setReaderPreferences((current) => ({ ...current, pdfZoom: clampPdfZoom(current.pdfZoom - 0.15) }))} aria-label="缩小页面">−</button><button onClick={() => setReaderPreferences((current) => ({ ...current, pdfZoom: clampPdfZoom(current.pdfZoom + 0.15) }))} aria-label="放大页面">＋</button><button onClick={() => setReaderPreferences((current) => ({ ...current, theme: cycleTheme(current.theme) }))}>{readerThemeLabel(readerPreferences.theme)}</button><button onClick={() => { void recognizeCurrentPage() }} disabled={!document || ocrStatus === 'uploading' || ocrStatus === 'recognizing'}>{ocrStatus === 'uploading' ? '准备上传…' : ocrStatus === 'recognizing' ? '识别中…' : '识别当前页'}</button><button disabled={!pageText} onClick={() => setShowText((current) => !current)}>{showText ? '收起文字' : '查看文字'}</button><button disabled={!pageText} onClick={() => { void saveText(pageText) }}>保存整页</button><button disabled={!selectedText} onClick={() => { void saveText(selectedText) }}>保存选中</button><button disabled={!document || page <= 1} onClick={() => { void moveToPage(page - 1) }}>上一页</button><button disabled={!document || page >= (document?.numPages ?? 1)} onClick={() => { void moveToPage(page + 1) }}>下一页</button></div></div>
     {showText && <div ref={textLayerRef} className="pdf-text-layer" aria-label="PDF 当前页文字" onMouseUp={captureSelection}>{pageText}</div>}
     {selectedText && <div className="pdf-selection-bar"><span title={selectedText}>{selectedText}</span><button onClick={() => { void translateSelectedText() }}>{translating ? '翻译中…' : '翻译'}</button></div>}
     {translation && <div className="pdf-translation-result"><span>译文</span>{translation}</div>}
