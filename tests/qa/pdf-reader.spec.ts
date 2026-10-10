@@ -53,3 +53,24 @@ test('P1: PDF reading preferences survive refresh and reopening', async ({ page 
   await expect(page.locator('.pdf-reader-shell')).toHaveClass(/reader-theme-sepia/)
   await expect(page.locator('.pdf-reader-shell')).toHaveAttribute('style', /--reader-font-scale: 1.05/)
 })
+
+test('P1: PDF OCR result is rendered once without affecting reader controls', async ({ page }) => {
+  await page.goto('/')
+  await page.route('**/api/ocr/page', async (route) => {
+    await route.fulfill({
+      contentType: 'application/json',
+      body: JSON.stringify({ text: 'PDF_FIXTURE_PAGE OCR', provider: 'test', requestId: 'ocr-ui-once' }),
+    })
+  })
+  await page.locator('input[type=file][accept*=".pdf"]').setInputFiles({ name: 'pdf-ocr-once.pdf', mimeType: 'application/pdf', buffer: pdfFixture() })
+  await page.getByRole('button', { name: /pdf ocr once/i }).click()
+  await expect(page.getByText(/PDF 本地阅读 · 第 1 \/ 1 页 ·/)).toBeVisible({ timeout: 15_000 })
+
+  await page.getByRole('button', { name: '识别当前页' }).click()
+  const ocrResult = page.getByLabel('OCR 当前页文字')
+  await expect(ocrResult).toHaveCount(1, { timeout: 15_000 })
+  await expect(ocrResult).toContainText('识别结果')
+  await expect(ocrResult).toContainText('PDF_FIXTURE_PAGE')
+  await expect(page.getByRole('button', { name: '上一页' })).toBeDisabled()
+  await expect(page.getByRole('button', { name: '下一页' })).toBeDisabled()
+})
