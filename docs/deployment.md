@@ -31,10 +31,10 @@ npm run validate:env
 
 ### 首次生产配置：最小操作清单
 
-1. 创建 Supabase 项目；在 SQL Editor 或 CLI 依序执行 `supabase/migrations/0001_initial_sync.sql`、`0002_production_hardening.sql`，再按 `supabase/verify_rls.sql` 用两个真实测试用户验证隔离。
+1. 创建 Supabase 项目；在 SQL Editor 或 CLI 依序执行 `supabase/migrations/0001_initial_sync.sql`、`0002_production_hardening.sql`、`0003_ai_usage_ledger.sql`，再按 `supabase/verify_rls.sql` 用两个真实测试用户验证隔离。
 2. 在前端部署项目（Vercel/Cloudflare 等）配置 `VITE_SUPABASE_URL` 与 `VITE_SUPABASE_ANON_KEY`。它们是浏览器公开配置；不要放 service-role key。
-3. 在 **AI/OCR 网关的服务端环境** 配置 `AI_*`、`OCR_*` 与一个精确的 `ALLOWED_ORIGIN=https://你的域名`；两个 `*_ENV` 均为 `production`，`AI_REQUIRE_AUTH=true`。不要把这些 Secret 放入前端部署环境或仓库。
-4. 在网关真正接入 Supabase JWT 验证器和持久化限流/用量存储前，**不要**把带真实供应商密钥的 AI/OCR 端点公开到互联网。当前仓库的进程内 Map 仅适合单实例演示；带任意 Bearer 文本也不等于已验证身份。
+3. 在 **AI/OCR 网关的服务端环境** 配置 `AI_*`、`OCR_*`、`SUPABASE_JWT_SECRET` 与一个精确的 `ALLOWED_ORIGIN=https://你的域名`；两个 `*_ENV` 均为 `production`，`AI_REQUIRE_AUTH=true`。不要把这些 Secret 放入前端部署环境或仓库。
+4. 将网关的用量适配器接到 `consume_ai_quota` RPC 后，才可将带真实供应商密钥的 AI/OCR 端点公开到互联网。该 RPC 对每位用户按日原子扣减额度，并以 request id 去重；当前进程内 Map 只适合本地演示。
 5. 配置 GitHub `staging` / `production` environments 中的 Vercel 三项部署 Secret，并在 production environment 开启 required reviewers。随后在部署环境运行 `npm run validate:env -- --production` 与 `npm run test:production`。
 
 完成第 1–3 步后，网页可以进行登录与同步；完成第 4 步对应的网关适配后，才可安全对外启用真实 AI/OCR。预检通过只说明变量格式正确，不替代真实 RLS、JWT、供应商与跨域连通性验收。
@@ -75,7 +75,7 @@ npx supabase link --project-ref <project-ref>
 npx supabase db push
 ```
 
-`supabase/migrations/0001_initial_sync.sql` 创建用户资料、作品、版本、进度、摘录和设置表；`0002_production_hardening.sql` 增加索引、显式 authenticated 权限，并校验版本/进度/摘录只能引用同一用户的数据。迁移使用 `if not exists` 或 `drop policy if exists`，可安全地在已执行 0001 的项目上继续执行。
+`supabase/migrations/0001_initial_sync.sql` 创建用户资料、作品、版本、进度、摘录和设置表；`0002_production_hardening.sql` 增加索引、显式 authenticated 权限，并校验版本/进度/摘录只能引用同一用户的数据；`0003_ai_usage_ledger.sql` 创建仅能由受控 RPC 写入的按日 AI/OCR 用量账本。迁移使用 `if not exists` 或 `drop policy if exists`，可安全地在已执行 0001 的项目上继续执行。
 
 上线前用一个测试账号验证：A 用户不能读取/修改 B 用户的版本、进度或摘录；匿名用户不能访问同步表；删除账号后级联删除其数据。没有真实 Supabase 凭据时，只能完成 SQL 静态检查和本地构建，不能声称 RLS 已在线验证。
 
