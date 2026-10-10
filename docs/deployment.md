@@ -27,7 +27,17 @@
 npm run validate:env
 ```
 
-生产发布前执行 `npm run validate:env -- --production`，它会检查 Supabase URL/anon key、AI 网关配置和 URL 格式，并拒绝 `VITE_` 前缀的供应商密钥。`VITE_SUPABASE_ANON_KEY` 可以出现在浏览器构建中；`AI_API_KEY`、Supabase service-role key 和部署平台 token 绝不能出现。
+生产发布前执行 `npm run validate:env -- --production`。它会检查 Supabase URL/anon key、AI/OCR 网关、精确 HTTPS CORS Origin、生产模式、鉴权开关和 URL 格式；它也会拒绝占位值、`mock` 供应商、通配 CORS 与任何意外使用 `VITE_` 前缀的密钥。`VITE_SUPABASE_ANON_KEY` 可以出现在浏览器构建中；`AI_API_KEY`、`OCR_API_KEY`、Supabase service-role key 和部署平台 token 绝不能出现。
+
+### 首次生产配置：最小操作清单
+
+1. 创建 Supabase 项目；在 SQL Editor 或 CLI 依序执行 `supabase/migrations/0001_initial_sync.sql`、`0002_production_hardening.sql`，再按 `supabase/verify_rls.sql` 用两个真实测试用户验证隔离。
+2. 在前端部署项目（Vercel/Cloudflare 等）配置 `VITE_SUPABASE_URL` 与 `VITE_SUPABASE_ANON_KEY`。它们是浏览器公开配置；不要放 service-role key。
+3. 在 **AI/OCR 网关的服务端环境** 配置 `AI_*`、`OCR_*` 与一个精确的 `ALLOWED_ORIGIN=https://你的域名`；两个 `*_ENV` 均为 `production`，`AI_REQUIRE_AUTH=true`。不要把这些 Secret 放入前端部署环境或仓库。
+4. 在网关真正接入 Supabase JWT 验证器和持久化限流/用量存储前，**不要**把带真实供应商密钥的 AI/OCR 端点公开到互联网。当前仓库的进程内 Map 仅适合单实例演示；带任意 Bearer 文本也不等于已验证身份。
+5. 配置 GitHub `staging` / `production` environments 中的 Vercel 三项部署 Secret，并在 production environment 开启 required reviewers。随后在部署环境运行 `npm run validate:env -- --production` 与 `npm run test:production`。
+
+完成第 1–3 步后，网页可以进行登录与同步；完成第 4 步对应的网关适配后，才可安全对外启用真实 AI/OCR。预检通过只说明变量格式正确，不替代真实 RLS、JWT、供应商与跨域连通性验收。
 
 部署平台的健康探针使用 `GET /api/health`（也支持 `GET /health`）。响应只包含服务状态、AI provider 名称和是否已配置，不会返回密钥或用户数据；探针应要求 HTTP 200，并设置 10 秒以内的超时。每次请求的 `x-request-id` 会在响应和服务端结构化日志中保留，便于从前端错误追踪到网关日志。生产构建可用一条命令执行：
 

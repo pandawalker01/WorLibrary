@@ -8,6 +8,7 @@
     "build": "tsc -b && vite build",
     "qa": "node scripts/run-qa-agent.mjs",
     "validate:env": "node scripts/validate-env.mjs",
+    "test:env": "node --test scripts/validate-env.test.mjs",
     "test:gateway": "node --test server/ai-gateway.test.mjs",
     "test:quality": "node --test scripts/quality-gate.test.mjs",
     "test:bundle": "node scripts/bundle-budget.mjs",
