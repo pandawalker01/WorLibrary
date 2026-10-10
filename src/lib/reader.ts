@@ -3,9 +3,11 @@ export type ReaderTheme = 'paper' | 'night' | 'sepia'
 export type ReaderPreferences = {
   theme: ReaderTheme
   fontScale: number
+  /** PDF canvas scale is rendering-only and remains local to this device. */
+  pdfZoom: number
 }
 
-export const DEFAULT_READER_PREFERENCES: ReaderPreferences = { theme: 'paper', fontScale: 1 }
+export const DEFAULT_READER_PREFERENCES: ReaderPreferences = { theme: 'paper', fontScale: 1, pdfZoom: 1.35 }
 
 const READER_PREFERENCES_KEY = 'worlibrary.reader-preferences'
 
@@ -25,6 +27,7 @@ export function loadReaderPreferences(): ReaderPreferences {
     return {
       theme: isReaderTheme(parsed.theme) ? parsed.theme : DEFAULT_READER_PREFERENCES.theme,
       fontScale: typeof parsed.fontScale === 'number' ? clampFontScale(parsed.fontScale) : DEFAULT_READER_PREFERENCES.fontScale,
+      pdfZoom: typeof parsed.pdfZoom === 'number' ? clampPdfZoom(parsed.pdfZoom) : DEFAULT_READER_PREFERENCES.pdfZoom,
     }
   } catch {
     return DEFAULT_READER_PREFERENCES
@@ -36,6 +39,7 @@ export function saveReaderPreferences(preferences: ReaderPreferences): void {
     window.localStorage.setItem(READER_PREFERENCES_KEY, JSON.stringify({
       theme: preferences.theme,
       fontScale: clampFontScale(preferences.fontScale),
+      pdfZoom: clampPdfZoom(preferences.pdfZoom),
     }))
   } catch {
     // Private browsing or a full storage quota must not prevent reading.
@@ -44,6 +48,10 @@ export function saveReaderPreferences(preferences: ReaderPreferences): void {
 
 export function clampFontScale(value: number): number {
   return Math.max(0.85, Math.min(1.35, Number(value.toFixed(2))))
+}
+
+export function clampPdfZoom(value: number): number {
+  return Math.max(0.75, Math.min(2.5, Number(value.toFixed(2))))
 }
 
 export function cycleTheme(theme: ReaderTheme): ReaderTheme {

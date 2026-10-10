@@ -33,3 +33,23 @@ test('P1: imported PDF renders, paginates with controls and supports keyboard na
   await page.keyboard.press('ArrowRight')
   await page.keyboard.press('ArrowLeft')
 })
+
+test('P1: PDF reading preferences survive refresh and reopening', async ({ page }) => {
+  await page.goto('/')
+  await page.locator('input[type=file][accept*=".pdf"]').setInputFiles({ name: 'pdf-preferences.pdf', mimeType: 'application/pdf', buffer: pdfFixture() })
+  await page.getByRole('button', { name: /pdf preferences/i }).click()
+  await expect(page.getByText(/PDF 本地阅读 · 第 1 \/ 1 页 ·/)).toBeVisible({ timeout: 15_000 })
+
+  await page.getByRole('button', { name: '增大字号' }).click()
+  await page.getByRole('button', { name: '放大页面' }).click()
+  await page.getByRole('button', { name: '纸张' }).click()
+  await expect(page.locator('.pdf-reader-shell')).toHaveClass(/reader-theme-sepia/)
+  await expect(page.locator('.pdf-reader-shell')).toHaveAttribute('style', /--reader-font-scale: 1.05/)
+  await expect(page.getByText(/111%/)).toBeVisible()
+
+  await page.reload()
+  await page.getByRole('button', { name: /pdf preferences/i }).click()
+  await expect(page.getByText(/PDF 本地阅读 · 第 1 \/ 1 页 ·.*111%/)).toBeVisible({ timeout: 15_000 })
+  await expect(page.locator('.pdf-reader-shell')).toHaveClass(/reader-theme-sepia/)
+  await expect(page.locator('.pdf-reader-shell')).toHaveAttribute('style', /--reader-font-scale: 1.05/)
+})
