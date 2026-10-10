@@ -39,7 +39,7 @@ test('P0: PDF reading page is restored after refresh and reopening from the libr
   await page.getByRole('button', { name: /pdf position fixture/i }).click()
   await expect(page.getByText(/PDF 本地阅读 · 第 2 \/ 2 页 ·/)).toBeVisible({ timeout: 15_000 })
 
-  await page.getByRole('button', { name: /书库/ }).click()
+  await page.getByRole('button', { name: '← 书库' }).click()
   await page.getByRole('button', { name: /pdf position fixture/i }).click()
   await expect(page.getByText(/PDF 本地阅读 · 第 2 \/ 2 页 ·/)).toBeVisible({ timeout: 15_000 })
 })
