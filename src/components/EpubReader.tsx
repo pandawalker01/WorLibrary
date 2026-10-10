@@ -128,7 +128,6 @@ export default function EpubReader({ book, onNotice, onProgress, onHighlightSave
           setExplanation('')
           rendition?.annotations?.highlight(cfi, highlightStyles(selectionColorRef.current))
           setAiFeedback(undefined)
-          rendition?.annotations?.highlight(cfi, highlightStyles(selectionColorRef.current))
         })
         await rendition.display(book.location)
         const savedHighlights = await listHighlights(book.id)

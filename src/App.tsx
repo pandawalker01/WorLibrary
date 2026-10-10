@@ -197,7 +197,12 @@ function App() {
   }
 
   const selectedEdition = editions.find((edition) => edition.bookId === selectedBook.id)
-  const selectedRelatedEdition = selectedEdition ? editions.find((edition) => edition.workId === selectedEdition.workId && edition.id !== selectedEdition.id) : undefined
+  // A comparison must always be between two different imported files. Filtering
+  // by bookId (not only editionId) keeps a stale/migrated duplicate edition from
+  // rendering the current book in both panes.
+  const selectedRelatedEdition = selectedEdition
+    ? editions.find((edition) => edition.workId === selectedEdition.workId && edition.bookId !== selectedBook.id)
+    : undefined
   const normalizedSearch = searchQuery.trim().toLowerCase()
   const editionCounts = editions.reduce<Record<string, number>>((counts, edition) => { counts[edition.workId] = (counts[edition.workId] ?? 0) + 1; return counts }, {})
   const filteredBooks = books
@@ -256,9 +261,16 @@ function App() {
             const currentEdition = selectedEdition
             const relatedEdition = selectedRelatedEdition
             const relatedBook = relatedEdition ? books.find((book) => book.id === relatedEdition.bookId) : undefined
-            const renderReader = (book: DisplayBook, translated = false) => book.fileName?.toLowerCase().endsWith('.epub') && book.storage ? <EpubReader book={book as StoredBook} targetLanguage={language} onNotice={toast} onProgress={(progress, location) => updateEditionProgress(book.id, progress, location)} /> : book.fileName?.toLowerCase().endsWith('.pdf') && book.storage ? <PdfReader book={book as StoredBook} targetLanguage={language} onNotice={toast} onProgress={(progress, location) => updateEditionProgress(book.id, progress, location)} /> : <div className="reading-stage"><article className={`page ${translated ? 'translation-page' : 'primary-page'}`}><div className="chapter-label">{translated ? '第四章 · 未曾活过的一生' : 'CHAPTER IV · A LIFE, UNLIVED'}</div><h2>{translated ? '平凡人生的正中央，某一天发生了一件非凡的事。' : 'One day, in the middle of a perfectly ordinary life, something extraordinary happened.'}</h2><p>{translated ? '阿黛琳·拉吕一直相信，世界是由门构成的。门不仅是通道；它更像一个承诺。' : 'Adeline LaRue had always believed the world was made of doors. A door was not just a passage from one room to another; it was a promise.'}</p><p className="selectable">{translated ? '但她后来会明白，自由这个词有一千种含义，其中有些，恰恰是牢笼。' : 'But freedom, she would learn, is a word with a thousand meanings, and some of them are cages.'}</p></article></div>
+            const renderReader = (book: DisplayBook) => {
+              if (book.fileName?.toLowerCase().endsWith('.epub') && book.storage) return <EpubReader key={`epub-${book.id}`} book={book as StoredBook} targetLanguage={language} onNotice={toast} onProgress={(progress, location) => updateEditionProgress(book.id, progress, location)} />
+              if (book.fileName?.toLowerCase().endsWith('.pdf') && book.storage) return <PdfReader key={`pdf-${book.id}`} book={book as StoredBook} targetLanguage={language} onNotice={toast} onProgress={(progress, location) => updateEditionProgress(book.id, progress, location)} />
+              // Imported books are the only readable source. Never fall back to
+              // the old showcase passage, especially in a comparison pane.
+              return <div className="reader-source-unavailable" role="status">找不到这本本地书籍，请返回书库重新导入。</div>
+            }
             if (!currentEdition || !relatedEdition || !relatedBook) return <><div className="edition-strip"><span>单版本阅读</span><button className="link-edition" onClick={() => { void linkCurrentEdition() }}>＋ 关联译本</button></div>{renderReader(selectedBook)}</>
-            return <><div className="edition-strip"><span>正在阅读</span><button className="edition active">{currentEdition.language} <strong>{currentEdition.label}</strong></button><button className="edition" onClick={() => { setSelectedBook(relatedBook); setCompare(false) }}>{relatedEdition.language} <strong>{relatedEdition.label}</strong></button><button className="link-edition" onClick={() => { void linkCurrentEdition() }}>＋ 关联译本</button></div>{compare ? <EditionComparisonReader left={currentEdition} right={relatedEdition} alignment={alignments.find((item) => item.leftEditionId === currentEdition.id || item.rightEditionId === currentEdition.id)} leftContent={renderReader(selectedBook)} rightContent={renderReader(relatedBook)} onSwitch={(edition) => { const next = books.find((book) => book.id === edition.bookId); if (next) setSelectedBook(next) }} /> : renderReader(selectedBook)}</>
+            const comparisonAlignment = alignments.find((item) => item.workId === currentEdition.workId && ((item.leftEditionId === currentEdition.id && item.rightEditionId === relatedEdition.id) || (item.rightEditionId === currentEdition.id && item.leftEditionId === relatedEdition.id)))
+            return <><div className="edition-strip"><span>正在阅读</span><button className="edition active">{currentEdition.language} <strong>{currentEdition.label}</strong></button><button className="edition" onClick={() => { setSelectedBook(relatedBook); setCompare(false) }}>{relatedEdition.language} <strong>{relatedEdition.label}</strong></button><button className="link-edition" onClick={() => { void linkCurrentEdition() }}>＋ 关联译本</button></div>{compare ? <EditionComparisonReader left={currentEdition} right={relatedEdition} alignment={comparisonAlignment} leftContent={renderReader(selectedBook)} rightContent={renderReader(relatedBook)} onSwitch={(edition) => { const next = books.find((book) => book.id === edition.bookId); if (next) { setSelectedBook(next); setCompare(false) } }} /> : renderReader(selectedBook)}</>
           })()}
           {assistantOpen && <aside className="ai-panel"><div className="panel-top"><span>✦</span><strong>阅读助手</strong><button onClick={() => setAssistantOpen(false)}>×</button></div><p className="ai-label">ENGLISH → {language}</p><blockquote>“But freedom, she would learn, is a word with a thousand meanings, and some of them are cages.”</blockquote><section><h3>翻译</h3><p>但她后来会明白，自由这个词有一千种含义，其中有些，恰恰是牢笼。</p></section><section><h3>通俗解释</h3><p>自由并不总是轻松美好的。有时我们以为自己在选择，却被选择的代价、规则或恐惧困住了。</p></section><small>AI 解释仅供学习参考 · 本地 Demo</small></aside>}
           <div className="reader-bottom"><span>{selectedBook.progress}%</span><div><i style={{ width: `${selectedBook.progress}%` }} /></div><span>{selectedBook.fileName ? '进度已保存到本机' : '4 / 11'}</span><button onClick={() => toast('OCR 是下一步真实服务接入点')}>◎ 扫描页？识别文字</button></div>
