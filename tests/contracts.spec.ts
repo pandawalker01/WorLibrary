@@ -30,6 +30,13 @@ test('sync merges remote rows and uploads only metadata', async () => {
   expect(written?.books.map((book) => book.id)).toEqual(['local', 'remote'])
 })
 
+test('IndexedDB sync adapter releases each database connection after a transaction settles', async () => {
+  const source = await readFile('src/lib/sync.ts', 'utf8')
+  expect(source).toMatch(/transaction\.oncomplete = \(\) => \{\s*db\.close\(\)/)
+  expect(source).toMatch(/transaction\.onerror = \(\) => \{\s*db\.close\(\)/)
+  expect(source).toMatch(/transaction\.onabort = \(\) => \{\s*db\.close\(\)/)
+})
+
 test('sync uploads the merged winner instead of overwriting newer remote data', async () => {
   const localBook: StoredBook = { id: 'same', title: 'Local', author: 'Author', language: 'en', progress: 10, fileName: 'local.epub', fileType: 'application/epub+zip', fileSize: 12, storage: 'indexeddb', cover: 'ink', createdAt: Date.now() - 10_000 }
   const remoteBook = { id: 'same', title: 'Remote', author: 'Author', language: 'zh', progress: 80, file_name: 'remote.epub', file_type: 'application/epub+zip', file_size: 4, cover: 'red', created_at: new Date().toISOString(), updated_at: new Date().toISOString() }

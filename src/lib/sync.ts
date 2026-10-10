@@ -110,19 +110,53 @@ function openLocalDatabase(): Promise<IDBDatabase> {
 
 function readStore<T>(storeName: string): Promise<T[]> {
   return openLocalDatabase().then((db) => new Promise((resolve, reject) => {
-    const request = db.transaction(storeName, 'readonly').objectStore(storeName).getAll()
-    request.onerror = () => reject(request.error)
-    request.onsuccess = () => resolve(request.result as T[])
+    let result: T[] = []
+    try {
+      const transaction = db.transaction(storeName, 'readonly')
+      const request = transaction.objectStore(storeName).getAll()
+      transaction.oncomplete = () => {
+        db.close()
+        resolve(result)
+      }
+      transaction.onerror = () => {
+        db.close()
+        reject(transaction.error ?? request.error)
+      }
+      transaction.onabort = () => {
+        db.close()
+        reject(transaction.error ?? request.error ?? new Error(`读取 ${storeName} 被取消`))
+      }
+      request.onerror = () => transaction.abort()
+      request.onsuccess = () => { result = request.result as T[] }
+    } catch (error) {
+      db.close()
+      reject(error)
+    }
   }))
 }
 
 function replaceStore<T>(storeName: string, values: T[]): Promise<void> {
   return openLocalDatabase().then((db) => new Promise((resolve, reject) => {
-    const transaction = db.transaction(storeName, 'readwrite')
-    const store = transaction.objectStore(storeName)
-    for (const value of values) store.put(value)
-    transaction.onerror = () => reject(transaction.error)
-    transaction.oncomplete = () => resolve()
+    try {
+      const transaction = db.transaction(storeName, 'readwrite')
+      const store = transaction.objectStore(storeName)
+      for (const value of values) store.put(value)
+      transaction.oncomplete = () => {
+        db.close()
+        resolve()
+      }
+      transaction.onerror = () => {
+        db.close()
+        reject(transaction.error)
+      }
+      transaction.onabort = () => {
+        db.close()
+        reject(transaction.error ?? new Error(`写入 ${storeName} 被取消`))
+      }
+    } catch (error) {
+      db.close()
+      reject(error)
+    }
   }))
 }
 
