@@ -12,6 +12,7 @@ export type AiFeedback = {
  */
 export function aiFeedbackFor(error: unknown): AiFeedback {
   if (error instanceof AiGatewayError) {
+    const retryDelay = error.retryAfterSeconds ? `建议约 ${error.retryAfterSeconds} 秒后再试。` : ''
     switch (error.code) {
       case 'provider_unavailable':
         return { title: 'AI 服务暂不可用', detail: '请稍后重试；若持续出现，请检查部署配置。', retryable: true }
@@ -19,7 +20,7 @@ export function aiFeedbackFor(error: unknown): AiFeedback {
         return { title: 'AI 响应超时', detail: '服务响应较慢。请稍后重试，或缩短选中的文字。', retryable: true }
       case 'rate_limited':
       case 'provider_rate_limited':
-        return { title: 'AI 服务繁忙', detail: '请求过于频繁或供应商繁忙，请稍后重试。', retryable: true }
+        return { title: 'AI 服务繁忙', detail: `请求过于频繁或供应商繁忙，请稍后重试。${retryDelay}`, retryable: true }
       case 'quota_exceeded':
         return { title: '今日额度已用完', detail: '请明天再试，或联系管理员调整试用额度。', retryable: false }
       case 'unauthorized':

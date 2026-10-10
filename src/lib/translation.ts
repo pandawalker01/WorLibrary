@@ -9,6 +9,13 @@ function requestId() {
   return typeof crypto.randomUUID === 'function' ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(16).slice(2)}`
 }
 
+function retryAfterSeconds(response: Response) {
+  const raw = response.headers.get('retry-after')
+  if (!raw || !/^\d+$/.test(raw)) return undefined
+  const seconds = Number(raw)
+  return Number.isSafeInteger(seconds) && seconds > 0 ? seconds : undefined
+}
+
 export async function translateSelection(text: string, targetLanguage: string, options: { sourceLanguage?: string; context?: string; requestId?: string } = {}): Promise<TranslationResult> {
   const sourceLanguage = options.sourceLanguage || 'auto'
   const cacheKey = aiResultCacheKey('translation', text, targetLanguage, sourceLanguage, options.context)
@@ -23,7 +30,7 @@ export async function translateSelection(text: string, targetLanguage: string, o
     try { payload = await response.json() } catch { throw new AiGatewayError('invalid_response', '翻译服务返回了无效结果') }
     if (!response.ok) {
       const error = (payload as { error?: { code?: string; message?: string; retryable?: boolean } })?.error
-      throw new AiGatewayError(error?.code || 'gateway_error', error?.message || '翻译服务暂时不可用', error?.retryable || false)
+      throw new AiGatewayError(error?.code || 'gateway_error', error?.message || '翻译服务暂时不可用', error?.retryable || false, retryAfterSeconds(response))
     }
     const result = payload as Partial<TranslationResult>
     if (!result.translation) throw new AiGatewayError('invalid_response', '翻译服务返回了空结果')

@@ -1,5 +1,6 @@
 import { expect, test } from '@playwright/test'
-import { clearExplanationResultCache, explainSelection } from '../src/lib/explanation'
+import { aiFeedbackFor } from '../src/lib/ai-feedback'
+import { AiGatewayError, clearExplanationResultCache, explainSelection } from '../src/lib/explanation'
 import { clearTranslationResultCache, translateSelection } from '../src/lib/translation'
 
 test.afterEach(() => {
@@ -41,4 +42,26 @@ test('keeps explanation entries separate from translation entries and request co
 
   expect(calls).toBe(3)
   globalThis.fetch = originalFetch
+})
+
+test('preserves a server-provided retry-after value without inventing quota data', async () => {
+  const originalFetch = globalThis.fetch
+  globalThis.fetch = (async () => new Response(JSON.stringify({
+    error: { code: 'rate_limited', message: 'retry later', retryable: true },
+  }), {
+    status: 429,
+    headers: { 'content-type': 'application/json', 'retry-after': '45' },
+  })) as typeof fetch
+
+  try {
+    await translateSelection('Hello', '中文')
+    throw new Error('Expected translation to fail')
+  } catch (error) {
+    expect(error).toBeInstanceOf(AiGatewayError)
+    expect((error as AiGatewayError).code).toBe('rate_limited')
+    expect((error as AiGatewayError).retryAfterSeconds).toBe(45)
+    expect(aiFeedbackFor(error).detail).toContain('约 45 秒后再试')
+  } finally {
+    globalThis.fetch = originalFetch
+  }
 })
