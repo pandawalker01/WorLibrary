@@ -4,6 +4,7 @@ import { expect, test } from '@playwright/test'
 import type { Page } from '@playwright/test'
 
 const fixturePath = resolve('tests/fixtures/reader-fixture.epub.b64')
+const noNavigationFixturePath = resolve('tests/fixtures/no-navigation-fixture.epub.b64')
 
 async function importFixture(page: Page) {
   const encoded = await readFile(fixturePath, 'utf8')
@@ -13,6 +14,16 @@ async function importFixture(page: Page) {
     buffer: Buffer.from(encoded.trim(), 'base64'),
   })
   await expect(page.getByRole('heading', { name: 'reader fixture' })).toBeVisible()
+}
+
+async function importNoNavigationFixture(page: Page) {
+  const encoded = await readFile(noNavigationFixturePath, 'utf8')
+  await page.locator('input[type=file][accept*=".epub"]').setInputFiles({
+    name: 'no-navigation-fixture.epub',
+    mimeType: 'application/epub+zip',
+    buffer: Buffer.from(encoded.trim(), 'base64'),
+  })
+  await expect(page.getByRole('heading', { name: 'no nav fixture' })).toBeVisible()
 }
 
 test('P0: imported EPUB renders fixture content instead of demo content', async ({ page }) => {
@@ -66,6 +77,32 @@ test('P0: imported EPUB provides explicit pagination and reaches the next chapte
   await page.getByRole('button', { name: /reader fixture/i }).click()
   const restoredReader = page.frameLocator('.epub-reader-frame iframe')
   await expect(restoredReader.getByText('ORCHARD_FIXTURE_SECOND_PAGE')).toBeVisible({ timeout: 10_000 })
+})
+
+test('P1: imported EPUB always exposes a usable contents affordance', async ({ page }) => {
+  await page.goto('/')
+  await importFixture(page)
+  await page.getByRole('button', { name: /reader fixture/i }).click()
+  // The fixture has an NCX/navigation document. The reader normalizes nested
+  // entries and, for books without one, derives this list from the spine.
+  await expect(page.getByRole('button', { name: /目录 · \d+/ })).toBeVisible({ timeout: 10_000 })
+  await page.getByRole('button', { name: /目录 · \d+/ }).click()
+  await expect(page.getByRole('navigation', { name: '章节目录' })).toBeVisible()
+  await expect(page.getByRole('navigation', { name: '章节目录' }).getByRole('button').first()).toBeVisible()
+})
+
+test('P1: EPUB without a navigation document falls back to spine chapters', async ({ page }) => {
+  await page.goto('/')
+  await importNoNavigationFixture(page)
+  await page.getByRole('button', { name: /no nav fixture/i }).click()
+  const reader = page.frameLocator('.epub-reader-frame iframe')
+  await expect(reader.getByText('NO_NAV_FIXTURE_FIRST_PAGE')).toBeVisible({ timeout: 10_000 })
+  await expect(page.getByRole('button', { name: /目录 · 2/ })).toBeVisible({ timeout: 10_000 })
+  await page.getByRole('button', { name: /目录 · 2/ }).click()
+  const contents = page.getByRole('navigation', { name: '章节目录' })
+  await expect(contents.getByRole('button', { name: '第 2 节' })).toBeVisible()
+  await contents.getByRole('button', { name: '第 2 节' }).click()
+  await expect(reader.getByText('NO_NAV_FIXTURE_SECOND_PAGE')).toBeVisible({ timeout: 10_000 })
 })
 
 test('P1: EPUB font size and theme survive a refresh and reopening the book', async ({ page }) => {

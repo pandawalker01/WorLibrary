@@ -29,6 +29,31 @@ type Rendition = {
   destroy: () => void
 }
 
+type Chapter = { label: string; href: string; subitems?: Chapter[] }
+
+/** EPUB navigation is frequently nested (and occasionally has blank labels).
+ * Flatten it once so the compact reader menu remains usable on both EPUB 2 NCX
+ * and EPUB 3 nav documents. */
+function usableChapters(toc: Chapter[] | undefined, spine: Array<{ href?: string; idref?: string }> = []): Chapter[] {
+  const flattened: Array<{ label: string; href: string }> = []
+  const visit = (items: Chapter[], depth = 0) => items.forEach((item, index) => {
+    if (item.href) {
+      const fallback = `第 ${flattened.length + 1} 节`
+      const label = item.label?.replace(/\s+/g, ' ').trim() || fallback
+      flattened.push({ label: `${depth ? '　'.repeat(Math.min(depth, 3)) : ''}${label}`, href: item.href })
+    }
+    if (item.subitems?.length) visit(item.subitems, depth + 1)
+    // NCX producers sometimes create a label-only parent. Its children above
+    // remain navigable, which is preferable to hiding the whole navigation.
+    void index
+  })
+  if (toc?.length) visit(toc)
+  if (flattened.length) return flattened
+  return spine
+    .filter((item) => item.href)
+    .map((item, index) => ({ label: `第 ${index + 1} 节`, href: item.href! }))
+}
+
 function applyReaderPreferences(rendition: Rendition | undefined, preferences: ReaderPreferences) {
   if (!rendition?.themes) return
   const colors = preferences.theme === 'night'
@@ -86,12 +111,21 @@ export default function EpubReader({ book, onNotice, onProgress, onHighlightSave
         publication = loadedBook
         await loadedBook.ready
         if (!active || !mountRef.current) return
-        const navigation = await loadedBook.loaded.navigation
-        const toc = navigation.toc ?? []
+        const spineItems = ((loadedBook as any).spine?.spineItems ?? []) as Array<{ href?: string; idref?: string; load?: (request: unknown) => Promise<{ textContent?: string | null }>; unload?: () => void }>
+        // A surprising number of otherwise readable EPUBs omit a nav document
+        // altogether. epub.js rejects `loaded.navigation` in that case, so keep
+        // opening the book and derive a usable chapter list from its spine.
+        let navigation: { toc?: Chapter[] } | undefined
+        try {
+          navigation = await loadedBook.loaded.navigation as { toc?: Chapter[] }
+        } catch {
+          navigation = undefined
+        }
+        const toc = usableChapters(navigation?.toc, spineItems)
         setChapters(toc)
         // Build a local-only full text index once the EPUB is opened. The extracted text
         // never leaves IndexedDB and is not included in remote sync snapshots.
-        const sections = ((loadedBook as any).spine?.spineItems ?? []) as Array<{ load?: (request: unknown) => Promise<{ textContent?: string | null }>; unload?: () => void }>
+        const sections = spineItems
         const indexedText: string[] = []
         for (const section of sections) {
           if (!active || !section.load) break
@@ -115,7 +149,7 @@ export default function EpubReader({ book, onNotice, onProgress, onHighlightSave
           setReadingProgress(progress)
           setPageLabel(displayed?.page && displayed?.total ? `${displayed.page} / ${displayed.total}` : `${progress}%`)
           const href = location.start?.href
-          const chapter = toc.find((item) => href && (href === item.href || href.endsWith(item.href)))
+          const chapter = toc.find((item) => href && (href === item.href || href.endsWith(item.href) || item.href.endsWith(href)))
           setChapterLabel(chapter?.label ?? '')
           void saveReadingProgress(book.id, cfi, progress)
           onProgress(progress, cfi)
@@ -212,7 +246,7 @@ export default function EpubReader({ book, onNotice, onProgress, onHighlightSave
   return <div className={`epub-reader-shell reader-theme-${readerPreferences.theme}`} style={{ '--reader-font-scale': readerPreferences.fontScale } as CSSProperties}>
     <div className="epub-reader-toolbar">
       <span>{status || 'EPUB 本地阅读'}</span>
-      <div className="reader-toolbar-actions"><button onClick={() => setReaderPreferences((current) => ({ ...current, fontScale: clampFontScale(current.fontScale - 0.05) }))} aria-label="减小字号">A−</button><button onClick={() => setReaderPreferences((current) => ({ ...current, fontScale: clampFontScale(current.fontScale + 0.05) }))} aria-label="增大字号">A＋</button><button onClick={() => setReaderPreferences((current) => ({ ...current, theme: cycleTheme(current.theme) }))}>{readerThemeLabel(readerPreferences.theme)}</button>{chapters.length > 0 && <button onClick={() => setShowContents(!showContents)}>{showContents ? '收起目录' : `目录 · ${chapters.length}`}</button>}</div>
+      <div className="reader-toolbar-actions"><button onClick={() => setReaderPreferences((current) => ({ ...current, fontScale: clampFontScale(current.fontScale - 0.05) }))} aria-label="减小字号">A−</button><button onClick={() => setReaderPreferences((current) => ({ ...current, fontScale: clampFontScale(current.fontScale + 0.05) }))} aria-label="增大字号">A＋</button><button onClick={() => setReaderPreferences((current) => ({ ...current, theme: cycleTheme(current.theme) }))}>{readerThemeLabel(readerPreferences.theme)}</button>{chapters.length > 0 ? <button onClick={() => setShowContents(!showContents)}>{showContents ? '收起目录' : `目录 · ${chapters.length}`}</button> : <span className="epub-contents-unavailable" title="此 EPUB 未提供可用目录，可继续使用上一页、下一页阅读">目录不可用</span>}</div>
     </div>
     <div className="epub-navigation" aria-label="EPUB 翻页"><button aria-label="上一页" onClick={() => { void renditionRef.current?.prev?.() }} disabled={!renditionRef.current || readingProgress <= 0}>上一页</button><span data-testid="epub-progress">{chapterLabel ? `${chapterLabel} · ` : ''}{pageLabel || '准备阅读'}</span><button aria-label="下一页" onClick={() => { void renditionRef.current?.next?.() }} disabled={!renditionRef.current || readingProgress >= 100}>下一页</button></div>
     {pendingSelection && <div className="epub-selection-bar">

@@ -104,10 +104,10 @@ function blobToDataUrl(blob: Blob): Promise<string> {
   })
 }
 
-type EpubManifestItem = { href?: string; mediaType?: string; 'media-type'?: string }
+type EpubManifestItem = { id?: string; href?: string; properties?: string; mediaType?: string; 'media-type'?: string }
 type EpubPublication = {
   coverUrl?: () => Promise<string | undefined>
-  packaging?: { manifest?: Record<string, EpubManifestItem> }
+  packaging?: { manifest?: Record<string, EpubManifestItem>; metadata?: { cover?: string } }
   resolve?: (href: string) => string
   archive?: { getBlob?: (path: string) => Promise<Blob> | undefined }
 }
@@ -126,11 +126,23 @@ async function findManifestCover(publication: EpubPublication): Promise<string |
   const resolve = publication.resolve
   const getBlob = publication.archive?.getBlob?.bind(publication.archive)
   if (!manifest || !resolve || !getBlob) return undefined
+  const metadataCoverId = publication.packaging?.metadata?.cover
   const images = Object.values(manifest).filter((item) => (item.mediaType ?? item['media-type'] ?? '').startsWith('image/') && item.href)
-  images.sort((left, right) => Number(!/cover|title|front/i.test(left.href ?? '')) - Number(!/cover|title|front/i.test(right.href ?? '')))
+  images.sort((left, right) => {
+    const score = (item: EpubManifestItem) => {
+      if (item.id && item.id === metadataCoverId) return 0
+      if (/cover-image|cover/i.test(item.properties ?? '')) return 1
+      if (/cover|title|front/i.test(item.href ?? '')) return 2
+      return 3
+    }
+    return score(left) - score(right)
+  })
   for (const image of images) {
     try {
-      const cover = await imageDataUrl(await getBlob(resolve(image.href!)))
+      // ZIP paths vary between EPUB 2 and EPUB 3 producers. epub.js normally
+      // resolves them, but some archives only accept the manifest href.
+      const resolved = resolve(image.href!)
+      const cover = await imageDataUrl(await getBlob(resolved) ?? await getBlob(image.href!))
       if (cover) return cover
     } catch {
       // Continue through the manifest: one corrupt image should not hide a later cover.
