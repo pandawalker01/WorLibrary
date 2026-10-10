@@ -1,3 +1,5 @@
+import { createSupabaseJwtVerifier } from './supabase-jwt.mjs'
+
 const DEFAULT_LIMIT = 5_000
 const DEFAULT_DAILY_QUOTA = 20
 const DEFAULT_RATE_LIMIT = 10
@@ -89,11 +91,14 @@ function positiveNumber(value, fallback, { min = 1, max = Number.MAX_SAFE_INTEGE
   return Number.isFinite(parsed) && parsed >= min ? Math.min(parsed, max) : fallback
 }
 
-async function authenticateRequest(request, env, verifier) {
+async function authenticateRequest(request, env, verifier, required) {
   const authorization = request.headers.get('authorization') || ''
   const token = authorization.startsWith('Bearer ') ? authorization.slice(7).trim() : ''
-  if (verifier && token) return verifier(token, request)
-  if (env.AI_REQUIRE_AUTH === 'true' && !token) return null
+  if (token) {
+    if (!verifier) return null
+    try { return await verifier(token, request) } catch { return null }
+  }
+  if (required) return null
   return { id: token ? `token:${token.slice(0, 16)}` : clientKey(request), anonymous: !token }
 }
 
@@ -157,6 +162,14 @@ export function createAiGateway({ env = {}, fetchImpl = fetch, logger = console.
   const retryAttempts = Math.round(positiveNumber(env.AI_RETRY_ATTEMPTS || DEFAULT_RETRY_ATTEMPTS, DEFAULT_RETRY_ATTEMPTS, { max: 3 }))
   const retryDelayMs = positiveNumber(env.AI_RETRY_DELAY_MS || 1, 0, { min: 0, max: 2_000 })
   const callProvider = provider || makeProvider(env, fetchImpl)
+  const production = (env.AI_ENV || env.NODE_ENV || 'development') === 'production'
+  const requireAuth = production || env.AI_REQUIRE_AUTH === 'true'
+  const verifyIdentity = authVerifier || createSupabaseJwtVerifier({
+    secret: env.SUPABASE_JWT_SECRET,
+    issuer: env.SUPABASE_JWT_ISSUER,
+    audience: env.SUPABASE_JWT_AUDIENCE || 'authenticated',
+    now,
+  })
 
   return async function handle(request) {
     const requestId = requestIdFor(request)
@@ -171,7 +184,7 @@ export function createAiGateway({ env = {}, fetchImpl = fetch, logger = console.
     try { body = await request.json() } catch { return fail('invalid_request', cors) }
     const input = normaliseRequest(body, kind)
     if (input.error) return fail(input.error, cors)
-    const identityResult = await authenticateRequest(request, env, authVerifier)
+    const identityResult = await authenticateRequest(request, env, verifyIdentity, requireAuth)
     if (!identityResult?.id) return fail('unauthorized', cors)
     const identity = identityResult.id
     const nowValue = now()

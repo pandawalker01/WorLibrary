@@ -14,11 +14,20 @@
 | `AI_MODEL` | 模型名 | 按供应商可用模型设置 |
 | `AI_ENV` | 网关运行环境 | `production` |
 | `AI_REQUIRE_AUTH` | 是否强制 Bearer 鉴权 | 生产设为 `true` |
+| `SUPABASE_JWT_SECRET` | Supabase Auth 的 HS256 JWT secret | 生产必填，只保存在网关 Secret 中 |
+| `SUPABASE_JWT_ISSUER` | JWT `iss` 的精确值 | 建议设为 `https://<project-ref>.supabase.co/auth/v1` |
+| `SUPABASE_JWT_AUDIENCE` | JWT `aud` 的精确值 | 通常为 `authenticated` |
 | `ALLOWED_ORIGIN` | 浏览器来源 | 生产站点的精确 HTTPS Origin |
 
 可选的保护参数：`AI_TIMEOUT_MS`（每次上游请求，默认 12000，最大 120000）、`AI_RETRY_ATTEMPTS`（默认 2，最大 3）、`AI_RETRY_DELAY_MS`（默认 1，最大 2000）、`AI_RATE_LIMIT`（每用户每分钟，默认 10）、`AI_DAILY_QUOTA`（默认 20）和 `AI_CACHE_TTL_MS`（默认 24 小时）。无效或过大的数值会回退/限制在安全范围内。
 
 错误契约固定为 `{ error: { code, message, retryable } }`。上游 429 映射为 `provider_rate_limited`；上游 5xx/无效响应映射为 `provider_error`；超时映射为 `provider_timeout`。网关仅重试 `provider_error` 与 `provider_rate_limited`，不会重试鉴权或配置错误。
+
+## Supabase JWT 鉴权
+
+AI 与 OCR 网关会从 `Authorization: Bearer <access-token>` 提取 Supabase access token，并使用服务端 `SUPABASE_JWT_SECRET` 对 HS256 签名、`exp`、`nbf`、`sub` 进行校验；配置后还会校验 `iss` 与 `aud`。无 token、签名不正确、过期、或声明不匹配都会按统一错误契约返回 `unauthorized`，不会调用供应商，也不会回退为匿名身份。
+
+生产环境无条件要求该验证，即使误把 `AI_REQUIRE_AUTH` / `OCR_REQUIRE_AUTH` 配为 `false` 也不会放行。开发环境只有在显式关闭对应 `*_REQUIRE_AUTH` 时，才允许本地 mock 使用匿名请求。不要把浏览器的 anon key、service-role key 或任意自造 Bearer 字符串当作 JWT secret；JWT secret 仅应存于网关的 Secret 配置中。
 
 ## 本地开发 mock
 

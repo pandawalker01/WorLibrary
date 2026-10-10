@@ -1,8 +1,11 @@
+import { createSupabaseJwtVerifier } from './supabase-jwt.mjs'
+
 const DEFAULT_TIMEOUT_MS = 20_000
 const MAX_IMAGE_BYTES = 6 * 1024 * 1024
 
 const errors = {
   invalid_request: ['图片无效，请重新选择当前页后再试。', false, 400],
+  unauthorized: ['请先登录后再使用文字识别服务。', false, 401],
   request_too_large: ['图片过大，请缩小页面后重试。', false, 413],
   provider_unavailable: ['文字识别服务尚未配置，请稍后再试。', true, 503],
   provider_timeout: ['文字识别超时，请稍后重试。', true, 504],
@@ -61,13 +64,32 @@ function makeProvider(env, fetchImpl) {
   }
 }
 
-export function createOcrGateway({ env = {}, fetchImpl = fetch, logger = console.warn, provider } = {}) {
+async function authenticateRequest(request, verifier, required) {
+  const authorization = request.headers.get('authorization') || ''
+  const token = authorization.startsWith('Bearer ') ? authorization.slice(7).trim() : ''
+  if (token) {
+    if (!verifier) return null
+    try { return await verifier(token, request) } catch { return null }
+  }
+  return required ? null : { id: request.headers.get('x-anonymous-id') || 'anonymous', anonymous: true }
+}
+
+export function createOcrGateway({ env = {}, fetchImpl = fetch, logger = console.warn, provider, authVerifier, now = () => Date.now() } = {}) {
   const timeoutMs = numberOption(env.OCR_TIMEOUT_MS, DEFAULT_TIMEOUT_MS, 120_000)
   const callProvider = provider || makeProvider(env, fetchImpl)
+  const production = (env.OCR_ENV || env.NODE_ENV || 'development') === 'production'
+  const requireAuth = production || env.OCR_REQUIRE_AUTH === 'true'
+  const verifyIdentity = authVerifier || createSupabaseJwtVerifier({
+    secret: env.SUPABASE_JWT_SECRET,
+    issuer: env.SUPABASE_JWT_ISSUER,
+    audience: env.SUPABASE_JWT_AUDIENCE || 'authenticated',
+    now,
+  })
   return async function handle(request) {
     const cors = { 'access-control-allow-origin': env.ALLOWED_ORIGIN || '*', 'access-control-allow-headers': 'content-type, authorization', 'access-control-allow-methods': 'POST, OPTIONS' }
     if (request.method === 'OPTIONS') return new Response(null, { status: 204, headers: cors })
     if (request.method !== 'POST' || !new URL(request.url).pathname.endsWith('/ocr/page')) return new Response('Not found', { status: 404, headers: cors })
+    if (!await authenticateRequest(request, verifyIdentity, requireAuth)) return fail('unauthorized', cors)
     let input
     try { input = normaliseInput(await request.json()) } catch { return fail('invalid_request', cors) }
     if (input.error) return fail(input.error, cors)

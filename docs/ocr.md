@@ -2,6 +2,8 @@
 
 扫描 PDF 的识别入口位于 PDF 阅读器工具栏的“识别当前页”。它只将当前渲染页压缩为 JPEG 后发送至 `POST /api/ocr/page`；不会上传整本书，也不会把平台密钥放入浏览器。
 
+生产环境的 OCR 请求和 AI 请求一样必须携带经过 Supabase JWT 验证的 `Authorization: Bearer <access-token>`。网关验证失败会返回统一的 `unauthorized` 错误，不会把页面图片传给 OCR 供应商。JWT 的服务端变量和声明检查见 `docs/ai-gateway.md`。
+
 ## 环境变量
 
 | 变量 | 用途 |

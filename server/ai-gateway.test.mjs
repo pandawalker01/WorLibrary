@@ -1,6 +1,19 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import { createAiGateway } from './ai-gateway.mjs'
+import { createOcrGateway } from './ocr-gateway.mjs'
+
+function base64Url(value) {
+  return Buffer.from(value).toString('base64url')
+}
+
+async function signedToken(claims, secret = 'test-secret') {
+  const header = base64Url(JSON.stringify({ alg: 'HS256', typ: 'JWT' }))
+  const payload = base64Url(JSON.stringify(claims))
+  const key = await crypto.subtle.importKey('raw', new TextEncoder().encode(secret), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign'])
+  const signature = await crypto.subtle.sign('HMAC', key, new TextEncoder().encode(`${header}.${payload}`))
+  return `${header}.${payload}.${Buffer.from(signature).toString('base64url')}`
+}
 
 function request(path, body, headers = {}) {
   return new Request(`https://example.test${path}`, {
@@ -72,8 +85,8 @@ test('mock provider is development-only and never requires a browser key', async
 
   const production = createAiGateway({ env: { AI_PROVIDER: 'mock', AI_ENV: 'production' }, logger: () => {} })
   const blocked = await production(request('/api/translate', { text: 'hello', requestId: 'mock-production' }))
-  assert.equal(blocked.status, 503)
-  assert.equal((await blocked.json()).error.code, 'provider_unavailable')
+  assert.equal(blocked.status, 401)
+  assert.equal((await blocked.json()).error.code, 'unauthorized')
 })
 
 test('gateway retries only transient provider failures and validates bounded config', async () => {
@@ -126,4 +139,34 @@ test('auth, user rate limiting, and request idempotency are supported by adapter
   assert.equal(second.status, 200)
   assert.equal(calls, 1)
   assert.equal((await gateway(request('/api/translate', { text: 'other', requestId: 'limited' }, headers))).status, 429)
+})
+
+test('production requires a verifiable Supabase JWT and rejects arbitrary Bearer text', async () => {
+  const now = 1_750_000_000_000
+  let calls = 0
+  const env = { AI_ENV: 'production', SUPABASE_JWT_SECRET: 'test-secret', SUPABASE_JWT_ISSUER: 'https://project.supabase.co/auth/v1', SUPABASE_JWT_AUDIENCE: 'authenticated' }
+  const gateway = createAiGateway({ env, now: () => now, provider: async () => { calls += 1; return { translation: 'ok', provider: 'test' } }, logger: () => {} })
+  assert.equal((await gateway(request('/api/translate', { text: 'missing' }))).status, 401)
+  assert.equal((await gateway(request('/api/translate', { text: 'fake' }, { authorization: 'Bearer arbitrary-text' }))).status, 401)
+  const token = await signedToken({ sub: 'user-123', exp: now / 1000 + 60, iss: env.SUPABASE_JWT_ISSUER, aud: 'authenticated' })
+  assert.equal((await gateway(request('/api/translate', { text: 'verified' }, { authorization: `Bearer ${token}` }))).status, 200)
+  assert.equal(calls, 1)
+})
+
+test('expired or wrong-audience Supabase JWT never reaches AI or OCR providers', async () => {
+  const now = 1_750_000_000_000
+  const env = { AI_ENV: 'production', OCR_ENV: 'production', SUPABASE_JWT_SECRET: 'test-secret', SUPABASE_JWT_ISSUER: 'https://project.supabase.co/auth/v1', SUPABASE_JWT_AUDIENCE: 'authenticated' }
+  const expired = await signedToken({ sub: 'user-123', exp: now / 1000 - 1, iss: env.SUPABASE_JWT_ISSUER, aud: 'authenticated' })
+  const wrongAudience = await signedToken({ sub: 'user-123', exp: now / 1000 + 60, iss: env.SUPABASE_JWT_ISSUER, aud: 'anon' })
+  let aiCalls = 0
+  const gateway = createAiGateway({ env, now: () => now, provider: async () => { aiCalls += 1; return { translation: 'nope' } }, logger: () => {} })
+  assert.equal((await gateway(request('/api/translate', { text: 'expired' }, { authorization: `Bearer ${expired}` }))).status, 401)
+  assert.equal((await gateway(request('/api/translate', { text: 'wrong audience' }, { authorization: `Bearer ${wrongAudience}` }))).status, 401)
+  assert.equal(aiCalls, 0)
+  let ocrCalls = 0
+  const ocr = createOcrGateway({ env, now: () => now, provider: async () => { ocrCalls += 1; return { text: 'nope', provider: 'test' } }, logger: () => {} })
+  const image = 'data:image/png;base64,aGVsbG8='
+  const ocrRequest = new Request('https://example.test/api/ocr/page', { method: 'POST', headers: { 'content-type': 'application/json', authorization: `Bearer ${expired}` }, body: JSON.stringify({ image }) })
+  assert.equal((await ocr(ocrRequest)).status, 401)
+  assert.equal(ocrCalls, 0)
 })
