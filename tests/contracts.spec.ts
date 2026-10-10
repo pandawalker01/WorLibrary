@@ -79,7 +79,7 @@ test('translation gateway returns success, cache hits, provider failures and COR
   expect((await failure.json()).error.code).toBe('provider_timeout')
 })
 
-test('translation provider contract keeps keys server-side and blocks the development mock in production', async () => {
+test('translation provider contract keeps keys server-side and authenticates before exposing provider availability', async () => {
   const clientSource = await readFile('src/lib/translation.ts', 'utf8')
   const gatewaySource = await readFile('server/ai-gateway.mjs', 'utf8')
   expect(clientSource).not.toContain('AI_API_KEY')
@@ -92,8 +92,8 @@ test('translation provider contract keeps keys server-side and blocks the develo
     headers: { 'content-type': 'application/json', 'x-anonymous-id': 'contract' },
     body: JSON.stringify({ text: 'Hello', requestId: 'production-mock' }),
   }))
-  expect(response.status).toBe(503)
-  expect((await response.json()).error.code).toBe('provider_unavailable')
+  expect(response.status).toBe(401)
+  expect((await response.json()).error.code).toBe('unauthorized')
 })
 
 test('OCR contract uses a server-side provider, development mock, and stable timeout errors', async () => {
@@ -109,8 +109,8 @@ test('OCR contract uses a server-side provider, development mock, and stable tim
   expect((await success.json()).provider).toBe('mock')
   const production = createOcrGateway({ env: { OCR_PROVIDER: 'mock', OCR_ENV: 'production' }, logger: () => {} })
   const blocked = await production(new Request('https://app.example.com/api/ocr/page', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ image, requestId: 'ocr-prod' }) }))
-  expect(blocked.status).toBe(503)
-  expect((await blocked.json()).error.code).toBe('provider_unavailable')
+  expect(blocked.status).toBe(401)
+  expect((await blocked.json()).error.code).toBe('unauthorized')
   const timeout = createOcrGateway({ provider: ({ signal }) => new Promise((_, reject) => signal.addEventListener('abort', () => reject(Object.assign(new Error('aborted'), { name: 'AbortError' })))), env: { OCR_TIMEOUT_MS: '1' }, logger: () => {} })
   const timedOut = await timeout(new Request('https://app.example.com/api/ocr/page', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ image, requestId: 'ocr-timeout' }) }))
   expect(timedOut.status).toBe(504)
