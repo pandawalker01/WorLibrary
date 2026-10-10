@@ -1,12 +1,19 @@
 import { expect, test } from '@playwright/test'
 
-function pdfFixture() {
+function pdfFixture(pageTexts = ['PDF_FIXTURE_PAGE']) {
+  const pageObjectStart = 3
+  const fontObject = pageObjectStart + pageTexts.length
+  const contentObjectStart = fontObject + 1
+  const pageObjects = pageTexts.map((_, index) => `${pageObjectStart + index} 0 R`).join(' ')
   const objects = [
     '<< /Type /Catalog /Pages 2 0 R >>',
-    '<< /Type /Pages /Kids [3 0 R] /Count 1 >>',
-    '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 360 240] /Resources << /Font << /F1 4 0 R >> >> /Contents 5 0 R >>',
+    `<< /Type /Pages /Kids [${pageObjects}] /Count ${pageTexts.length} >>`,
+    ...pageTexts.map((_, index) => `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 360 240] /Resources << /Font << /F1 ${fontObject} 0 R >> >> /Contents ${contentObjectStart + index} 0 R >>`),
     '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>',
-    '<< /Length 44 >>\nstream\nBT /F1 18 Tf 40 180 Td (PDF_FIXTURE_PAGE) Tj ET\nendstream',
+    ...pageTexts.map((text) => {
+      const content = `BT /F1 18 Tf 40 180 Td (${text}) Tj ET`
+      return `<< /Length ${Buffer.byteLength(content)} >>\nstream\n${content}\nendstream`
+    }),
   ]
   let output = '%PDF-1.4\n'
   const offsets = [0]
@@ -73,4 +80,22 @@ test('P1: PDF OCR result is rendered once without affecting reader controls', as
   await expect(ocrResult).toContainText('PDF_FIXTURE_PAGE')
   await expect(page.getByRole('button', { name: '上一页' })).toBeDisabled()
   await expect(page.getByRole('button', { name: '下一页' })).toBeDisabled()
+})
+
+test('P0: two-page PDF restores the latest page after refreshing', async ({ page }) => {
+  await page.goto('/')
+  await page.locator('input[type=file][accept*=".pdf"]').setInputFiles({
+    name: 'pdf-progress.pdf',
+    mimeType: 'application/pdf',
+    buffer: pdfFixture(['PDF_PAGE_ONE', 'PDF_PAGE_TWO']),
+  })
+  await page.getByRole('button', { name: /pdf progress/i }).click()
+  await expect(page.getByText(/PDF 本地阅读 · 第 1 \/ 2 页 ·/)).toBeVisible({ timeout: 15_000 })
+  await page.getByRole('button', { name: '下一页' }).click()
+  await expect(page.getByText(/PDF 本地阅读 · 第 2 \/ 2 页 ·/)).toBeVisible({ timeout: 15_000 })
+  await page.waitForTimeout(300)
+
+  await page.reload()
+  await page.getByRole('button', { name: /pdf progress/i }).click()
+  await expect(page.getByText(/PDF 本地阅读 · 第 2 \/ 2 页 ·/)).toBeVisible({ timeout: 15_000 })
 })

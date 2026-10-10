@@ -32,6 +32,7 @@ type PdfPage = {
 export default function PdfReader({ book, onNotice, onProgress, targetLanguage = '中文', preferences, onHighlightSaved }: PdfReaderProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const textLayerRef = useRef<HTMLDivElement>(null)
+  const progressWriteRef = useRef(Promise.resolve())
   const [document, setDocument] = useState<PdfDocument>()
   const documentRef = useRef<PdfDocument | undefined>(undefined)
   const [page, setPage] = useState(Number(book.location?.replace('pdf:', '')) || 1)
@@ -103,11 +104,13 @@ export default function PdfReader({ book, onNotice, onProgress, targetLanguage =
       canvas.width = viewport.width
       canvas.height = viewport.height
       await pdfPage.render({ canvasContext: context, viewport }).promise
+      if (!active) return
       const textContent = await pdfPage.getTextContent()
+      if (!active) return
       setPageText(textContent.items.map((item) => item.str ?? '').join(' ').replace(/\s+/g, ' ').trim())
       const progress = Math.round((page / document.numPages) * 100)
       const location = `pdf:${page}`
-      void saveReadingProgress(book.id, location, progress)
+      progressWriteRef.current = progressWriteRef.current.catch(() => undefined).then(() => saveReadingProgress(book.id, location, progress))
       onProgress(progress, location)
     }).catch(() => onNotice('这一页 PDF 渲染失败，请尝试重新打开'))
     return () => { active = false }
