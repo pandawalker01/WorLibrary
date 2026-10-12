@@ -40,9 +40,10 @@ test('reader controls remain visible on a narrow screen', async ({ page }) => {
   await expect(page.getByRole('button', { name: '⇄ 对照阅读' })).toBeVisible()
   await expect(page.getByRole('button', { name: 'Aa' })).toBeVisible()
   await page.getByRole('button', { name: 'Aa' }).click()
-  await expect(page.getByRole('dialog', { name: '阅读排版' })).toBeVisible()
-  await page.getByRole('button', { name: '夜间' }).click()
-  await expect(page.getByRole('button', { name: '夜间' })).toHaveAttribute('aria-pressed', 'true')
+  const layoutPanel = page.getByRole('dialog', { name: '阅读排版' })
+  await expect(layoutPanel).toBeVisible()
+  await layoutPanel.getByRole('button', { name: '夜间' }).click()
+  await expect(layoutPanel.getByRole('button', { name: '夜间' })).toHaveAttribute('aria-pressed', 'true')
 })
 
 test('library filter controls expose reading and edition views', async ({ page }) => {
@@ -70,6 +71,7 @@ test('profile shows local reading stats and routes back to the library', async (
   await page.getByRole('navigation', { name: '主导航' }).getByRole('button', { name: '我的', exact: true }).click()
   await expect(page.getByRole('heading', { name: '我的阅读' })).toBeVisible()
   await expect(page.getByText('累计阅读')).toBeVisible()
+  await expect(page.getByRole('heading', { name: '阅读轨迹' })).toBeVisible()
   await expect(page.getByText('本地书籍')).toBeVisible()
   await expect(page.getByRole('button', { name: /Reader Fixture/ })).toBeVisible()
   await page.getByRole('button', { name: '书库 →' }).click()
