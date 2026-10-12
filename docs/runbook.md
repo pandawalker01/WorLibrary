@@ -4,6 +4,8 @@
 
 - [ ] `npm ci && npm run typecheck && npm run build` 全部通过。
 - [ ] `npm run quality` 生成 `test-results/release-report.json`；只有 `releaseReady: true` 才可发布。`blocked` 需要补齐部署配置，`failed` 需要修复代码或测试。
+- [ ] 在 GitHub 对应 environment 执行 `npm run validate:env -- --staging --deployment --json`；若缺失，仅补 `VERCEL_TOKEN`、`VERCEL_ORG_ID`、`VERCEL_PROJECT_ID` 到该 environment，绝不复制 production Secret 到 staging。
+- [ ] 若本次启用认证/同步、AI 或 OCR，再执行 `npm run validate:env -- --production --json`。`warnings` 表示特意关闭的可选能力；`missing` 或 `invalid` 表示不能启用该能力。记录变量名，不记录或截图变量值。
 - [ ] Playwright 冒烟覆盖书库搜索、阅读/对照、AI 解释入口和备份控件。
 - [ ] staging 可访问，HTTPS 和安全响应头齐全。
 - [ ] 在 staging 安装 WorLibrary；首次联网打开后断网刷新，确认应用壳可打开、离线提示可见、此前导入的 EPUB/PDF 仍可打开。

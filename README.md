@@ -33,7 +33,10 @@ npm run build
 - `docs/i18n-extension.md`：新增界面语言或 AI 理解语言的操作手册。
 - `AGENTS.md`：所有提交必须同步维护的文档规范。
 - `docs/deployment.md`：PWA 缓存策略、上线与回滚说明。
+- `docs/runbook.md`：发布检查、部署预检与故障处理。
 
 ## 当前边界
 
 书籍文件、封面、进度与摘录保存在本机的 OPFS / IndexedDB；Service Worker 只缓存应用壳和静态资源，绝不缓存或上传原始书籍。离线时可继续打开已导入书籍，联网后 AI、OCR 与同步功能恢复。真实 AI/OCR 与云端同步仍需按部署文档配置服务端环境变量。
+
+无需云配置也可以部署并使用本地阅读核心。运行 `npm run validate:env -- --staging --json` 可获得机器可读的已关闭能力与缺失项；完整认证、同步、AI/OCR 上线前使用 `npm run validate:env -- --production --json`。变量分类与安全边界见 `docs/deployment.md`，不要把任意密钥写入 `VITE_*` 或提交 `.env`。

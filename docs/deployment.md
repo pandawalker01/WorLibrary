@@ -21,21 +21,30 @@
 
 ### 环境变量契约
 
-复制 `.env.example` 到部署平台的环境变量面板（不要提交 `.env`）。在构建前可执行：
+复制 `.env.example` 到部署平台的环境变量面板（不要提交 `.env`）。预检只读取当前进程环境，不联网、不打印变量值或密钥；可用 JSON 输出让 CI/QA 精确识别缺失项：
 
 ```sh
-npm run validate:env
+# 本地优先的书架预览：云能力可不配，结果会给出明确 warnings。
+npm run validate:env -- --staging --json
+
+# 在 GitHub staging / production environment 内验证 Vercel 部署凭据。
+npm run validate:env -- --staging --deployment --json
+
+# 完整生产云服务：认证、同步、AI 与 OCR 均必须安全配置。
+npm run validate:env -- --production --json
 ```
 
-生产发布前执行 `npm run validate:env -- --production`。它会检查 Supabase URL/anon key、AI/OCR 网关、精确 HTTPS CORS Origin、生产模式、鉴权开关和 URL 格式；它也会拒绝占位值、`mock` 供应商、通配 CORS 与任何意外使用 `VITE_` 前缀的密钥。`VITE_SUPABASE_ANON_KEY` 可以出现在浏览器构建中；`AI_API_KEY`、`OCR_API_KEY`、Supabase service-role key 和部署平台 token 绝不能出现。
+`--staging` 的 Supabase、AI、OCR 都是独立的可选能力：完全未配置时，应用仍可部署并提供本地导入和离线阅读，JSON 的 `capabilities` 会标为 `disabled`，同时给出用户可读的 `warnings`。一旦填了其中任一变量，该能力会转为 `enabled`，预检会要求它的完整安全依赖，避免“页面看似已启用、实际半配置”的状态。AI 或 OCR 启用时，必须同时配置服务端 `SUPABASE_URL`、`SUPABASE_ANON_KEY`、`SUPABASE_JWT_SECRET`、精确 HTTPS `ALLOWED_ORIGIN`、`*_ENV=production` 与 `*_REQUIRE_AUTH=true`。
+
+`--production` 用于公开完整云服务，强制要求浏览器 Supabase 配置、AI/OCR 网关、精确 HTTPS CORS Origin、生产模式、鉴权开关和 URL 格式。它拒绝占位值、`mock` 供应商、通配 CORS 与任何意外使用 `VITE_` 前缀的密钥。`VITE_SUPABASE_ANON_KEY` 可以出现在浏览器构建中；`AI_API_KEY`、`OCR_API_KEY`、`SUPABASE_JWT_SECRET`、Supabase service-role key 和部署平台 token 绝不能出现。`--deployment` 只检查 Vercel 的 `VERCEL_TOKEN`、`VERCEL_ORG_ID`、`VERCEL_PROJECT_ID` 是否存在，不会读取或回显它们。
 
 ### 首次生产配置：最小操作清单
 
 1. 创建 Supabase 项目；在 SQL Editor 或 CLI 依序执行 `supabase/migrations/0001_initial_sync.sql`、`0002_production_hardening.sql`、`0003_ai_usage_ledger.sql`、`0004_ai_usage_quota_release.sql`，再按 `supabase/verify_rls.sql` 用两个真实测试用户验证隔离。
 2. 在前端部署项目（Vercel/Cloudflare 等）配置 `VITE_SUPABASE_URL` 与 `VITE_SUPABASE_ANON_KEY`。它们是浏览器公开配置；不要放 service-role key。
-3. 在 **AI/OCR 网关的服务端环境** 配置 `AI_*`、`OCR_*`、`SUPABASE_JWT_SECRET`、`SUPABASE_URL`、`SUPABASE_ANON_KEY` 与一个精确的 `ALLOWED_ORIGIN=https://你的域名`；两个 `*_ENV` 均为 `production`，`AI_REQUIRE_AUTH=true`。不要把这些 Secret 放入前端部署环境或仓库。
+3. 在 **AI/OCR 网关的服务端环境** 配置 `AI_*`、`OCR_*`、`SUPABASE_JWT_SECRET`、`SUPABASE_URL`、`SUPABASE_ANON_KEY` 与一个精确的 `ALLOWED_ORIGIN=https://你的域名`；两个 `*_ENV` 均为 `production`，`AI_REQUIRE_AUTH=true`、`OCR_REQUIRE_AUTH=true`。不要把这些 Secret 放入前端部署环境或仓库。
 4. 依次执行 `0003_ai_usage_ledger.sql` 和 `0004_ai_usage_quota_release.sql`。网关会使用已验证用户的 JWT 调用 `consume_ai_quota`，并在供应商失败时调用 `release_ai_quota`；生产环境缺少 `SUPABASE_URL` / `SUPABASE_ANON_KEY` 会在调用供应商前拒绝请求。该账本只记录用户、请求 ID、操作种类与状态，不保存原书、正文、图像或模型输出。
-5. 配置 GitHub `staging` / `production` environments 中的 Vercel 三项部署 Secret，并在 production environment 开启 required reviewers。随后在部署环境运行 `npm run validate:env -- --production` 与 `npm run test:production`。
+5. 配置 GitHub `staging` / `production` environments 中的 Vercel 三项部署 Secret，并在 production environment 开启 required reviewers。随后在部署环境运行 `npm run validate:env -- --staging --deployment`；完整云服务再运行 `npm run validate:env -- --production` 与 `npm run test:production`。
 
 完成第 1–3 步后，网页可以进行登录与同步；完成第 4 步对应的网关适配后，才可安全对外启用真实 AI/OCR。预检通过只说明变量格式正确，不替代真实 RLS、JWT、供应商与跨域连通性验收。
 
@@ -83,7 +92,7 @@ npx supabase db push
 
 `.github/workflows/ci.yml` 对 Pull Request 和 `main` 推送执行类型检查、构建和 Playwright Chromium 冒烟测试。预览发布需要在 GitHub 的 `staging` environment 配置 `VERCEL_TOKEN`、`VERCEL_ORG_ID`、`VERCEL_PROJECT_ID`；生产发布使用 `production` environment，并开启 required reviewers 作为人工确认。
 
-CI 还会检查登录/匿名试用契约、IndexedDB 与远端同步合并、翻译成功/失败与缓存、CORS、双译本低置信度回退，以及 migration 的 RLS 策略。预览 job 会在部署前显式检查 staging 三个 Vercel secret；缺失时直接失败并给出变量名。
+CI 还会检查登录/匿名试用契约、IndexedDB 与远端同步合并、翻译成功/失败与缓存、CORS、双译本低置信度回退，以及 migration 的 RLS 策略。质量 job 使用仅用于契约测试的假值，不连接真实 Supabase、AI 或 OCR 服务；预览和生产 job 都会在部署前以 `--staging --deployment` 显式检查各自 environment 的 Vercel 三个 Secret。缺失时只输出变量名，不输出值。
 
 ## 域名与安全头
 

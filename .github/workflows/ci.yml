@@ -31,8 +31,19 @@ jobs:
           VITE_SUPABASE_ANON_KEY: ci-anon-key
           AI_PROVIDER: openai
           AI_MODEL: ci-model
-          AI_API_KEY: ci-placeholder-not-a-secret
+          AI_API_KEY: ci-contract-only-key
           AI_BASE_URL: https://provider.example.test/v1
+          AI_ENV: production
+          AI_REQUIRE_AUTH: 'true'
+          OCR_PROVIDER: ci-ocr
+          OCR_API_KEY: ci-contract-only-key
+          OCR_BASE_URL: https://ocr.example.test/v1
+          OCR_ENV: production
+          OCR_REQUIRE_AUTH: 'true'
+          SUPABASE_URL: https://ci.example.test
+          SUPABASE_ANON_KEY: ci-anon-key
+          SUPABASE_JWT_SECRET: ci-contract-only-jwt-secret
+          ALLOWED_ORIGIN: https://ci.example.test
         run: npm run quality
 
   preview:
@@ -48,15 +59,12 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run build
-      - name: Validate staging secrets
+      - name: Validate staging deployment credentials
         env:
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
           VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
           VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
-        run: |
-          test -n "$VERCEL_TOKEN" || (echo 'Missing staging VERCEL_TOKEN' >&2; exit 1)
-          test -n "$VERCEL_ORG_ID" || (echo 'Missing staging VERCEL_ORG_ID' >&2; exit 1)
-          test -n "$VERCEL_PROJECT_ID" || (echo 'Missing staging VERCEL_PROJECT_ID' >&2; exit 1)
+        run: npm run validate:env -- --staging --deployment
       # Configure VERCEL_TOKEN, VERCEL_ORG_ID and VERCEL_PROJECT_ID in the staging environment.
       - uses: amondnet/vercel-action@v25
         with:
@@ -80,6 +88,12 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run build
+      - name: Validate production deployment credentials
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+        run: npm run validate:env -- --staging --deployment
       - id: deploy
         uses: amondnet/vercel-action@v25
         with:

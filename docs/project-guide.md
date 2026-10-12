@@ -58,6 +58,7 @@ WorLibrary 是本地优先的多语言阅读器：用户导入自己拥有的 EP
 | 认证与同步 | src/lib/auth.ts、src/lib/remote.ts、src/lib/sync.ts、src/components/AuthPanel.tsx | 匿名/魔法链接会话、远端行同步、队列与冲突处理 | 原始书籍不进入同步；RLS 是服务端最终边界 |
 | 国际化 | src/lib/i18n.ts 与各组件 | 界面语言和 AI 输出语言 | 先读 docs/i18n-extension.md；两种语言配置独立 |
 | API 与额度 | api/、server/、supabase/migrations/ | 网关、JWT 校验、额度扣减、健康检查 | 密钥仅在环境变量；额度操作需服务端原子化 |
+| 部署预检 | scripts/validate-env.mjs、.github/workflows/ci.yml | 区分本地优先 staging、完整生产云服务与 Vercel 部署凭据 | 不打印 Secret；AI/OCR 启用时必须同时校验 JWT、CORS 与持久化额度依赖 |
 | 样式 | src/*.css | 分区布局、阅读器与移动端适配 | 改动后检查桌面与 390px 窄屏用例 |
 | 无障碍与键盘阅读 | src/App.tsx、src/components/EpubReader.tsx、src/components/PdfReader.tsx、src/app.css | 焦点可见性、ARIA 当前/展开状态、Escape 关闭阅读器临时界面 | 同时检查中英文可访问名称，并运行 `tests/qa/accessibility.spec.ts` |
 
@@ -88,7 +89,7 @@ WorLibrary 是本地优先的多语言阅读器：用户导入自己拥有的 EP
 
 本地启动：npm install，然后 npm run dev。通常访问 http://localhost:5173；不要用 file:// 直接打开 index.html，也不要连接遗留的 Vite 端口。
 
-最低验证：npm run typecheck、npm run build，以及与改动范围匹配的 Playwright 用例。PWA 变更必须运行 `npx playwright test tests/qa/pwa-shell.spec.ts`，并在生产预览中验证 Service Worker 注册、离线提示与已导入书籍恢复。对跨模块功能，运行 npx playwright test。发布前还需参考 docs/runbook.md。
+最低验证：npm run typecheck、npm run build，以及与改动范围匹配的 Playwright 用例。部署配置改动还要运行 `npm run test:env`：`npm run validate:env -- --staging --json` 应明确列出被关闭的可选云能力，`npm run validate:env -- --staging --deployment --json` 应只检查 Vercel 凭据是否存在，完整云服务使用 `npm run validate:env -- --production --json`。PWA 变更必须运行 `npx playwright test tests/qa/pwa-shell.spec.ts`，并在生产预览中验证 Service Worker 注册、离线提示与已导入书籍恢复。对跨模块功能，运行 npx playwright test。发布前还需参考 docs/runbook.md。
 
 提交前必须阅读根目录 AGENTS.md 并更新受影响的文档。文档、测试和实现应进入同一次提交，使新 Agent 可以从仓库状态而非聊天记录恢复上下文。
 
