@@ -96,9 +96,11 @@ test('P1: PDF OCR result is selectable and reuses translation and excerpt paths'
   await expect(page.getByText('OCR 测试译文')).toBeVisible()
   await expect(page.getByRole('button', { name: '保存选中' })).toBeEnabled()
   await page.getByRole('button', { name: '保存选中' }).click()
-  await expect(page.getByRole('status')).toContainText('PDF 局部文字已保存到摘录空间')
   await expect(page.getByRole('button', { name: '上一页' })).toBeDisabled()
   await expect(page.getByRole('button', { name: '下一页' })).toBeDisabled()
+  await page.getByRole('button', { name: '摘录' }).click()
+  await expect(page.getByRole('heading', { name: '摘录空间' })).toBeVisible()
+  await expect(page.getByText('PDF_FIXTURE_PAGE OCR', { exact: true })).toBeVisible()
 })
 
 test('P1: PDF OCR failure keeps the page and offers an inline retry', async ({ page }) => {

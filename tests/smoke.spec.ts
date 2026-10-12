@@ -69,7 +69,7 @@ test('reader, comparison and explanation flow are available', async ({ page }) =
 test('settings and backup controls are reachable', async ({ page }) => {
   await page.goto('/')
   await page.getByRole('button', { name: '设置' }).click()
-  await expect(page.getByRole('heading', { name: '你的阅读语言' })).toBeVisible()
+  await expect(page.locator('#reading-language-title')).toHaveText(/^(理解语言|Reading language)$/)
   await expect(page.getByRole('heading', { name: '账号与同步' })).toBeVisible()
   await expect(page.getByRole('status')).toContainText('本地优先')
   await expect(page.getByText('原始 EPUB/PDF 文件和封面始终留在本机。')).toBeVisible()

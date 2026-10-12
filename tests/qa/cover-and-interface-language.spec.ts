@@ -86,7 +86,7 @@ test('P0: interface locale survives refresh without changing the AI understandin
 
   await page.goto('/')
   await page.getByRole('button', { name: '设置' }).click()
-  await expect(page.getByRole('heading', { name: '界面语言' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: '界面语言', exact: true })).toBeVisible()
   await page.getByRole('button', { name: '界面语言：English' }).click()
   await expect(page.getByRole('heading', { name: 'Your reading language' })).toBeVisible()
   await expect(page.getByRole('button', { name: 'Understanding language: 中文' })).toBeVisible()
