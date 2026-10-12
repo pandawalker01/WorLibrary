@@ -88,6 +88,55 @@ test('P0: standard EPUB cover survives import, refresh and reopening the library
   await expect(shelfCover).toHaveAttribute('src', /^data:image\/png;base64,/)
 })
 
+test('P0: an old imported EPUB without a stored cover can recover its original cover', async ({ page }) => {
+  await page.goto('/')
+  await importCoverFixture(page)
+  await page.evaluate(async () => {
+    await new Promise<void>((resolve, reject) => {
+      const open = indexedDB.open('wor-library')
+      open.onerror = () => reject(open.error)
+      open.onsuccess = () => {
+        const db = open.result
+        const transaction = db.transaction('books', 'readwrite')
+        const store = transaction.objectStore('books')
+        const request = store.getAll()
+        request.onerror = () => reject(request.error)
+        request.onsuccess = () => {
+          const book = request.result[0]
+          delete book.coverImage
+          delete book.coverSource
+          store.put(book)
+        }
+        transaction.oncomplete = () => { db.close(); resolve() }
+        transaction.onerror = () => { db.close(); reject(transaction.error) }
+      }
+    })
+  })
+  await page.reload()
+  await expect(page.getByRole('img', { name: 'Cover Fixture 封面' })).not.toBeVisible()
+  await expect(page.locator('.book-card').first()).toContainText('Cover Fixture')
+  await page.getByRole('button', { name: '设置' }).click()
+  await page.getByRole('button', { name: '重新读取封面' }).click()
+  await expect(page.locator('.toast')).toContainText('已从 EPUB 重新读取原书封面')
+  await page.getByRole('button', { name: '01 书库' }).click()
+  await expect(page.getByRole('img', { name: 'Cover Fixture 封面' })).toBeVisible()
+})
+
+test('P1: refreshing an EPUB never overwrites a reader-uploaded cover', async ({ page }) => {
+  await page.goto('/')
+  await importCoverFixture(page)
+  await page.getByRole('button', { name: '设置' }).click()
+  await page.getByRole('button', { name: '上传本地封面' }).click()
+  await page.locator('input[accept="image/*"]').setInputFiles({
+    name: 'custom-cover.png', mimeType: 'image/png', buffer: Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Y9Jc8AAAAAASUVORK5CYII=', 'base64'),
+  })
+  await expect(page.locator('.toast')).toContainText('已设置本地书籍封面')
+  await page.getByRole('button', { name: '重新读取封面' }).click()
+  await expect(page.locator('.toast')).toContainText('已保留你上传的本地封面')
+  await page.getByRole('button', { name: '01 书库' }).click()
+  await expect(page.getByRole('img', { name: 'Cover Fixture 封面' })).toHaveAttribute('src', /^data:image\/png;base64,/)
+})
+
 test('P0: imported EPUB provides explicit pagination and reaches the next chapter', async ({ page }) => {
   await page.goto('/')
   await importFixture(page)

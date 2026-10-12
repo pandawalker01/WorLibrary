@@ -9,6 +9,8 @@ export type StoredBook = {
   cover: CoverTone
   /** A small, locally stored data URL extracted from the EPUB package. Never synced. */
   coverImage?: string
+  /** Distinguishes an EPUB-supplied cover from an image the reader uploaded. */
+  coverSource?: 'embedded' | 'custom'
   fileName: string
   fileType: string
   fileSize: number
@@ -273,6 +275,7 @@ export async function saveBook(file: File, index: number): Promise<StoredBook> {
     progress: 0,
     cover: (['ink', 'sun', 'red'] as CoverTone[])[index % 3],
     coverImage: metadata.coverImage,
+    coverSource: metadata.coverImage ? 'embedded' : undefined,
     fileName: file.name,
     fileType: file.type || `application/${extension}`,
     fileSize: file.size,
@@ -316,14 +319,20 @@ export async function updateBookMetadata(bookId: string, input: Pick<StoredBook,
 }
 
 /** Re-read only the embedded EPUB cover for books imported before cover support existed. */
-export async function refreshBookCover(bookId: string): Promise<StoredBook> {
+export async function refreshBookCover(bookId: string, options: { replaceLegacyCover?: boolean } = {}): Promise<StoredBook> {
   const current = await transaction<StoredBook | undefined>(BOOKS_STORE, 'readonly', (store) => store.get(bookId))
   if (!current) throw new Error('找不到这本本地书籍，请刷新后重试')
   if (extensionOf(current.fileName) !== 'epub') throw new Error('目前只能从 EPUB 中重新读取封面')
+  if (current.coverSource === 'custom') throw new Error('已保留你上传的本地封面，不会被 EPUB 封面覆盖')
+  // Older releases did not record the source. Do not overwrite a legacy image
+  // without a visible confirmation from the settings UI.
+  if (current.coverImage && !current.coverSource && !options.replaceLegacyCover) {
+    throw new Error('这本书已有较早导入的封面，请确认后再用 EPUB 原书封面替换')
+  }
   const file = await getBookFile(current)
   const { coverImage } = await readImportedMetadata(file, 'epub')
   if (!coverImage) throw new Error('这本 EPUB 未提供可用封面，将继续使用书架色块')
-  const updated = { ...current, coverImage }
+  const updated = { ...current, coverImage, coverSource: 'embedded' as const }
   await transaction(BOOKS_STORE, 'readwrite', (store) => store.put(updated))
   return updated
 }
@@ -334,7 +343,7 @@ export async function updateBookCover(bookId: string, file: File): Promise<Store
   if (!current) throw new Error('找不到这本本地书籍，请刷新后重试')
   if (!file.type.startsWith('image/')) throw new Error('请选择图片文件作为封面')
   if (file.size > MAX_COVER_BYTES) throw new Error('封面图片不能超过 2 MB')
-  const updated = { ...current, coverImage: await blobToDataUrl(file) }
+  const updated = { ...current, coverImage: await blobToDataUrl(file), coverSource: 'custom' as const }
   await transaction(BOOKS_STORE, 'readwrite', (store) => store.put(updated))
   return updated
 }
