@@ -44,7 +44,7 @@ export function saveReadingLanguage(language: ReadingLanguage): void {
 
 export const copy = {
   'zh-CN': {
-    library: '书库', highlights: '摘录', profile: '我的', settings: '设置', offlineReady: '离线可读', offlineNow: '当前离线',
+    library: '书库', highlights: '摘录', profile: '我的', settings: '设置', account: '个人账户', signIn: '登录', guestAccount: '访客', offlineReady: '离线可读', offlineNow: '当前离线',
     offlineBanner: '当前离线：已导入的本地书籍仍可阅读；翻译、OCR 与同步将在联网后恢复。',
     updateReady: '有新版本可用', updateNow: '立即更新',
     interfaceLanguage: '界面语言', readingLanguage: '理解语言', importBook: '导入书籍',
@@ -71,7 +71,7 @@ export const copy = {
     accountSync: '账号与同步', syncLocal: '本地优先 · 尚未配置云端同步', syncPrivacy: '仅同步阅读进度、摘录与书籍信息；原始 EPUB/PDF 文件和封面始终留在本机。',
   },
   en: {
-    library: 'Library', highlights: 'Highlights', profile: 'Me', settings: 'Settings', offlineReady: 'Offline ready', offlineNow: 'Offline',
+    library: 'Library', highlights: 'Highlights', profile: 'Me', settings: 'Settings', account: 'Account', signIn: 'Sign in', guestAccount: 'Guest', offlineReady: 'Offline ready', offlineNow: 'Offline',
     offlineBanner: 'You are offline: imported books remain readable; translation, OCR, and sync resume when you reconnect.',
     updateReady: 'A new version is ready', updateNow: 'Update now',
     interfaceLanguage: 'Interface', readingLanguage: 'Reading language', importBook: 'Import book',

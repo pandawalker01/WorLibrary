@@ -39,6 +39,13 @@ function formatReadingTime(seconds: number, locale: 'zh-CN' | 'en'): string {
   return hours > 0 ? `${hours} 小时 ${remainingMinutes} 分` : `${minutes} 分钟`
 }
 
+function accountIdentity(session: AuthSession | null, signedOutLabel: string, guestLabel: string) {
+  if (!session) return { label: signedOutLabel, initials: 'WL' }
+  if (session.user.isAnonymous) return { label: guestLabel, initials: 'G' }
+  const email = session.user.email ?? guestLabel
+  return { label: email.split('@')[0], initials: email.slice(0, 2).toUpperCase() }
+}
+
 function App() {
   const [books, setBooks] = useState<DisplayBook[]>([])
   const [view, setView] = useState<View>('library')
@@ -68,6 +75,7 @@ function App() {
   const coverInput = useRef<HTMLInputElement>(null)
   const syncTimer = useRef<number | undefined>(undefined)
   const ui = copy[uiLocale]
+  const account = accountIdentity(session, ui.signIn, ui.guestAccount)
 
   const syncNow = useCallback(async () => {
     if (!session) return
@@ -289,6 +297,7 @@ function App() {
           <div className="top-actions">
             <button className="text-button" onClick={() => setView('settings')}>{ui.readingLanguage}：<strong>{language}</strong>⌄</button>
             <button className="round-button" onClick={importBooks} aria-label={ui.importBook}>＋</button>
+            <button className="account-button" onClick={() => setView('settings')} aria-label={`${ui.account}: ${account.label}`} title={ui.account}><span aria-hidden="true">{account.initials}</span><strong>{account.label}</strong></button>
           </div>
         </header>
 

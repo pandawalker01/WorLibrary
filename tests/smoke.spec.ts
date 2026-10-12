@@ -88,3 +88,10 @@ test('settings and backup controls are reachable', async ({ page }) => {
   await expect(page.getByRole('button', { name: '导出阅读数据' })).toBeVisible()
   await expect(page.getByRole('button', { name: '导入阅读数据' })).toBeVisible()
 })
+
+test('top account avatar leads to account settings', async ({ page }) => {
+  await page.goto('/')
+  await page.getByRole('button', { name: '个人账户: 登录' }).click()
+  await expect(page.getByRole('heading', { name: '阅读与界面语言' })).toBeVisible()
+  await expect(page.getByRole('region', { name: '账号与同步' })).toBeVisible()
+})
