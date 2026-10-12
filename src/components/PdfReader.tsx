@@ -50,6 +50,7 @@ export default function PdfReader({ book, onNotice, onProgress, targetLanguage =
   const [translating, setTranslating] = useState(false)
   const [ocrStatus, setOcrStatus] = useState<'idle' | 'uploading' | 'recognizing' | 'error'>('idle')
   const [ocrText, setOcrText] = useState('')
+  const [ocrDraft, setOcrDraft] = useState('')
   const [aiFeedback, setAiFeedback] = useState<AiFeedback>()
   const [readerPreferences, setReaderPreferences] = useState<ReaderPreferences>(() => ({ ...loadReaderPreferences(), ...preferences }))
 
@@ -94,6 +95,7 @@ export default function PdfReader({ book, onNotice, onProgress, targetLanguage =
     setTranslation('')
     setAiFeedback(undefined)
     setOcrText('')
+    setOcrDraft('')
     setOcrStatus('idle')
   }, [page])
 
@@ -231,12 +233,22 @@ export default function PdfReader({ book, onNotice, onProgress, targetLanguage =
       setOcrStatus('recognizing')
       const result = await recognizePage(image)
       setOcrText(result.text)
+      setOcrDraft(result.text)
       setOcrStatus('idle')
       onNotice('当前页文字识别完成，仅上传本页图片')
     } catch (error) {
       setOcrStatus('error')
       onNotice(error instanceof Error ? error.message : '文字识别失败，请稍后重试')
     }
+  }
+
+  function confirmOcrCorrection() {
+    const corrected = ocrDraft.trim()
+    if (!corrected) return
+    setOcrText(corrected)
+    setSelectedText('')
+    window.getSelection()?.removeAllRanges()
+    onNotice(ui.ocrCorrectionSaved)
   }
 
   return <div className={`pdf-reader-shell reader-theme-${readerPreferences.theme}`} style={{ '--reader-font-scale': readerPreferences.fontScale } as CSSProperties}>
@@ -246,6 +258,9 @@ export default function PdfReader({ book, onNotice, onProgress, targetLanguage =
     {translation && <div className="pdf-translation-result"><span>{ui.translation}</span>{translation}</div>}
     {ocrText && <section className="pdf-text-layer pdf-ocr-result" aria-label={ui.ocrPageText}>
       <div className="pdf-ocr-result-heading" role="status"><strong>{ui.ocrResults}</strong><span>{ui.ocrResultsCopy}</span></div>
+      <label className="pdf-ocr-correction-label" htmlFor="pdf-ocr-correction">{ui.ocrCorrectionLabel}</label>
+      <textarea id="pdf-ocr-correction" className="pdf-ocr-correction-input" value={ocrDraft} onChange={(event) => setOcrDraft(event.target.value)} aria-describedby="pdf-ocr-correction-help" />
+      <div className="pdf-ocr-correction-actions"><span id="pdf-ocr-correction-help">{ocrDraft.trim() === ocrText ? ui.ocrCorrectionReady : ui.ocrCorrectionPending}</span><button disabled={!ocrDraft.trim() || ocrDraft.trim() === ocrText} onClick={confirmOcrCorrection}>{ui.confirmOcrCorrection}</button></div>
       <div ref={ocrTextRef} className="pdf-ocr-selectable-text" tabIndex={0} onMouseUp={captureSelection} onKeyUp={captureSelection}>{ocrText}</div>
     </section>}
     {aiFeedback && <div className="ai-request-feedback" role="status"><strong>{aiFeedback.title}</strong><span>{aiFeedback.detail}</span>{aiFeedback.retryable && selectedText && <button onClick={() => { void translateSelectedText() }}>重试翻译</button>}</div>}

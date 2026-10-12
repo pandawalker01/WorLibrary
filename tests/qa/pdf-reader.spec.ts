@@ -63,7 +63,9 @@ test('P1: PDF reading preferences survive refresh and reopening', async ({ page 
 
 test('P1: PDF OCR result is selectable and reuses translation and excerpt paths', async ({ page }) => {
   await page.goto('/')
+  let translatedText = ''
   await page.route('**/api/translate', async (route) => {
+    translatedText = String(route.request().postDataJSON().text)
     await route.fulfill({ contentType: 'application/json', body: JSON.stringify({ translation: 'OCR 测试译文', sourceLanguage: 'English', targetLanguage: '中文', provider: 'test', requestId: 'ocr-selection-translation' }) })
   })
   await page.route('**/api/ocr/page', async (route) => {
@@ -81,7 +83,11 @@ test('P1: PDF OCR result is selectable and reuses translation and excerpt paths'
   await expect(ocrResult).toHaveCount(1, { timeout: 15_000 })
   await expect(ocrResult).toContainText('识别结果')
   await expect(ocrResult).toContainText('PDF_FIXTURE_PAGE')
-  await expect(ocrResult).toContainText('可选择、复制、翻译或保存为摘录')
+  await expect(ocrResult).toContainText('校正并确认后，可选择、复制、翻译或保存为摘录')
+  await page.getByLabel('校正识别文字').fill('PDF_FIXTURE_PAGE OCR 校正后')
+  await expect(page.getByRole('button', { name: '确认校正' })).toBeEnabled()
+  await page.getByRole('button', { name: '确认校正' }).click()
+  await expect(page.locator('.pdf-ocr-selectable-text')).toHaveText('PDF_FIXTURE_PAGE OCR 校正后')
   await page.locator('.pdf-ocr-selectable-text').evaluate((node) => {
     const selection = node.ownerDocument?.defaultView?.getSelection()
     const range = node.ownerDocument?.createRange()
@@ -94,13 +100,14 @@ test('P1: PDF OCR result is selectable and reuses translation and excerpt paths'
   await expect(page.getByRole('button', { name: '翻译' })).toBeVisible()
   await page.getByRole('button', { name: '翻译' }).click()
   await expect(page.getByText('OCR 测试译文')).toBeVisible()
+  expect(translatedText).toBe('PDF_FIXTURE_PAGE OCR 校正后')
   await expect(page.getByRole('button', { name: '保存选中' })).toBeEnabled()
   await page.getByRole('button', { name: '保存选中' }).click()
   await expect(page.getByRole('button', { name: '上一页' })).toBeDisabled()
   await expect(page.getByRole('button', { name: '下一页' })).toBeDisabled()
   await page.getByRole('button', { name: '摘录' }).click()
   await expect(page.getByRole('heading', { name: '摘录空间' })).toBeVisible()
-  await expect(page.getByText('PDF_FIXTURE_PAGE OCR', { exact: true })).toBeVisible()
+  await expect(page.getByText('PDF_FIXTURE_PAGE OCR 校正后', { exact: true })).toBeVisible()
 })
 
 test('P1: PDF OCR failure keeps the page and offers an inline retry', async ({ page }) => {

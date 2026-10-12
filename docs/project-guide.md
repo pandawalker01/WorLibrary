@@ -11,7 +11,7 @@ WorLibrary 是本地优先的多语言阅读器：用户导入自己拥有的 EP
 当前已实现的关键能力：
 
 - EPUB 与 PDF 本地导入、书架持久化、原始文件保存、阅读位置恢复。
-- EPUB 目录、分页、字号与主题；PDF 翻页、键盘翻页、按页 OCR 和 OCR 失败重试。
+- EPUB 目录、分页、字号与主题；PDF 翻页、键盘翻页、按页 OCR、OCR 本地校正和 OCR 失败重试。
 - 选中文字后的翻译、解释、保存摘录、颜色和笔记编辑。
 - 手动关联版本、双栏对照及低置信度回退。
 - EPUB 内嵌原始封面提取；旧书可在设置中重新读取封面；用户上传的自定义封面不会被覆盖。
@@ -50,11 +50,11 @@ WorLibrary 是本地优先的多语言阅读器：用户导入自己拥有的 EP
 | PWA 离线壳 | src/main.tsx、public/manifest.webmanifest、public/sw.js、public/offline.html | 注册 Service Worker、应用安装元数据、静态资源缓存、离线回退和更新激活 | 只缓存应用壳/静态资源；绝不缓存 API、Supabase、原始书籍文件或用户正文 |
 | 本地书库 | src/lib/storage.ts | 文件保存、书籍元数据、封面、进度、摘录、导入导出、作品/版本关系 | 修改 StoredBook 或备份格式时兼容旧记录，并补迁移/回归 |
 | EPUB 阅读器 | src/components/EpubReader.tsx、src/epub-reader.css | EPUB 打开、目录、分页、位置、选区操作 | EPUB 的位置用 CFI；测试刷新恢复和无目录回退 |
-| PDF 阅读器 | src/components/PdfReader.tsx、src/pdf-reader.css | PDF 渲染、页面位置、键盘控制、OCR 入口 | 不阻塞翻页；OCR 失败必须能重试且保留页面 |
+| PDF 阅读器 | src/components/PdfReader.tsx、src/pdf-reader.css | PDF 渲染、页面位置、键盘控制、OCR 入口与本地校正 | 不阻塞翻页；OCR 失败必须能重试且保留页面；草稿只有点击确认后才能用于翻译或摘录 |
 | 摘录 | src/components/HighlightsView.tsx、src/highlights.css | 列表、搜索、筛选、笔记、颜色、删除 | 保存后要验证刷新与同步语义 |
 | 多版本对照 | src/components/EditionComparisonReader.tsx、src/lib/edition.ts | 关联版本、章节/段落对齐、双栏降级 | 不要强制不可靠的句对句同步 |
 | AI 客户端 | src/lib/translation.ts、src/lib/explanation.ts、src/lib/ai-result-cache.ts | 调网关、缓存、错误与重试信息 | 浏览器不能保存供应商密钥；仅传选区和必要上下文 |
-| OCR 客户端 | src/lib/ocr.ts | 当前 PDF 页转数据并请求 OCR | 只发送用户主动选定的页；不要上传整本书 |
+| OCR 客户端 | src/lib/ocr.ts、docs/ocr.md | 当前 PDF 页转数据并请求 OCR | 只发送用户主动选定的页；不要上传整本书；校正草稿不可自动发给 AI |
 | 认证与同步 | src/lib/auth.ts、src/lib/remote.ts、src/lib/sync.ts、src/components/AuthPanel.tsx | 匿名/魔法链接会话、远端行同步、队列与冲突处理 | 原始书籍不进入同步；RLS 是服务端最终边界 |
 | 国际化 | src/lib/i18n.ts 与各组件 | 界面语言和 AI 输出语言 | 先读 docs/i18n-extension.md；两种语言配置独立 |
 | API 与额度 | api/、server/、supabase/migrations/ | 网关、JWT 校验、额度扣减、健康检查 | 密钥仅在环境变量；额度操作需服务端原子化 |

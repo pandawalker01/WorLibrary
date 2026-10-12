@@ -17,3 +17,9 @@
 开发环境的 `OCR_PROVIDER=mock` 返回确定性模拟文本，不访问网络。生产环境会拒绝 mock 或缺少 provider 配置，并返回 `provider_unavailable`。接口错误格式为 `{ error: { code, message, retryable } }`，超时固定为 `provider_timeout`。
 
 实际 provider 需实现 `POST {OCR_BASE_URL}/ocr`，接受 `{ image, mimeType, language }`，返回 `{ text, confidence? }`。密钥只在网关环境中读取；日志仅记录请求状态、provider 和 request id，不记录图片或识别正文。
+
+## 本地校正流程
+
+识别成功后，PDF 阅读器会同时展示“已确认文字”和可编辑的“校正识别文字”输入区。初始识别结果已经可以选取使用；用户修改输入区后，必须点击“确认校正”，才会替换后续选取、翻译和保存摘录使用的文字。这样在编辑中途不会误把未确认草稿发给 AI 或写入摘录。
+
+校正文本只存在当前打开的 PDF 页面和当前浏览器会话中：翻页、刷新或重新打开后不保留未保存草稿。用户通过“保存选中”写入的摘录则是正常本地数据，会按既有摘录规则在刷新后恢复；OCR 图片和整本 PDF 不会因为校正流程额外上传或同步。

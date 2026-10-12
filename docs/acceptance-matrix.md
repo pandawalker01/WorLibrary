@@ -22,6 +22,7 @@ npm run qa
 | EPUB 阅读偏好恢复 | 字号和主题在刷新、重新打开后保持一致 | `tests/qa/import-open.spec.ts` |
 | PDF 导入、打开与翻页 | PDF 渲染真实页面；工具栏、键盘和页码边界均可用 | `tests/qa/pdf-reader.spec.ts` |
 | PDF 阅读偏好恢复 | 字号、主题与缩放在刷新、重新打开后保持一致 | `tests/qa/pdf-reader.spec.ts` |
+| PDF OCR 本地校正 | 用户可编辑识别文字并确认；后续翻译请求与保存摘录使用确认后的文字，不会使用未确认草稿 | `tests/qa/pdf-reader.spec.ts` |
 | 阅读位置恢复 | PDF 切换到第二页后，刷新及回到书库重新打开都恢复到第二页 | `tests/qa/reader-position.spec.ts` |
 | 划词翻译与失败反馈 | 真实 EPUB 选区出现翻译入口；网关超时、限流、不可用和额度耗尽均给出可理解提示，且仅可重试的错误显示重试 | `tests/qa/import-open.spec.ts`、`tests/qa/ai-feedback.spec.ts` |
 | 生产鉴权与用量账本 | 已验证 JWT 在没有持久化额度适配器时必须于供应商调用前拒绝；适配器以请求 ID 去重、额度耗尽不调用供应商，账本和可观察日志都不得包含划词正文、访问令牌或供应商密钥 | `server/usage-ledger.quality.test.mjs` |
