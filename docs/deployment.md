@@ -4,10 +4,10 @@
 
 生产构建会注册一个轻量 Service Worker：它只缓存应用壳和已请求的带哈希静态资源。它明确**不会**缓存 API 响应、Supabase 路由、下载内容或 `.epub` / `.pdf` / `.mobi` / `.cbz` 文件；用户导入的书籍始终只保存在浏览器的 OPFS / IndexedDB。
 
-- 只在安全的生产环境（HTTPS 或 localhost）注册；`npm run dev` 不注册。
+- 只在安全的生产环境（HTTPS 或 localhost）注册；`npm run dev` 不注册。Manifest 提供 standalone 安装元数据与应用图标。
 - 页面导航采用网络优先，离线时回退到最近缓存的应用壳。
 - 新版本会等待读者点击“立即更新”，不会在阅读过程中强制刷新。
-- 如需强制失效全部旧静态资源，递增 `public/sw.js` 内的 `CACHE_NAME`。
+- 如需强制失效全部旧静态资源，递增 `public/sw.js` 内的 `CACHE_NAME`；不要通过清理 OPFS / IndexedDB 来解决应用壳缓存问题，否则会删除用户本地书籍。
 
 ## 环境
 

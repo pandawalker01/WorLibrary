@@ -6,6 +6,8 @@
 - [ ] `npm run quality` 生成 `test-results/release-report.json`；只有 `releaseReady: true` 才可发布。`blocked` 需要补齐部署配置，`failed` 需要修复代码或测试。
 - [ ] Playwright 冒烟覆盖书库搜索、阅读/对照、AI 解释入口和备份控件。
 - [ ] staging 可访问，HTTPS 和安全响应头齐全。
+- [ ] 在 staging 安装 WorLibrary；首次联网打开后断网刷新，确认应用壳可打开、离线提示可见、此前导入的 EPUB/PDF 仍可打开。
+- [ ] 确认 DevTools/Application 中 Service Worker 的 scope 为 `/`，且 Cache Storage 中没有 API 响应、Supabase 响应或 `.epub` / `.pdf` 文件。
 - [ ] 用测试文件验证 EPUB/PDF 导入、阅读位置、摘录和备份恢复。
 - [ ] 模拟翻译网关超时/限流，页面保持可阅读并展示用户可理解的提示。
 - [ ] Sentry release 已创建，source map 仅上传到 Sentry，不公开发布。
@@ -16,6 +18,8 @@
 ## 发布后检查
 
 打开生产站点执行：导入一本测试 EPUB 或文本 PDF → 打开阅读器 → 选择文本并打开解释 → 导出阅读数据 → 清空测试数据并导入备份。不要使用包含版权内容的真实书籍或完整原文作为测试样本。检查浏览器控制台无 CSP 错误，Sentry 没有新增未处理异常。
+
+PWA 专项验证：联网首次打开并等待 Service Worker 激活；导入测试 EPUB 后，在浏览器 DevTools 的 Network 面板切换 Offline，再刷新页面并重新打开该书。应用应显示离线说明且本地书籍可读；AI、OCR 与同步应保持不可用/待恢复。重新联网后确认页面不丢失本地书籍，并点击更新提示（若出现）完成下一次刷新。不要用 `file://` 验证 PWA，必须使用 HTTPS 或 localhost。
 
 先验证健康探针：
 

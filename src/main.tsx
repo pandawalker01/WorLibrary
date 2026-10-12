@@ -7,7 +7,7 @@ if (import.meta.env.PROD && 'serviceWorker' in navigator && window.isSecureConte
   let reloadForUpdate = false
   const announceUpdate = () => window.dispatchEvent(new Event('worlibrary:update-ready'))
 
-  navigator.serviceWorker.register('/sw.js').then((registration) => {
+  navigator.serviceWorker.register('/sw.js', { scope: '/', updateViaCache: 'none' }).then((registration) => {
     if (registration.waiting) announceUpdate()
     registration.addEventListener('updatefound', () => {
       const installing = registration.installing
@@ -15,6 +15,7 @@ if (import.meta.env.PROD && 'serviceWorker' in navigator && window.isSecureConte
         if (installing.state === 'installed' && navigator.serviceWorker.controller) announceUpdate()
       })
     })
+    window.addEventListener('online', () => { void registration.update() })
   }).catch(() => {})
 
   window.addEventListener('worlibrary:activate-update', () => {

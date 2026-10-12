@@ -3,8 +3,18 @@
   "short_name": "WorLibrary",
   "description": "把世界的书，读成自己的语言。",
   "lang": "zh-CN",
+  "id": "/",
   "start_url": "/",
+  "scope": "/",
   "display": "standalone",
   "background_color": "#f4f0e8",
-  "theme_color": "#f4f0e8"
+  "theme_color": "#f4f0e8",
+  "icons": [
+    {
+      "src": "/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
 }

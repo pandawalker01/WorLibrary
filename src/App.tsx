@@ -300,7 +300,7 @@ function App() {
       {metadataDraft && <div className="metadata-dialog-backdrop" role="presentation"><form className="metadata-dialog" onSubmit={(event) => { void saveMetadata(event) }} aria-label="编辑书籍信息"><div><p className="eyebrow">LOCAL METADATA</p><h2>校正书籍信息</h2><p>只修改书架显示和本地阅读数据，不会改动或上传原始文件。</p></div><label>书名<input name="title" defaultValue={metadataDraft.title} autoFocus /></label><label>作者<input name="author" defaultValue={metadataDraft.author} /></label><div className="metadata-dialog-actions"><button type="button" onClick={() => setMetadataDraft(null)}>取消</button><button type="submit">保存信息</button></div></form></div>}
       {view === 'settings' && <AuthPanel uiLocale={uiLocale} onNotice={toast} onSessionChange={setSession} />}
       {notice && <div className="toast" role="status">{notice}</div>}
-      {updateReady && <div className="update-toast" role="status">有新版本可用<button onClick={() => window.dispatchEvent(new Event('worlibrary:activate-update'))}>立即更新</button></div>}
+      {updateReady && <div className="update-toast" role="status">{ui.updateReady}<button onClick={() => window.dispatchEvent(new Event('worlibrary:activate-update'))}>{ui.updateNow}</button></div>}
       <DataTransfer uiLocale={uiLocale} onNotice={toast} onImported={() => { void listBooks().then((savedBooks) => setBooks(savedBooks)) }} />
       <input ref={fileInput} onChange={handleFiles} type="file" hidden accept=".epub,.pdf,.mobi,.cbz" multiple />
       <input ref={coverInput} onChange={(event) => { void handleCoverFile(event) }} type="file" hidden accept="image/*" />

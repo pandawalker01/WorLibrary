@@ -21,7 +21,8 @@ WorLibrary 是本地优先的多语言阅读器：用户导入自己拥有的 EP
 ## 2. 分层总览
 
 用户浏览器
-  - React 页面和组件：书库、阅读器、摘录、设置
+  - PWA 应用壳：Manifest、Service Worker、安装入口与安全更新提示
+  - React 页面和组件：书库、阅读器、摘录、设置、离线状态
   - 本地层：IndexedDB 元数据与摘录；OPFS 或 IndexedDB 文件内容
   - 阅读引擎：EPUB.js、PDF.js
   - 客户端服务：翻译、解释、OCR、认证、同步
@@ -42,6 +43,7 @@ WorLibrary 是本地优先的多语言阅读器：用户导入自己拥有的 EP
 | 区域 | 主要文件 | 负责什么 | 修改时要注意 |
 | --- | --- | --- | --- |
 | 应用编排 | src/App.tsx | 页面视图、书架、导入、设置、会话、同步触发 | 不把文件解析或网络细节塞进这里；复用 lib 与组件 |
+| PWA 离线壳 | src/main.tsx、public/manifest.webmanifest、public/sw.js、public/offline.html | 注册 Service Worker、应用安装元数据、静态资源缓存、离线回退和更新激活 | 只缓存应用壳/静态资源；绝不缓存 API、Supabase、原始书籍文件或用户正文 |
 | 本地书库 | src/lib/storage.ts | 文件保存、书籍元数据、封面、进度、摘录、导入导出、作品/版本关系 | 修改 StoredBook 或备份格式时兼容旧记录，并补迁移/回归 |
 | EPUB 阅读器 | src/components/EpubReader.tsx、src/epub-reader.css | EPUB 打开、目录、分页、位置、选区操作 | EPUB 的位置用 CFI；测试刷新恢复和无目录回退 |
 | PDF 阅读器 | src/components/PdfReader.tsx、src/pdf-reader.css | PDF 渲染、页面位置、键盘控制、OCR 入口 | 不阻塞翻页；OCR 失败必须能重试且保留页面 |
@@ -65,6 +67,7 @@ WorLibrary 是本地优先的多语言阅读器：用户导入自己拥有的 EP
 | 修改同步行为 | sync.ts + remote.ts + migration/RLS | 离线队列、冲突、只同步元数据、跨会话恢复 |
 | 新增界面语言 | i18n.ts + 相关测试 | 按 docs/i18n-extension.md 完整执行 |
 | 调整部署 | docs/deployment.md + docs/runbook.md + 环境校验脚本 | staging、健康检查、回滚预案 |
+| 调整离线/PWA | public/sw.js + manifest + src/main.tsx | 首装、离线导航、更新提示；验证导入书籍仍由 OPFS/IndexedDB 读取 |
 
 ## 5. 数据与隐私边界
 
@@ -80,7 +83,7 @@ WorLibrary 是本地优先的多语言阅读器：用户导入自己拥有的 EP
 
 本地启动：npm install，然后 npm run dev。通常访问 http://localhost:5173；不要用 file:// 直接打开 index.html，也不要连接遗留的 Vite 端口。
 
-最低验证：npm run typecheck、npm run build，以及与改动范围匹配的 Playwright 用例。对跨模块功能，运行 npx playwright test。发布前还需参考 docs/runbook.md。
+最低验证：npm run typecheck、npm run build，以及与改动范围匹配的 Playwright 用例。PWA 变更必须运行 `npx playwright test tests/qa/pwa-shell.spec.ts`，并在生产预览中验证 Service Worker 注册、离线提示与已导入书籍恢复。对跨模块功能，运行 npx playwright test。发布前还需参考 docs/runbook.md。
 
 提交前必须阅读根目录 AGENTS.md 并更新受影响的文档。文档、测试和实现应进入同一次提交，使新 Agent 可以从仓库状态而非聊天记录恢复上下文。
 

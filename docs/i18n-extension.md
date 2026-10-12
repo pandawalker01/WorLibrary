@@ -16,7 +16,7 @@
 | 文件 | 职责 |
 | --- | --- |
 | src/lib/i18n.ts | UiLocale、UI_LOCALES、READING_LANGUAGES、copy 文案语言包与读写函数的唯一来源 |
-| src/App.tsx | 读取 uiLocale，将 copy[uiLocale] 注入书库、设置和导航；提供设置入口 |
+| src/App.tsx | 读取 uiLocale，将 copy[uiLocale] 注入书库、设置、导航与 PWA 更新提示；提供设置入口 |
 | src/components/EpubReader.tsx | EPUB 阅读器可见文案与划词操作 |
 | src/components/PdfReader.tsx | PDF 阅读器、翻页、OCR 与划词操作 |
 | src/components/HighlightsView.tsx | 摘录筛选、编辑、删除等可见文案 |
@@ -53,5 +53,5 @@
 - 页面切换、刷新和重新打开书籍后，语言选择保持。
 - 文案切换不改变书籍文件、阅读进度、摘录或 AI 目标语言。
 - 英文和新增语言下，按钮仍有可访问名称；不要只依赖图标。
-- 失败提示、空状态、确认框和 Toast 也必须本地化。
+- 失败提示、空状态、确认框、Toast 与 PWA 更新提示也必须本地化。
 - 日期、数字和复数规则较复杂时，优先引入成熟的 Intl 或 FormatJS 方案，不要手写多语言分支。

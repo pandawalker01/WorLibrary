@@ -46,6 +46,7 @@ export const copy = {
   'zh-CN': {
     library: '书库', highlights: '摘录', settings: '设置', offlineReady: '离线可读', offlineNow: '当前离线',
     offlineBanner: '当前离线：已导入的本地书籍仍可阅读；翻译、OCR 与同步将在联网后恢复。',
+    updateReady: '有新版本可用', updateNow: '立即更新',
     interfaceLanguage: '界面语言', readingLanguage: '理解语言', importBook: '导入书籍',
     shelf: 'YOUR SHELF', hero: '把世界的书，', heroEmphasis: '读成自己的语言。',
     heroCopy: '导入你的书，关联不同译本。划线即可获得翻译与解释——即使离线，也能继续阅读和思考。',
@@ -69,6 +70,7 @@ export const copy = {
   en: {
     library: 'Library', highlights: 'Highlights', settings: 'Settings', offlineReady: 'Offline ready', offlineNow: 'Offline',
     offlineBanner: 'You are offline: imported books remain readable; translation, OCR, and sync resume when you reconnect.',
+    updateReady: 'A new version is ready', updateNow: 'Update now',
     interfaceLanguage: 'Interface', readingLanguage: 'Reading language', importBook: 'Import book',
     shelf: 'YOUR SHELF', hero: 'Read the world’s books', heroEmphasis: 'in your own language.',
     heroCopy: 'Import your books and link editions. Select a passage for translation and explanation—then keep reading, even offline.',
