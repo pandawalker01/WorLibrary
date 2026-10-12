@@ -16,6 +16,7 @@ type EpubReaderProps = {
   targetLanguage?: string
   uiLocale?: UiLocale
   preferences?: Partial<ReaderPreferences>
+  onPreferencesChange?: (preferences: ReaderPreferences) => void
 }
 
 type Rendition = {
@@ -73,7 +74,7 @@ function highlightStyles(color: Highlight['color']): Record<string, string> {
   return { fill, 'fill-opacity': '0.35' }
 }
 
-export default function EpubReader({ book, onNotice, onProgress, onHighlightSaved, targetLanguage = '中文', uiLocale = 'zh-CN', preferences }: EpubReaderProps) {
+export default function EpubReader({ book, onNotice, onProgress, onHighlightSaved, targetLanguage = '中文', uiLocale = 'zh-CN', preferences, onPreferencesChange }: EpubReaderProps) {
   const ui = copy[uiLocale]
   const en = uiLocale === 'en'
   const mountRef = useRef<HTMLDivElement>(null)
@@ -96,12 +97,18 @@ export default function EpubReader({ book, onNotice, onProgress, onHighlightSave
 
   useEffect(() => { selectionColorRef.current = selectionColor }, [selectionColor])
 
-  useEffect(() => { setReaderPreferences((current) => ({ ...current, ...preferences })) }, [preferences?.fontScale, preferences?.theme])
+  useEffect(() => {
+    setReaderPreferences((current) => {
+      const next = { ...current, ...preferences }
+      return next.fontScale === current.fontScale && next.theme === current.theme && next.pdfZoom === current.pdfZoom ? current : next
+    })
+  }, [preferences?.fontScale, preferences?.theme, preferences?.pdfZoom])
 
   useEffect(() => {
     saveReaderPreferences(readerPreferences)
     applyReaderPreferences(renditionRef.current, readerPreferences)
-  }, [readerPreferences])
+    onPreferencesChange?.(readerPreferences)
+  }, [readerPreferences, onPreferencesChange])
 
   useEffect(() => {
     let active = true

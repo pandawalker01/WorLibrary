@@ -17,6 +17,7 @@ type PdfReaderProps = {
   uiLocale?: UiLocale
   preferences?: Partial<ReaderPreferences>
   onHighlightSaved?: (highlight: Highlight) => void
+  onPreferencesChange?: (preferences: ReaderPreferences) => void
 }
 
 type PdfDocument = {
@@ -31,7 +32,7 @@ type PdfPage = {
   getTextContent: () => Promise<{ items: Array<{ str?: string }> }>
 }
 
-export default function PdfReader({ book, onNotice, onProgress, targetLanguage = '中文', uiLocale = 'zh-CN', preferences, onHighlightSaved }: PdfReaderProps) {
+export default function PdfReader({ book, onNotice, onProgress, targetLanguage = '中文', uiLocale = 'zh-CN', preferences, onHighlightSaved, onPreferencesChange }: PdfReaderProps) {
   const ui = copy[uiLocale]
   const en = uiLocale === 'en'
   const canvasRef = useRef<HTMLCanvasElement>(null)
@@ -81,11 +82,17 @@ export default function PdfReader({ book, onNotice, onProgress, targetLanguage =
     setPage(nextPage)
   }, [document, onNotice, onProgress, page, persistPageProgress])
 
-  useEffect(() => { setReaderPreferences((current) => ({ ...current, ...preferences })) }, [preferences?.fontScale, preferences?.pdfZoom, preferences?.theme])
+  useEffect(() => {
+    setReaderPreferences((current) => {
+      const next = { ...current, ...preferences }
+      return next.fontScale === current.fontScale && next.theme === current.theme && next.pdfZoom === current.pdfZoom ? current : next
+    })
+  }, [preferences?.fontScale, preferences?.pdfZoom, preferences?.theme])
 
   useEffect(() => {
     saveReaderPreferences(readerPreferences)
-  }, [readerPreferences])
+    onPreferencesChange?.(readerPreferences)
+  }, [readerPreferences, onPreferencesChange])
 
   // OCR and the selection toolbar describe a single rendered page. Clear them
   // when navigation succeeds so text from a former page can never be saved or

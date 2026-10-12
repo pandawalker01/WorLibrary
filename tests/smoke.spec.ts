@@ -39,6 +39,10 @@ test('reader controls remain visible on a narrow screen', async ({ page }) => {
   await expect(page.getByRole('button', { name: '← 书库' })).toBeVisible()
   await expect(page.getByRole('button', { name: '⇄ 对照阅读' })).toBeVisible()
   await expect(page.getByRole('button', { name: 'Aa' })).toBeVisible()
+  await page.getByRole('button', { name: 'Aa' }).click()
+  await expect(page.getByRole('dialog', { name: '阅读排版' })).toBeVisible()
+  await page.getByRole('button', { name: '夜间' }).click()
+  await expect(page.getByRole('button', { name: '夜间' })).toHaveAttribute('aria-pressed', 'true')
 })
 
 test('library filter controls expose reading and edition views', async ({ page }) => {
