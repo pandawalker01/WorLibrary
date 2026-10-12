@@ -274,10 +274,10 @@ function App() {
       <aside className="rail">
         <button className="wordmark" onClick={() => setView('library')} aria-label={ui.library}>WL</button>
         <nav aria-label={uiLocale === 'en' ? 'Main navigation' : '主导航'}>
-          <button className={view === 'library' ? 'nav-item active' : 'nav-item'} onClick={() => setView('library')} aria-current={view === 'library' ? 'page' : undefined}><span>01</span>{ui.library}</button>
-          <button className={view === 'highlights' ? 'nav-item active' : 'nav-item'} onClick={() => setView('highlights')} aria-current={view === 'highlights' ? 'page' : undefined}><span>02</span>{ui.highlights}</button>
-          <button className={view === 'profile' ? 'nav-item active' : 'nav-item'} onClick={() => setView('profile')} aria-current={view === 'profile' ? 'page' : undefined}><span>03</span>{ui.profile}</button>
-          <button className={view === 'settings' ? 'nav-item active' : 'nav-item'} onClick={() => setView('settings')} aria-current={view === 'settings' ? 'page' : undefined}><span>04</span>{ui.settings}</button>
+          <button className={view === 'library' ? 'nav-item active' : 'nav-item'} onClick={() => setView('library')} aria-current={view === 'library' ? 'page' : undefined}>{ui.library}</button>
+          <button className={view === 'highlights' ? 'nav-item active' : 'nav-item'} onClick={() => setView('highlights')} aria-current={view === 'highlights' ? 'page' : undefined}>{ui.highlights}</button>
+          <button className={view === 'profile' ? 'nav-item active' : 'nav-item'} onClick={() => setView('profile')} aria-current={view === 'profile' ? 'page' : undefined}>{ui.profile}</button>
+          <button className={view === 'settings' ? 'nav-item active' : 'nav-item'} onClick={() => setView('settings')} aria-current={view === 'settings' ? 'page' : undefined}>{ui.settings}</button>
         </nav>
         <div className={`rail-foot ${isOnline ? '' : 'is-offline'}`} title={isOnline ? ui.offlineReady : ui.offlineNow}><i />{isOnline ? ui.offlineReady : ui.offlineNow}</div>
       </aside>
