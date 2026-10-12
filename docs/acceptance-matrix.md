@@ -16,6 +16,7 @@ npm run qa
 | --- | --- | --- |
 | EPUB 导入 | 导入真实 fixture 后书库出现文件名派生的书名 | `tests/qa/import-open.spec.ts` |
 | EPUB 原书封面 | 导入含嵌入封面的真实 EPUB 后，书架显示该封面而非色块 fallback；刷新后仍可见 | `tests/qa/cover-and-interface-language.spec.ts` |
+| 新用户阅读闭环 | 全新浏览器状态可完成带原书封面 EPUB 导入、打开、翻页、划词翻译、保存摘录、刷新恢复，并可中英来回切换界面而不改变理解语言 | `tests/qa/reader-e2e-flow.spec.ts` |
 | 真实内容打开 | 阅读器 iframe 出现 fixture 特征文本，而不是演示文案 | `tests/qa/import-open.spec.ts` |
 | EPUB 翻页 | 有上/下一页和键盘翻页；翻页后出现下一章节特征文本 | `tests/qa/import-open.spec.ts` |
 | EPUB 阅读偏好恢复 | 字号和主题在刷新、重新打开后保持一致 | `tests/qa/import-open.spec.ts` |
