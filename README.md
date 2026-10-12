@@ -29,6 +29,9 @@ npm run build
 
 - `docs/implementation-architecture.md`
 - `docs/development-roadmap.md`
+- `docs/project-guide.md`：模块地图、常见改动入口与协作规则。
+- `docs/i18n-extension.md`：新增界面语言或 AI 理解语言的操作手册。
+- `AGENTS.md`：所有提交必须同步维护的文档规范。
 
 ## 当前边界
 
