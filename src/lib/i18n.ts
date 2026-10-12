@@ -44,7 +44,7 @@ export function saveReadingLanguage(language: ReadingLanguage): void {
 
 export const copy = {
   'zh-CN': {
-    library: '书库', highlights: '摘录', settings: '设置', offlineReady: '离线可读', offlineNow: '当前离线',
+    library: '书库', highlights: '摘录', profile: '我的', settings: '设置', offlineReady: '离线可读', offlineNow: '当前离线',
     offlineBanner: '当前离线：已导入的本地书籍仍可阅读；翻译、OCR 与同步将在联网后恢复。',
     updateReady: '有新版本可用', updateNow: '立即更新',
     interfaceLanguage: '界面语言', readingLanguage: '理解语言', importBook: '导入书籍',
@@ -54,6 +54,7 @@ export const copy = {
     all: '全部', reading: '正在读', editions: '多译本', recent: '最近阅读 ↓', alphabetical: '书名排序 A–Z',
     emptyShelf: '你的书架还是空的。导入 EPUB 或 PDF 后，书籍会只保存在这台设备上。',
     importMine: '导入我的书', localReading: '本地阅读', preferences: 'PREFERENCES',
+    profileEyebrow: 'MY READING', profileTitle: '我的阅读', profileCopy: '阅读进度、摘录与时光，都留在这台设备上。', readingTime: '累计阅读', booksOwned: '本地书籍', booksInProgress: '正在阅读', booksCompleted: '已完成', highlightsSaved: '保存摘录', recentReading: '最近阅读', recentReadingCopy: '从上次停下的地方继续。', profileEmpty: '还没有阅读记录', profileEmptyCopy: '打开一本书开始阅读，时长和进度会自动保存在本地。', profileLocalOnly: '阅读数据仅保存在本地设备。',
     settingsTitle: '阅读与界面语言', uiLanguageTitle: '界面语言', uiLanguageCopy: '切换书库、设置和阅读器控制的界面文案；不会改变翻译目标语言。',
     readingLanguageTitle: '理解语言', readingLanguageCopy: 'AI 会把你划线的任意语言文本，翻译并解释成这个语言。',
     readingLanguageSaved: '已将 AI 理解语言设为：', uiLanguageSaved: '界面语言已切换为：',
@@ -70,7 +71,7 @@ export const copy = {
     accountSync: '账号与同步', syncLocal: '本地优先 · 尚未配置云端同步', syncPrivacy: '仅同步阅读进度、摘录与书籍信息；原始 EPUB/PDF 文件和封面始终留在本机。',
   },
   en: {
-    library: 'Library', highlights: 'Highlights', settings: 'Settings', offlineReady: 'Offline ready', offlineNow: 'Offline',
+    library: 'Library', highlights: 'Highlights', profile: 'Me', settings: 'Settings', offlineReady: 'Offline ready', offlineNow: 'Offline',
     offlineBanner: 'You are offline: imported books remain readable; translation, OCR, and sync resume when you reconnect.',
     updateReady: 'A new version is ready', updateNow: 'Update now',
     interfaceLanguage: 'Interface', readingLanguage: 'Reading language', importBook: 'Import book',
@@ -80,6 +81,7 @@ export const copy = {
     all: 'All', reading: 'Reading', editions: 'Editions', recent: 'Recent ↓', alphabetical: 'Title A–Z',
     emptyShelf: 'Your shelf is empty. Import an EPUB or PDF; books stay on this device.',
     importMine: 'Import my book', localReading: 'Local reading', preferences: 'PREFERENCES',
+    profileEyebrow: 'MY READING', profileTitle: 'My reading', profileCopy: 'Your progress, highlights, and reading time stay on this device.', readingTime: 'Reading time', booksOwned: 'Local books', booksInProgress: 'In progress', booksCompleted: 'Completed', highlightsSaved: 'Saved highlights', recentReading: 'Continue reading', recentReadingCopy: 'Pick up right where you left off.', profileEmpty: 'No reading history yet', profileEmptyCopy: 'Open a book to start keeping time and progress on this device.', profileLocalOnly: 'Reading data is stored only on this device.',
     settingsTitle: 'Reading & interface languages', uiLanguageTitle: 'Interface language', uiLanguageCopy: 'Changes the library, settings, and reader controls. It does not change your translation target.',
     readingLanguageTitle: 'Reading language', readingLanguageCopy: 'AI translates and explains any selected passage into this language.',
     readingLanguageSaved: 'AI reading language set to: ', uiLanguageSaved: 'Interface language changed to: ',

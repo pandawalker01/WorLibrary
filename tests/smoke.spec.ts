@@ -57,6 +57,16 @@ test('highlights view provides text and book filters', async ({ page }) => {
   await expect(page.getByRole('combobox', { name: '筛选书籍' })).toBeVisible()
 })
 
+test('profile shows local reading stats and routes back to the library', async ({ page }) => {
+  await page.goto('/')
+  await page.getByRole('navigation', { name: '主导航' }).getByRole('button', { name: '03 我的' }).click()
+  await expect(page.getByRole('heading', { name: '我的阅读' })).toBeVisible()
+  await expect(page.getByText('累计阅读')).toBeVisible()
+  await expect(page.getByText('本地书籍')).toBeVisible()
+  await page.getByRole('button', { name: '书库 →' }).click()
+  await expect(page.getByRole('heading', { name: '把世界的书，' })).toBeVisible()
+})
+
 test('reader, comparison and explanation flow are available', async ({ page }) => {
   await page.goto('/')
   await importFixture(page)

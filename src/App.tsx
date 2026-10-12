@@ -4,7 +4,7 @@ import PdfReader from './components/PdfReader'
 import HighlightsView from './components/HighlightsView'
 import DataTransfer from './components/DataTransfer'
 import './highlights.css'
-import type { Highlight } from './lib/storage'
+import { listHighlights, type Highlight } from './lib/storage'
 import './library.css'
 import './settings.css'
 import { deleteBook, linkBookEditions, listAlignments, listBooks, listEditions, refreshBookCover, saveBook, saveEditionProgress, searchBookTextIndex, updateBookCover, updateBookMetadata, type StoredBook } from './lib/storage'
@@ -16,7 +16,7 @@ import { createRemoteClient } from './lib/remote'
 import { createIndexedDbSyncAdapter, deleteRemoteHighlight, enqueueSync, flushQueuedSync } from './lib/sync'
 import { copy, interpolate, loadReadingLanguage, loadUiLocale, READING_LANGUAGES, saveReadingLanguage, saveUiLocale, UI_LOCALES, type ReadingLanguage } from './lib/i18n'
 
-type View = 'library' | 'reader' | 'highlights' | 'settings'
+type View = 'library' | 'reader' | 'highlights' | 'profile' | 'settings'
 type DisplayBook = Pick<StoredBook, 'id' | 'title' | 'author' | 'language' | 'progress' | 'cover'> & Partial<Pick<StoredBook, 'fileName' | 'fileType' | 'storage' | 'createdAt' | 'location' | 'workId' | 'coverImage'>>
 
 const sampleBooks: DisplayBook[] = [
@@ -24,6 +24,20 @@ const sampleBooks: DisplayBook[] = [
   { id: 'stranger', title: "L'Étranger", author: 'Albert Camus', language: 'Français · 2 versions', progress: 72, cover: 'sun' },
   { id: 'kafka', title: '变形记', author: 'Franz Kafka', language: '中文 · 2 versions', progress: 14, cover: 'red' },
 ]
+
+const READING_SECONDS_KEY = 'worlibrary.reading-seconds'
+
+function loadReadingSeconds(): number {
+  try { return Math.max(0, Number(window.localStorage.getItem(READING_SECONDS_KEY)) || 0) } catch { return 0 }
+}
+
+function formatReadingTime(seconds: number, locale: 'zh-CN' | 'en'): string {
+  const minutes = Math.floor(seconds / 60)
+  const hours = Math.floor(minutes / 60)
+  const remainingMinutes = minutes % 60
+  if (locale === 'en') return hours > 0 ? `${hours}h ${remainingMinutes}m` : `${minutes} min`
+  return hours > 0 ? `${hours} 小时 ${remainingMinutes} 分` : `${minutes} 分钟`
+}
 
 function App() {
   const [books, setBooks] = useState<DisplayBook[]>([])
@@ -48,6 +62,8 @@ function App() {
   const [metadataDraft, setMetadataDraft] = useState<StoredBook | null>(null)
   const [refreshingCoverId, setRefreshingCoverId] = useState<string | null>(null)
   const [coverTargetId, setCoverTargetId] = useState<string | null>(null)
+  const [highlightCount, setHighlightCount] = useState(0)
+  const [readingSeconds, setReadingSeconds] = useState(loadReadingSeconds)
   const fileInput = useRef<HTMLInputElement>(null)
   const coverInput = useRef<HTMLInputElement>(null)
   const syncTimer = useRef<number | undefined>(undefined)
@@ -68,7 +84,7 @@ function App() {
   }, [syncNow])
 
   useEffect(() => {
-    void Promise.all([listBooks(), listEditions(), listAlignments()]).then(([savedBooks, savedEditions, savedAlignments]) => { setBooks(savedBooks); setEditions(savedEditions); setAlignments(savedAlignments) })
+    void Promise.all([listBooks(), listEditions(), listAlignments(), listHighlights()]).then(([savedBooks, savedEditions, savedAlignments, savedHighlights]) => { setBooks(savedBooks); setEditions(savedEditions); setAlignments(savedAlignments); setHighlightCount(savedHighlights.length) })
   }, [])
 
   useEffect(() => { void getSession().then((next) => { setSession(next); if (next) void syncNow() }) }, [syncNow])
@@ -89,6 +105,16 @@ function App() {
     const timer = window.setInterval(scheduleSync, 5000)
     return () => window.clearInterval(timer)
   }, [view, scheduleSync])
+  useEffect(() => {
+    if (view !== 'reader') return
+    const timer = window.setInterval(() => setReadingSeconds((current) => {
+      const next = current + 1
+      try { window.localStorage.setItem(READING_SECONDS_KEY, String(next)) } catch { /* Reading must work without storage. */ }
+      return next
+    }), 1000)
+    return () => window.clearInterval(timer)
+  }, [view])
+  useEffect(() => { if (view === 'profile') void listHighlights().then((items) => setHighlightCount(items.length)) }, [view])
 
   useEffect(() => {
     let cancelled = false
@@ -239,6 +265,9 @@ function App() {
     .filter((book) => !normalizedSearch || [book.title, book.author, book.language, book.fileName ?? '', book.fileType ?? ''].some((field) => field.toLowerCase().includes(normalizedSearch)) || Boolean(textMatches[book.id]))
     .filter((book) => libraryFilter === 'all' || (libraryFilter === 'reading' ? book.progress > 0 && book.progress < 100 : Boolean(book.workId && editionCounts[book.workId] > 1)))
     .sort((left, right) => sortNewest ? (right.createdAt ?? 0) - (left.createdAt ?? 0) : left.title.localeCompare(right.title))
+  const readingBooks = books.filter((book) => book.progress > 0 && book.progress < 100)
+  const completedBooks = books.filter((book) => book.progress >= 100)
+  const recentBooks = [...readingBooks].sort((left, right) => (right.createdAt ?? 0) - (left.createdAt ?? 0)).slice(0, 3)
 
   return (
     <div className="app-shell">
@@ -247,7 +276,8 @@ function App() {
         <nav aria-label={uiLocale === 'en' ? 'Main navigation' : '主导航'}>
           <button className={view === 'library' ? 'nav-item active' : 'nav-item'} onClick={() => setView('library')} aria-current={view === 'library' ? 'page' : undefined}><span>01</span>{ui.library}</button>
           <button className={view === 'highlights' ? 'nav-item active' : 'nav-item'} onClick={() => setView('highlights')} aria-current={view === 'highlights' ? 'page' : undefined}><span>02</span>{ui.highlights}</button>
-          <button className={view === 'settings' ? 'nav-item active' : 'nav-item'} onClick={() => setView('settings')} aria-current={view === 'settings' ? 'page' : undefined}><span>03</span>{ui.settings}</button>
+          <button className={view === 'profile' ? 'nav-item active' : 'nav-item'} onClick={() => setView('profile')} aria-current={view === 'profile' ? 'page' : undefined}><span>03</span>{ui.profile}</button>
+          <button className={view === 'settings' ? 'nav-item active' : 'nav-item'} onClick={() => setView('settings')} aria-current={view === 'settings' ? 'page' : undefined}><span>04</span>{ui.settings}</button>
         </nav>
         <div className={`rail-foot ${isOnline ? '' : 'is-offline'}`} title={isOnline ? ui.offlineReady : ui.offlineNow}><i />{isOnline ? ui.offlineReady : ui.offlineNow}</div>
       </aside>
@@ -275,7 +305,7 @@ function App() {
           </div>
         </section>}
 
-        {view === 'highlights' && <HighlightsView uiLocale={uiLocale} books={books.filter((book): book is StoredBook => Boolean(book.storage && book.fileName))} onNotice={toast} onChanged={scheduleSync} onDeleted={(id) => { if (session) void deleteRemoteHighlight(createRemoteClient(session), id).catch(() => scheduleSync()); else scheduleSync() }} onOpenHighlight={(highlight: Highlight) => {
+        {view === 'highlights' && <HighlightsView uiLocale={uiLocale} books={books.filter((book): book is StoredBook => Boolean(book.storage && book.fileName))} onNotice={toast} onChanged={() => { scheduleSync(); void listHighlights().then((items) => setHighlightCount(items.length)) }} onDeleted={(id) => { if (session) void deleteRemoteHighlight(createRemoteClient(session), id).catch(() => scheduleSync()); else scheduleSync(); void listHighlights().then((items) => setHighlightCount(items.length)) }} onOpenHighlight={(highlight: Highlight) => {
           const book = books.find((item) => item.id === highlight.bookId)
           if (!book?.storage || !book.fileName) {
             toast('找不到这本本地书籍，请重新导入')
@@ -284,6 +314,16 @@ function App() {
           setSelectedBook({ ...book, location: highlight.location })
           setView('reader')
         }} />}
+
+        {view === 'profile' && <section className="profile-view">
+          <p className="eyebrow">{ui.profileEyebrow}</p>
+          <div className="profile-heading"><div><h1>{ui.profileTitle}</h1><p>{ui.profileCopy}</p></div><button className="profile-library-link" onClick={() => setView('library')}>{ui.library} →</button></div>
+          <div className="profile-stats" aria-label={ui.profileTitle}>
+            <article><span>{ui.readingTime}</span><strong>{formatReadingTime(readingSeconds, uiLocale)}</strong></article><article><span>{ui.booksOwned}</span><strong>{books.length}</strong></article><article><span>{ui.booksInProgress}</span><strong>{readingBooks.length}</strong></article><article><span>{ui.highlightsSaved}</span><strong>{highlightCount}</strong></article>
+          </div>
+          <section className="profile-recent" aria-labelledby="profile-recent-title"><div><p className="eyebrow">{ui.recentReading}</p><h2 id="profile-recent-title">{ui.recentReading}</h2><p>{ui.recentReadingCopy}</p></div>{recentBooks.length > 0 ? <div className="profile-book-list">{recentBooks.map((book) => <button key={book.id} onClick={() => { setSelectedBook(book); setView('reader') }}><span>{book.title}</span><small>{book.author} · {book.progress}%</small><i><b style={{ width: `${book.progress}%` }} /></i></button>)}</div> : <div className="profile-empty"><strong>{ui.profileEmpty}</strong><p>{ui.profileEmptyCopy}</p><button onClick={() => setView('library')}>{ui.importMine}</button></div>}</section>
+          <p className="profile-footnote">{completedBooks.length > 0 ? `${ui.booksCompleted}：${completedBooks.length}` : ui.profileLocalOnly}</p>
+        </section>}
 
         {view === 'reader' && <section className="reader-view">
           <div className="reader-header"><button className="back-button" onClick={() => setView('library')}>← <span>{ui.backToLibrary}</span></button><div className="reader-title"><strong>{selectedBook.title}</strong><small>{selectedBook.author}{selectedBook.fileName ? ` · ${ui.localReading}` : ''}</small></div><div className="reader-tools"><button onClick={importBooks}>{ui.importBook}</button><button onClick={() => { if (!selectedRelatedEdition) { toast(uiLocale === 'en' ? 'Import and link another edition before comparing.' : '请先导入并关联另一个译本，再进行对照阅读'); return } setCompare(!compare) }}>{compare ? ui.exitCompare : ui.compare}</button><button onClick={() => setView('settings')}>{language.slice(0, 1)}</button><button onClick={() => toast(uiLocale === 'en' ? 'Reader layout settings are not available yet.' : '阅读排版设置将在阅读引擎接入后启用')}>Aa</button></div></div>
