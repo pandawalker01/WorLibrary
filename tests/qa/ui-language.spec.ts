@@ -29,6 +29,7 @@ test('interface locale persists independently from the AI reading language', asy
   })
   await page.getByRole('button', { name: /Reader Fixture/ }).click()
   await expect(page.getByRole('button', { name: '← Library' })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Paper' })).toBeVisible()
   await expect(page.getByRole('button', { name: 'Previous page' })).toBeVisible()
   await expect(page.getByRole('button', { name: 'Next page' })).toBeVisible()
 
