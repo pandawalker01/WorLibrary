@@ -61,8 +61,11 @@ test('P1: PDF reading preferences survive refresh and reopening', async ({ page 
   await expect(page.locator('.pdf-reader-shell')).toHaveAttribute('style', /--reader-font-scale: 1.05/)
 })
 
-test('P1: PDF OCR result is rendered once without affecting reader controls', async ({ page }) => {
+test('P1: PDF OCR result is selectable and reuses translation and excerpt paths', async ({ page }) => {
   await page.goto('/')
+  await page.route('**/api/translate', async (route) => {
+    await route.fulfill({ contentType: 'application/json', body: JSON.stringify({ translation: 'OCR 测试译文', sourceLanguage: 'English', targetLanguage: '中文', provider: 'test', requestId: 'ocr-selection-translation' }) })
+  })
   await page.route('**/api/ocr/page', async (route) => {
     await route.fulfill({
       contentType: 'application/json',
@@ -78,8 +81,43 @@ test('P1: PDF OCR result is rendered once without affecting reader controls', as
   await expect(ocrResult).toHaveCount(1, { timeout: 15_000 })
   await expect(ocrResult).toContainText('识别结果')
   await expect(ocrResult).toContainText('PDF_FIXTURE_PAGE')
+  await expect(ocrResult).toContainText('可选择、复制、翻译或保存为摘录')
+  await page.locator('.pdf-ocr-selectable-text').evaluate((node) => {
+    const selection = node.ownerDocument?.defaultView?.getSelection()
+    const range = node.ownerDocument?.createRange()
+    if (!selection || !range || !node.firstChild) return
+    range.selectNodeContents(node)
+    selection.removeAllRanges()
+    selection.addRange(range)
+    node.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }))
+  })
+  await expect(page.getByRole('button', { name: '翻译' })).toBeVisible()
+  await page.getByRole('button', { name: '翻译' }).click()
+  await expect(page.getByText('OCR 测试译文')).toBeVisible()
+  await expect(page.getByRole('button', { name: '保存选中' })).toBeEnabled()
+  await page.getByRole('button', { name: '保存选中' }).click()
+  await expect(page.getByRole('status')).toContainText('PDF 局部文字已保存到摘录空间')
   await expect(page.getByRole('button', { name: '上一页' })).toBeDisabled()
   await expect(page.getByRole('button', { name: '下一页' })).toBeDisabled()
+})
+
+test('P1: PDF OCR failure keeps the page and offers an inline retry', async ({ page }) => {
+  await page.goto('/')
+  let attempt = 0
+  await page.route('**/api/ocr/page', async (route) => {
+    attempt += 1
+    if (attempt === 1) return route.fulfill({ status: 503, contentType: 'application/json', body: JSON.stringify({ error: { code: 'provider_unavailable', message: '暂不可用', retryable: true } }) })
+    return route.fulfill({ contentType: 'application/json', body: JSON.stringify({ text: 'RETRY_SUCCEEDED', provider: 'test', requestId: 'ocr-retry' }) })
+  })
+  await page.locator('input[type=file][accept*=".pdf"]').setInputFiles({ name: 'pdf-ocr-retry.pdf', mimeType: 'application/pdf', buffer: pdfFixture(['OCR_RETRY_PAGE_ONE', 'OCR_RETRY_PAGE_TWO']) })
+  await page.getByRole('button', { name: /pdf ocr retry/i }).click()
+  await expect(page.getByText(/PDF 本地阅读 · 第 1 \/ 2 页 ·/)).toBeVisible({ timeout: 15_000 })
+  await page.getByRole('button', { name: '识别当前页' }).click()
+  await expect(page.locator('.pdf-ocr-error')).toContainText('识别未完成')
+  await expect(page.getByText(/PDF 本地阅读 · 第 1 \/ 2 页 ·/)).toBeVisible()
+  await page.getByRole('button', { name: '重新识别本页' }).click()
+  await expect(page.getByLabel('OCR 当前页文字')).toContainText('RETRY_SUCCEEDED')
+  await expect(page.getByText(/PDF 本地阅读 · 第 1 \/ 2 页 ·/)).toBeVisible()
 })
 
 test('P0: two-page PDF restores the latest page after refreshing', async ({ page }) => {

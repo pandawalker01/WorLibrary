@@ -32,6 +32,7 @@ type PdfPage = {
 export default function PdfReader({ book, onNotice, onProgress, targetLanguage = '中文', preferences, onHighlightSaved }: PdfReaderProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const textLayerRef = useRef<HTMLDivElement>(null)
+  const ocrTextRef = useRef<HTMLDivElement>(null)
   const progressWriteRef = useRef(Promise.resolve())
   const [document, setDocument] = useState<PdfDocument>()
   const documentRef = useRef<PdfDocument | undefined>(undefined)
@@ -80,6 +81,17 @@ export default function PdfReader({ book, onNotice, onProgress, targetLanguage =
   useEffect(() => {
     saveReaderPreferences(readerPreferences)
   }, [readerPreferences])
+
+  // OCR and the selection toolbar describe a single rendered page. Clear them
+  // when navigation succeeds so text from a former page can never be saved or
+  // translated as though it belonged to the new location.
+  useEffect(() => {
+    setSelectedText('')
+    setTranslation('')
+    setAiFeedback(undefined)
+    setOcrText('')
+    setOcrStatus('idle')
+  }, [page])
 
   useEffect(() => {
     let active = true
@@ -175,7 +187,9 @@ export default function PdfReader({ book, onNotice, onProgress, targetLanguage =
   function captureSelection() {
     const selection = window.getSelection()
     const text = selection?.toString().trim() ?? ''
-    if (text && textLayerRef.current?.contains(selection?.anchorNode ?? null)) setSelectedText(text)
+    const selectionNode = selection?.anchorNode ?? null
+    const belongsToReadableText = textLayerRef.current?.contains(selectionNode) || ocrTextRef.current?.contains(selectionNode)
+    if (text && belongsToReadableText) setSelectedText(text)
   }
 
   async function translateSelectedText() {
@@ -197,7 +211,6 @@ export default function PdfReader({ book, onNotice, onProgress, targetLanguage =
   async function recognizeCurrentPage() {
     if (!canvasRef.current || ocrStatus === 'uploading' || ocrStatus === 'recognizing') return
     setOcrStatus('uploading')
-    setOcrText('')
     try {
       const image = await new Promise<Blob>((resolve, reject) => canvasRef.current?.toBlob((blob) => blob ? resolve(blob) : reject(new Error('无法生成当前页图片')), 'image/jpeg', 0.86))
       setOcrStatus('recognizing')
@@ -216,9 +229,12 @@ export default function PdfReader({ book, onNotice, onProgress, targetLanguage =
     {showText && <div ref={textLayerRef} className="pdf-text-layer" aria-label="PDF 当前页文字" onMouseUp={captureSelection}>{pageText}</div>}
     {selectedText && <div className="pdf-selection-bar"><span title={selectedText}>{selectedText}</span><button onClick={() => { void translateSelectedText() }}>{translating ? '翻译中…' : '翻译'}</button></div>}
     {translation && <div className="pdf-translation-result"><span>译文</span>{translation}</div>}
-    {ocrText && <div className="pdf-text-layer" aria-label="OCR 当前页文字"><strong>识别结果</strong>{ocrText}</div>}
+    {ocrText && <section className="pdf-text-layer pdf-ocr-result" aria-label="OCR 当前页文字">
+      <div className="pdf-ocr-result-heading"><strong>识别结果</strong><span>可选择、复制、翻译或保存为摘录</span></div>
+      <div ref={ocrTextRef} className="pdf-ocr-selectable-text" onMouseUp={captureSelection}>{ocrText}</div>
+    </section>}
     {aiFeedback && <div className="ai-request-feedback" role="status"><strong>{aiFeedback.title}</strong><span>{aiFeedback.detail}</span>{aiFeedback.retryable && selectedText && <button onClick={() => { void translateSelectedText() }}>重试翻译</button>}</div>}
-    {ocrStatus === 'error' && <p className="pdf-ocr-error" role="status">识别未完成。请检查网络或稍后重试；不会上传整本书。</p>}
+    {ocrStatus === 'error' && <div className="pdf-ocr-error" role="status"><span>识别未完成。请检查网络或稍后重试；不会上传整本书。</span><button onClick={() => { void recognizeCurrentPage() }}>重新识别本页</button></div>}
     <div className="pdf-reader-frame"><canvas ref={canvasRef} /></div>
   </div>
 }
