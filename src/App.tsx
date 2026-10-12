@@ -14,6 +14,7 @@ import AuthPanel from './components/AuthPanel'
 import { getSession, type AuthSession } from './lib/auth'
 import { createRemoteClient } from './lib/remote'
 import { createIndexedDbSyncAdapter, deleteRemoteHighlight, enqueueSync, flushQueuedSync } from './lib/sync'
+import { copy, loadReadingLanguage, loadUiLocale, READING_LANGUAGES, saveReadingLanguage, saveUiLocale, UI_LOCALES, type ReadingLanguage } from './lib/i18n'
 
 type View = 'library' | 'reader' | 'highlights' | 'settings'
 type DisplayBook = Pick<StoredBook, 'id' | 'title' | 'author' | 'language' | 'progress' | 'cover'> & Partial<Pick<StoredBook, 'fileName' | 'fileType' | 'storage' | 'createdAt' | 'location' | 'workId' | 'coverImage'>>
@@ -27,7 +28,10 @@ const sampleBooks: DisplayBook[] = [
 function App() {
   const [books, setBooks] = useState<DisplayBook[]>([])
   const [view, setView] = useState<View>('library')
-  const [language, setLanguage] = useState('中文')
+  // The interface locale and AI reading language are intentionally distinct:
+  // changing UI copy must never silently change a reader's translation target.
+  const [uiLocale, setUiLocale] = useState(loadUiLocale)
+  const [language, setLanguage] = useState<ReadingLanguage>(loadReadingLanguage)
   const [selectedBook, setSelectedBook] = useState<DisplayBook>(sampleBooks[0])
   const [compare, setCompare] = useState(false)
   const [assistantOpen, setAssistantOpen] = useState(false)
@@ -47,6 +51,7 @@ function App() {
   const fileInput = useRef<HTMLInputElement>(null)
   const coverInput = useRef<HTMLInputElement>(null)
   const syncTimer = useRef<number | undefined>(undefined)
+  const ui = copy[uiLocale]
 
   const syncNow = useCallback(async () => {
     if (!session) return
@@ -96,11 +101,24 @@ function App() {
     return () => { cancelled = true }
   }, [searchQuery])
 
+  useEffect(() => { saveUiLocale(uiLocale) }, [uiLocale])
+  useEffect(() => { saveReadingLanguage(language) }, [language])
+
 
   const toast = useCallback((message: string) => {
     setNotice(message)
     window.setTimeout(() => setNotice(''), 2800)
   }, [])
+
+  function changeUiLocale(nextLocale: typeof uiLocale) {
+    setUiLocale(nextLocale)
+    toast(`${copy[nextLocale].uiLanguageSaved}${UI_LOCALES.find((item) => item.value === nextLocale)?.label ?? nextLocale}`)
+  }
+
+  function changeReadingLanguage(nextLanguage: ReadingLanguage) {
+    setLanguage(nextLanguage)
+    toast(`${ui.readingLanguageSaved}${nextLanguage}`)
+  }
 
   function importBooks() { fileInput.current?.click() }
 
@@ -213,35 +231,35 @@ function App() {
   return (
     <div className="app-shell">
       <aside className="rail">
-        <button className="wordmark" onClick={() => setView('library')} aria-label="回到书库">WL<span>°</span></button>
-        <nav aria-label="主导航">
-          <button className={view === 'library' ? 'nav-item active' : 'nav-item'} onClick={() => setView('library')}><span>01</span>书库</button>
-          <button className={view === 'highlights' ? 'nav-item active' : 'nav-item'} onClick={() => setView('highlights')}><span>02</span>摘录</button>
-          <button className={view === 'settings' ? 'nav-item active' : 'nav-item'} onClick={() => setView('settings')}><span>03</span>设置</button>
+        <button className="wordmark" onClick={() => setView('library')} aria-label={ui.library}>WL<span>°</span></button>
+        <nav aria-label={uiLocale === 'en' ? 'Main navigation' : '主导航'}>
+          <button className={view === 'library' ? 'nav-item active' : 'nav-item'} onClick={() => setView('library')}><span>01</span>{ui.library}</button>
+          <button className={view === 'highlights' ? 'nav-item active' : 'nav-item'} onClick={() => setView('highlights')}><span>02</span>{ui.highlights}</button>
+          <button className={view === 'settings' ? 'nav-item active' : 'nav-item'} onClick={() => setView('settings')}><span>03</span>{ui.settings}</button>
         </nav>
-        <div className={`rail-foot ${isOnline ? '' : 'is-offline'}`} title={isOnline ? '应用壳已缓存；已导入书籍可离线阅读' : '当前离线：仅可访问已缓存应用和本地书籍'}><i />{isOnline ? '离线可读' : '当前离线'}</div>
+        <div className={`rail-foot ${isOnline ? '' : 'is-offline'}`} title={isOnline ? ui.offlineReady : ui.offlineNow}><i />{isOnline ? ui.offlineReady : ui.offlineNow}</div>
       </aside>
 
       <main className="content">
-        {!isOnline && <div className="offline-banner" role="status">当前离线：已导入的本地书籍仍可阅读；翻译、OCR 与同步将在联网后恢复。</div>}
+        {!isOnline && <div className="offline-banner" role="status">{ui.offlineBanner}</div>}
         <header className="topbar">
           <p className="eyebrow">PERSONAL WORLD LIBRARY / 001</p>
           <div className="top-actions">
-            <button className="text-button" onClick={() => setView('settings')}>理解语言：<strong>{language}</strong>⌄</button>
-            <button className="round-button" onClick={importBooks} aria-label="导入书籍">＋</button>
+            <button className="text-button" onClick={() => setView('settings')}>{ui.readingLanguage}：<strong>{language}</strong>⌄</button>
+            <button className="round-button" onClick={importBooks} aria-label={ui.importBook}>＋</button>
           </div>
         </header>
 
         {view === 'library' && <section className="library-view">
-          <div className="hero"><div><p className="eyebrow">YOUR SHELF</p><h1>把世界的书，<em>读成自己的语言。</em></h1></div><p className="hero-copy">导入你的书，关联不同译本。划线即可获得翻译与解释——即使离线，也能继续阅读和思考。</p></div>
-          <div className="library-search"><span aria-hidden="true">⌕</span><input value={searchQuery} onChange={(event) => setSearchQuery(event.target.value)} placeholder="搜索书名、作者或正文（本地）" aria-label="搜索书库" />{searchQuery && <button onClick={() => setSearchQuery('')} aria-label="清除搜索">×</button>}</div>
-          <div className="shelf-toolbar"><div className="filter-row"><button className={libraryFilter === 'all' ? 'filter active' : 'filter'} onClick={() => setLibraryFilter('all')}>全部 <b>{String(books.length).padStart(2, '0')}</b></button><button className={libraryFilter === 'reading' ? 'filter active' : 'filter'} onClick={() => setLibraryFilter('reading')}>正在读 <b>{String(books.filter((book) => book.progress > 0 && book.progress < 100).length).padStart(2, '0')}</b></button><button className={libraryFilter === 'multi' ? 'filter active' : 'filter'} onClick={() => setLibraryFilter('multi')}>多译本 <b>{String(books.filter((book) => Boolean(book.workId && editionCounts[book.workId] > 1)).length).padStart(2, '0')}</b></button></div><button className="sort-button" onClick={() => setSortNewest((current) => !current)}>{sortNewest ? '最近阅读 ↓' : '书名排序 A–Z'}</button></div>
+          <div className="hero"><div><p className="eyebrow">{ui.shelf}</p><h1>{ui.hero}<em>{ui.heroEmphasis}</em></h1></div><p className="hero-copy">{ui.heroCopy}</p></div>
+          <div className="library-search"><span aria-hidden="true">⌕</span><input value={searchQuery} onChange={(event) => setSearchQuery(event.target.value)} placeholder={ui.searchPlaceholder} aria-label={ui.searchLibrary} />{searchQuery && <button onClick={() => setSearchQuery('')} aria-label={ui.clearSearch}>×</button>}</div>
+          <div className="shelf-toolbar"><div className="filter-row"><button className={libraryFilter === 'all' ? 'filter active' : 'filter'} onClick={() => setLibraryFilter('all')}>{ui.all} <b>{String(books.length).padStart(2, '0')}</b></button><button className={libraryFilter === 'reading' ? 'filter active' : 'filter'} onClick={() => setLibraryFilter('reading')}>{ui.reading} <b>{String(books.filter((book) => book.progress > 0 && book.progress < 100).length).padStart(2, '0')}</b></button><button className={libraryFilter === 'multi' ? 'filter active' : 'filter'} onClick={() => setLibraryFilter('multi')}>{ui.editions} <b>{String(books.filter((book) => Boolean(book.workId && editionCounts[book.workId] > 1)).length).padStart(2, '0')}</b></button></div><button className="sort-button" onClick={() => setSortNewest((current) => !current)}>{sortNewest ? ui.recent : ui.alphabetical}</button></div>
           {normalizedSearch && <p className="library-search-result" role="status">找到 {filteredBooks.length} 本匹配书籍</p>}
           <div className="shelf">
             {filteredBooks.map((book) => <button className="book-card" key={book.id} onClick={() => { setSelectedBook(book); setView('reader') }}><div className={`cover ${book.cover}`}>{book.coverImage ? <img className="cover-image" src={book.coverImage} alt={`${book.title} 封面`} /> : <><span>{book.id === 'invisible' ? <>THE<br />INVISIBLE<br />LIFE</> : book.id === 'stranger' ? "L'ÉTRANGER" : <>变<br />形<br />记</>}</span><small>{book.author}</small></>}</div><div className="book-info"><p className="book-lang">{book.language}</p><h2>{book.title}</h2><p>{book.author}</p>{textMatches[book.id] && <p className="book-search-snippet" title={textMatches[book.id]}>正文命中：{textMatches[book.id]}</p>}<div className="progress"><i style={{ width: `${book.progress}%` }} /></div><small>{book.progress}% · 本地阅读</small></div></button>)}
-            {books.length === 0 && <div className="library-no-results">你的书架还是空的。导入 EPUB 或 PDF 后，书籍会只保存在这台设备上。</div>}
+            {books.length === 0 && <div className="library-no-results">{ui.emptyShelf}</div>}
             {books.length > 0 && filteredBooks.length === 0 && <div className="library-no-results">没有找到匹配的书籍或筛选结果</div>}
-            <button className="import-card" onClick={importBooks}><span>＋</span><strong>导入我的书</strong><small>EPUB · PDF</small></button>
+            <button className="import-card" onClick={importBooks}><span>＋</span><strong>{ui.importMine}</strong><small>EPUB · PDF</small></button>
           </div>
         </section>}
 
@@ -276,7 +294,7 @@ function App() {
           <div className="reader-bottom"><span>{selectedBook.progress}%</span><div><i style={{ width: `${selectedBook.progress}%` }} /></div><span>{selectedBook.fileName ? '进度已保存到本机' : '4 / 11'}</span><button onClick={() => toast('OCR 是下一步真实服务接入点')}>◎ 扫描页？识别文字</button></div>
         </section>}
 
-        {view === 'settings' && <section className="settings-view"><div className="settings-wrap"><p className="eyebrow">PREFERENCES</p><h1>你的阅读语言</h1><p className="settings-copy">AI 会把你划线的任意语言文本，翻译并解释成这个语言。</p><div className="language-grid">{['中文', 'English', '日本語', 'Français'].map((item) => <button className={language === item ? 'language-choice active' : 'language-choice'} key={item} onClick={() => { setLanguage(item); toast(`已将 AI 理解语言设为：${item}`) }}>{item}<span>{item === '中文' ? '简体中文' : item === 'English' ? '英语' : item === '日本語' ? '日语' : '法语'}</span></button>)}</div><div className="local-books"><h2>本地书籍管理</h2>{books.filter((book) => book.storage && book.fileName).map((book) => <div className="local-book-row" key={book.id}><span><strong>{book.title}</strong><small>{book.fileName} · {book.storage === 'opfs' ? '设备文件系统' : '浏览器数据库'}</small></span><div className="local-book-actions">{book.fileName?.toLowerCase().endsWith('.epub') && <button onClick={() => { void refreshCover(book) }} disabled={refreshingCoverId === book.id}>{refreshingCoverId === book.id ? '读取封面中…' : '重新读取封面'}</button>}<button onClick={() => selectCustomCover(book)}>上传本地封面</button><button onClick={() => setMetadataDraft(book as StoredBook)}>编辑信息</button><button className="danger" onClick={() => { void removeBook(book) }}>删除</button></div></div>)}</div><div className="settings-note"><span>◎</span><p><strong>你的书，留在你的设备上。</strong><br />已导入的书籍、阅读进度和摘录均可离线访问；仅在你请求解释或识别文字时，相关内容才会发送至 AI 服务。</p></div></div></section>}
+        {view === 'settings' && <section className="settings-view"><div className="settings-wrap"><p className="eyebrow">{ui.preferences}</p><h1>{ui.settingsTitle}</h1><section className="language-section" aria-labelledby="ui-language-title"><div className="language-heading"><h2 id="ui-language-title">{ui.uiLanguageTitle}</h2><p>{ui.uiLanguageCopy}</p></div><div className="language-grid language-grid-compact">{UI_LOCALES.map((item) => <button className={uiLocale === item.value ? 'language-choice active' : 'language-choice'} key={item.value} onClick={() => changeUiLocale(item.value)}>{item.label}<span>{item.value === 'zh-CN' ? 'Simplified Chinese' : 'English'}</span></button>)}</div></section><section className="language-section" aria-labelledby="reading-language-title"><div className="language-heading"><h2 id="reading-language-title">{ui.readingLanguageTitle}</h2><p>{ui.readingLanguageCopy}</p></div><div className="language-grid">{READING_LANGUAGES.map((item) => <button className={language === item.value ? 'language-choice active' : 'language-choice'} key={item.value} onClick={() => changeReadingLanguage(item.value)}>{item.value}<span>{uiLocale === 'en' ? item.enLabel : item.zhLabel}</span></button>)}</div></section><div className="local-books"><h2>{ui.localBooks}</h2>{books.filter((book) => book.storage && book.fileName).map((book) => <div className="local-book-row" key={book.id}><span><strong>{book.title}</strong><small>{book.fileName} · {book.storage === 'opfs' ? '设备文件系统' : '浏览器数据库'}</small></span><div className="local-book-actions">{book.fileName?.toLowerCase().endsWith('.epub') && <button onClick={() => { void refreshCover(book) }} disabled={refreshingCoverId === book.id}>{refreshingCoverId === book.id ? '读取封面中…' : '重新读取封面'}</button>}<button onClick={() => selectCustomCover(book)}>上传本地封面</button><button onClick={() => setMetadataDraft(book as StoredBook)}>编辑信息</button><button className="danger" onClick={() => { void removeBook(book) }}>删除</button></div></div>)}</div><div className="settings-note"><span>◎</span><p><strong>{ui.privacyTitle}</strong><br />{ui.privacyCopy}</p></div></div></section>}
       </main>
       {metadataDraft && <div className="metadata-dialog-backdrop" role="presentation"><form className="metadata-dialog" onSubmit={(event) => { void saveMetadata(event) }} aria-label="编辑书籍信息"><div><p className="eyebrow">LOCAL METADATA</p><h2>校正书籍信息</h2><p>只修改书架显示和本地阅读数据，不会改动或上传原始文件。</p></div><label>书名<input name="title" defaultValue={metadataDraft.title} autoFocus /></label><label>作者<input name="author" defaultValue={metadataDraft.author} /></label><div className="metadata-dialog-actions"><button type="button" onClick={() => setMetadataDraft(null)}>取消</button><button type="submit">保存信息</button></div></form></div>}
       {view === 'settings' && <AuthPanel onNotice={toast} onSessionChange={setSession} />}
