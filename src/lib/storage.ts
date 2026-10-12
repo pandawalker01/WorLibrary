@@ -16,6 +16,8 @@ export type StoredBook = {
   fileSize: number
   storage: 'opfs' | 'indexeddb'
   createdAt: number
+  /** Most recent local reader activity; used only for the on-device reading history. */
+  lastReadAt?: number
   location?: string
   workId?: string
   editionId?: string
@@ -434,6 +436,7 @@ export async function saveReadingProgress(bookId: string, location: string, prog
     ...current,
     location,
     progress: Math.max(0, Math.min(100, progress)),
+    lastReadAt: Date.now(),
   }))
 }
 

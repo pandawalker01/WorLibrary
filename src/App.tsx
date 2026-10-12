@@ -17,7 +17,7 @@ import { createIndexedDbSyncAdapter, deleteRemoteHighlight, enqueueSync, flushQu
 import { copy, interpolate, loadReadingLanguage, loadUiLocale, READING_LANGUAGES, saveReadingLanguage, saveUiLocale, UI_LOCALES, type ReadingLanguage } from './lib/i18n'
 
 type View = 'library' | 'reader' | 'highlights' | 'profile' | 'settings'
-type DisplayBook = Pick<StoredBook, 'id' | 'title' | 'author' | 'language' | 'progress' | 'cover'> & Partial<Pick<StoredBook, 'fileName' | 'fileType' | 'storage' | 'createdAt' | 'location' | 'workId' | 'coverImage'>>
+type DisplayBook = Pick<StoredBook, 'id' | 'title' | 'author' | 'language' | 'progress' | 'cover'> & Partial<Pick<StoredBook, 'fileName' | 'fileType' | 'storage' | 'createdAt' | 'lastReadAt' | 'location' | 'workId' | 'coverImage'>>
 
 const sampleBooks: DisplayBook[] = [
   { id: 'invisible', title: 'The Invisible Life of Addie LaRue', author: 'V. E. Schwab', language: 'English · 3 versions', progress: 38, cover: 'ink' },
@@ -37,6 +37,11 @@ function formatReadingTime(seconds: number, locale: 'zh-CN' | 'en'): string {
   const remainingMinutes = minutes % 60
   if (locale === 'en') return hours > 0 ? `${hours}h ${remainingMinutes}m` : `${minutes} min`
   return hours > 0 ? `${hours} 小时 ${remainingMinutes} 分` : `${minutes} 分钟`
+}
+
+function formatLastRead(timestamp: number | undefined, locale: 'zh-CN' | 'en', notReadLabel: string): string {
+  if (!timestamp) return notReadLabel
+  return new Intl.DateTimeFormat(locale === 'en' ? 'en' : 'zh-CN', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }).format(new Date(timestamp))
 }
 
 function accountIdentity(session: AuthSession | null, signedOutLabel: string, guestLabel: string) {
@@ -200,8 +205,9 @@ function App() {
   }
 
   function updateEditionProgress(bookId: string, progress: number, location: string) {
-    setSelectedBook((current) => current.id === bookId ? { ...current, progress, location } : current)
-    setBooks((current) => current.map((item) => item.id === bookId ? { ...item, progress, location } : item))
+    const lastReadAt = Date.now()
+    setSelectedBook((current) => current.id === bookId ? { ...current, progress, location, lastReadAt } : current)
+    setBooks((current) => current.map((item) => item.id === bookId ? { ...item, progress, location, lastReadAt } : item))
     const edition = editions.find((item) => item.bookId === bookId)
     if (edition) { setEditions((current) => current.map((item) => item.id === edition.id ? { ...item, progress, location } : item)); void saveEditionProgress(edition.id, location, progress) }
   }
@@ -275,7 +281,7 @@ function App() {
     .sort((left, right) => sortNewest ? (right.createdAt ?? 0) - (left.createdAt ?? 0) : left.title.localeCompare(right.title))
   const readingBooks = books.filter((book) => book.progress > 0 && book.progress < 100)
   const completedBooks = books.filter((book) => book.progress >= 100)
-  const recentBooks = [...readingBooks].sort((left, right) => (right.createdAt ?? 0) - (left.createdAt ?? 0)).slice(0, 3)
+  const recentBooks = books.filter((book) => Boolean(book.lastReadAt)).sort((left, right) => (right.lastReadAt ?? 0) - (left.lastReadAt ?? 0)).slice(0, 3)
 
   return (
     <div className="app-shell">
@@ -330,7 +336,7 @@ function App() {
           <div className="profile-stats" aria-label={ui.profileTitle}>
             <article><span>{ui.readingTime}</span><strong>{formatReadingTime(readingSeconds, uiLocale)}</strong></article><article><span>{ui.booksOwned}</span><strong>{books.length}</strong></article><article><span>{ui.booksInProgress}</span><strong>{readingBooks.length}</strong></article><article><span>{ui.highlightsSaved}</span><strong>{highlightCount}</strong></article>
           </div>
-          <section className="profile-recent" aria-labelledby="profile-recent-title"><div><p className="eyebrow">{ui.recentReading}</p><h2 id="profile-recent-title">{ui.recentReading}</h2><p>{ui.recentReadingCopy}</p></div>{recentBooks.length > 0 ? <div className="profile-book-list">{recentBooks.map((book) => <button key={book.id} onClick={() => { setSelectedBook(book); setView('reader') }}><span>{book.title}</span><small>{book.author} · {book.progress}%</small><i><b style={{ width: `${book.progress}%` }} /></i></button>)}</div> : <div className="profile-empty"><strong>{ui.profileEmpty}</strong><p>{ui.profileEmptyCopy}</p><button onClick={() => setView('library')}>{ui.importMine}</button></div>}</section>
+          <section className="profile-recent" aria-labelledby="profile-recent-title"><div><p className="eyebrow">{ui.recentReading}</p><h2 id="profile-recent-title">{ui.recentReading}</h2><p>{ui.recentReadingCopy}</p></div>{recentBooks.length > 0 ? <div className="profile-book-list">{recentBooks.map((book) => <button key={book.id} onClick={() => { setSelectedBook(book); setView('reader') }}><span>{book.title}</span><small>{book.author} · {book.progress}% · {formatLastRead(book.lastReadAt, uiLocale, ui.notReadYet)}</small><i><b style={{ width: `${book.progress}%` }} /></i></button>)}</div> : <div className="profile-empty"><strong>{ui.profileEmpty}</strong><p>{ui.profileEmptyCopy}</p><button onClick={() => setView('library')}>{ui.importMine}</button></div>}</section>
           <p className="profile-footnote">{completedBooks.length > 0 ? `${ui.booksCompleted}：${completedBooks.length}` : ui.profileLocalOnly}</p>
         </section>}
 
