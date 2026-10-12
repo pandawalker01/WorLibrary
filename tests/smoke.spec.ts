@@ -79,6 +79,22 @@ test('profile shows local reading stats and routes back to the library', async (
   await expect(page.getByRole('heading', { name: '把世界的书，' })).toBeVisible()
 })
 
+test('reading time does not advance while the reader tab is hidden', async ({ page }) => {
+  await page.goto('/')
+  await importFixture(page)
+  await page.getByRole('button', { name: /Reader Fixture/ }).click()
+  await page.evaluate(() => {
+    localStorage.removeItem('worlibrary.reading-seconds')
+    localStorage.removeItem('worlibrary.reading-history')
+    localStorage.removeItem('worlibrary.reading-by-book')
+    Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'hidden' })
+  })
+  await page.waitForTimeout(1200)
+  await expect.poll(() => page.evaluate(() => localStorage.getItem('worlibrary.reading-seconds'))).toBeNull()
+  await expect.poll(() => page.evaluate(() => localStorage.getItem('worlibrary.reading-history'))).toBeNull()
+  await expect.poll(() => page.evaluate(() => localStorage.getItem('worlibrary.reading-by-book'))).toBeNull()
+})
+
 test('reader, comparison and explanation flow are available', async ({ page }) => {
   await page.goto('/')
   await importFixture(page)

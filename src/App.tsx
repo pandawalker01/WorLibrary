@@ -182,6 +182,7 @@ function App() {
   useEffect(() => {
     if (view !== 'reader') return
     const timer = window.setInterval(() => {
+      if (document.visibilityState !== 'visible') return
       setReadingSeconds((current) => {
         const next = current + 1
         try { window.localStorage.setItem(READING_SECONDS_KEY, String(next)) } catch { /* Reading must work without storage. */ }
