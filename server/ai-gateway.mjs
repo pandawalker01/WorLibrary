@@ -1,4 +1,5 @@
 import { createSupabaseJwtVerifier } from './supabase-jwt.mjs'
+import { createSupabaseQuotaStore } from './supabase-quota-store.mjs'
 
 const DEFAULT_LIMIT = 5_000
 const DEFAULT_DAILY_QUOTA = 20
@@ -96,7 +97,10 @@ async function authenticateRequest(request, env, verifier, required) {
   const token = authorization.startsWith('Bearer ') ? authorization.slice(7).trim() : ''
   if (token) {
     if (!verifier) return null
-    try { return await verifier(token, request) } catch { return null }
+    try {
+      const identity = await verifier(token, request)
+      return identity?.id ? { ...identity, accessToken: token } : null
+    } catch { return null }
   }
   if (required) return null
   return { id: token ? `token:${token.slice(0, 16)}` : clientKey(request), anonymous: !token }
@@ -170,6 +174,7 @@ export function createAiGateway({ env = {}, fetchImpl = fetch, logger = console.
     audience: env.SUPABASE_JWT_AUDIENCE || 'authenticated',
     now,
   })
+  const durableQuotaStore = store?.consume ? store : createSupabaseQuotaStore({ env, fetchImpl })
 
   return async function handle(request) {
     const requestId = requestIdFor(request)
@@ -186,6 +191,12 @@ export function createAiGateway({ env = {}, fetchImpl = fetch, logger = console.
     if (input.error) return fail(input.error, cors)
     const identityResult = await authenticateRequest(request, env, verifyIdentity, requireAuth)
     if (!identityResult?.id) return fail('unauthorized', cors)
+    // Production must not silently fall back to a process-local quota after a
+    // restart or scale-out. Configuration details remain server-side.
+    if (production && (!durableQuotaStore?.consume || !durableQuotaStore?.release)) {
+      safeLog(logger, 'ai_quota_store_unavailable', { traceId: requestId, reason: 'missing_persistent_adapter' })
+      return fail('provider_unavailable', cors)
+    }
     const identity = identityResult.id
     const nowValue = now()
     const windowStart = nowValue - 60_000
@@ -200,8 +211,25 @@ export function createAiGateway({ env = {}, fetchImpl = fetch, logger = console.
     if (previous?.expiresAt > nowValue) return json({ ...previous.value, cached: true }, 200, cors)
     const cached = store?.getCache ? await store.getCache(key) : cache.get(key)
     if (cached && cached.expiresAt > nowValue) return json({ ...cached.value, cached: true }, 200, cors)
-    const consumed = store?.getUsage ? await store.getUsage(quotaKey) : usage.get(quotaKey) || 0
-    if (consumed >= dailyQuota) return fail('quota_exceeded', cors)
+    let quotaReservation
+    let consumed = 0
+    if (durableQuotaStore?.consume) {
+      try {
+        quotaReservation = await durableQuotaStore.consume({
+          accessToken: identityResult.accessToken,
+          requestId: input.requestId,
+          kind,
+          dailyLimit: dailyQuota,
+        })
+      } catch (error) {
+        safeLog(logger, 'ai_quota_store_unavailable', { kind, requestId: input.requestId, traceId: requestId, code: error?.code || 'unknown' })
+        return fail('provider_unavailable', cors)
+      }
+      if (!quotaReservation.allowed) return fail('quota_exceeded', cors)
+    } else {
+      consumed = store?.getUsage ? await store.getUsage(quotaKey) : usage.get(quotaKey) || 0
+      if (consumed >= dailyQuota) return fail('quota_exceeded', cors)
+    }
     let result
     try {
       let lastError
@@ -219,11 +247,18 @@ export function createAiGateway({ env = {}, fetchImpl = fetch, logger = console.
       if (!result) throw lastError || new Error('provider failed')
     } catch (error) {
       const code = error?.code || (error?.name === 'AbortError' ? 'provider_timeout' : 'provider_error')
+      if (quotaReservation?.charged) {
+        try {
+          await durableQuotaStore.release({ accessToken: identityResult.accessToken, requestId: input.requestId })
+        } catch (releaseError) {
+          safeLog(logger, 'ai_quota_release_failed', { kind, requestId: input.requestId, traceId: requestId, code: releaseError?.code || 'unknown' })
+        }
+      }
       safeLog(logger, 'ai_request_failed', { kind, requestId: input.requestId, traceId: requestId, code })
       return fail(code, cors)
     }
-    if (store?.incrementUsage) await store.incrementUsage(quotaKey)
-    else usage.set(quotaKey, consumed + 1)
+    if (!durableQuotaStore?.consume && store?.incrementUsage) await store.incrementUsage(quotaKey)
+    else if (!durableQuotaStore?.consume) usage.set(quotaKey, consumed + 1)
     const value = { ...result, cached: false }
     const cacheEntry = { value, expiresAt: nowValue + cacheTtlMs }
     if (store?.setCache) await store.setCache(key, cacheEntry)

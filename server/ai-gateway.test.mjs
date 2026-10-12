@@ -145,12 +145,33 @@ test('production requires a verifiable Supabase JWT and rejects arbitrary Bearer
   const now = 1_750_000_000_000
   let calls = 0
   const env = { AI_ENV: 'production', SUPABASE_JWT_SECRET: 'test-secret', SUPABASE_JWT_ISSUER: 'https://project.supabase.co/auth/v1', SUPABASE_JWT_AUDIENCE: 'authenticated' }
-  const gateway = createAiGateway({ env, now: () => now, provider: async () => { calls += 1; return { translation: 'ok', provider: 'test' } }, logger: () => {} })
+  const quotaStore = { async consume() { return { allowed: true, charged: true, used: 1 } }, async release() { return true } }
+  const gateway = createAiGateway({ env, now: () => now, store: quotaStore, provider: async () => { calls += 1; return { translation: 'ok', provider: 'test' } }, logger: () => {} })
   assert.equal((await gateway(request('/api/translate', { text: 'missing' }))).status, 401)
   assert.equal((await gateway(request('/api/translate', { text: 'fake' }, { authorization: 'Bearer arbitrary-text' }))).status, 401)
   const token = await signedToken({ sub: 'user-123', exp: now / 1000 + 60, iss: env.SUPABASE_JWT_ISSUER, aud: 'authenticated' })
   assert.equal((await gateway(request('/api/translate', { text: 'verified' }, { authorization: `Bearer ${token}` }))).status, 200)
   assert.equal(calls, 1)
+})
+
+test('durable quota adapter charges before provider and releases failed provider calls', async () => {
+  const calls = []
+  const store = {
+    async consume(input) { calls.push(['consume', input]); return { allowed: true, charged: true, used: 1 } },
+    async release(input) { calls.push(['release', input]); return true },
+  }
+  const gateway = createAiGateway({
+    env: { AI_ENV: 'production' },
+    store,
+    authVerifier: async () => ({ id: 'user-1' }),
+    provider: async () => { throw Object.assign(new Error('down'), { code: 'provider_error' }) },
+    logger: () => {},
+  })
+  const response = await gateway(request('/api/translate', { text: 'private source text', requestId: 'release-1' }, { authorization: 'Bearer verified-token' }))
+  assert.equal(response.status, 502)
+  assert.deepEqual(calls.map(([name]) => name), ['consume', 'release'])
+  assert.equal(calls[0][1].accessToken, 'verified-token')
+  assert.equal(JSON.stringify(calls).includes('private source text'), false)
 })
 
 test('expired or wrong-audience Supabase JWT never reaches AI or OCR providers', async () => {

@@ -1,4 +1,5 @@
 import { createSupabaseJwtVerifier } from './supabase-jwt.mjs'
+import { createSupabaseQuotaStore } from './supabase-quota-store.mjs'
 
 const DEFAULT_TIMEOUT_MS = 20_000
 const MAX_IMAGE_BYTES = 6 * 1024 * 1024
@@ -69,7 +70,10 @@ async function authenticateRequest(request, verifier, required) {
   const token = authorization.startsWith('Bearer ') ? authorization.slice(7).trim() : ''
   if (token) {
     if (!verifier) return null
-    try { return await verifier(token, request) } catch { return null }
+    try {
+      const identity = await verifier(token, request)
+      return identity?.id ? { ...identity, accessToken: token } : null
+    } catch { return null }
   }
   return required ? null : { id: request.headers.get('x-anonymous-id') || 'anonymous', anonymous: true }
 }
@@ -79,20 +83,37 @@ export function createOcrGateway({ env = {}, fetchImpl = fetch, logger = console
   const callProvider = provider || makeProvider(env, fetchImpl)
   const production = (env.OCR_ENV || env.NODE_ENV || 'development') === 'production'
   const requireAuth = production || env.OCR_REQUIRE_AUTH === 'true'
+  const dailyQuota = numberOption(env.OCR_DAILY_QUOTA || env.AI_DAILY_QUOTA, 20, 1_000_000)
   const verifyIdentity = authVerifier || createSupabaseJwtVerifier({
     secret: env.SUPABASE_JWT_SECRET,
     issuer: env.SUPABASE_JWT_ISSUER,
     audience: env.SUPABASE_JWT_AUDIENCE || 'authenticated',
     now,
   })
+  const quotaStore = createSupabaseQuotaStore({ env, fetchImpl })
   return async function handle(request) {
     const cors = { 'access-control-allow-origin': env.ALLOWED_ORIGIN || '*', 'access-control-allow-headers': 'content-type, authorization', 'access-control-allow-methods': 'POST, OPTIONS' }
     if (request.method === 'OPTIONS') return new Response(null, { status: 204, headers: cors })
     if (request.method !== 'POST' || !new URL(request.url).pathname.endsWith('/ocr/page')) return new Response('Not found', { status: 404, headers: cors })
-    if (!await authenticateRequest(request, verifyIdentity, requireAuth)) return fail('unauthorized', cors)
+    const identity = await authenticateRequest(request, verifyIdentity, requireAuth)
+    if (!identity) return fail('unauthorized', cors)
+    if (production && (!quotaStore?.consume || !quotaStore?.release)) {
+      logger?.({ event: 'ocr_quota_store_unavailable', reason: 'missing_persistent_adapter' })
+      return fail('provider_unavailable', cors)
+    }
     let input
     try { input = normaliseInput(await request.json()) } catch { return fail('invalid_request', cors) }
     if (input.error) return fail(input.error, cors)
+    let reservation
+    if (quotaStore?.consume) {
+      try {
+        reservation = await quotaStore.consume({ accessToken: identity.accessToken, requestId: input.requestId, kind: 'ocr', dailyLimit: dailyQuota })
+      } catch (error) {
+        logger?.({ event: 'ocr_quota_store_unavailable', requestId: input.requestId, code: error?.code || 'unknown' })
+        return fail('provider_unavailable', cors)
+      }
+      if (!reservation.allowed) return response({ error: { code: 'quota_exceeded', message: '今日文字识别试用额度已用完，请明天再试。', retryable: false } }, 429, cors)
+    }
     const controller = new AbortController()
     const timer = setTimeout(() => controller.abort(), timeoutMs)
     try {
@@ -101,6 +122,10 @@ export function createOcrGateway({ env = {}, fetchImpl = fetch, logger = console
       return response({ ...result, requestId: input.requestId }, 200, cors)
     } catch (error) {
       const code = error?.name === 'AbortError' || error?.code === 'provider_timeout' ? 'provider_timeout' : error?.code === 'provider_unavailable' ? 'provider_unavailable' : 'provider_error'
+      if (reservation?.charged) {
+        try { await quotaStore.release({ accessToken: identity.accessToken, requestId: input.requestId }) }
+        catch (releaseError) { logger?.({ event: 'ocr_quota_release_failed', requestId: input.requestId, code: releaseError?.code || 'unknown' }) }
+      }
       logger?.({ event: 'ocr_failed', requestId: input.requestId, code })
       return fail(code, cors)
     } finally { clearTimeout(timer) }

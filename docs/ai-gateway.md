@@ -17,6 +17,7 @@
 | `SUPABASE_JWT_SECRET` | Supabase Auth 的 HS256 JWT secret | 生产必填，只保存在网关 Secret 中 |
 | `SUPABASE_JWT_ISSUER` | JWT `iss` 的精确值 | 建议设为 `https://<project-ref>.supabase.co/auth/v1` |
 | `SUPABASE_JWT_AUDIENCE` | JWT `aud` 的精确值 | 通常为 `authenticated` |
+| `SUPABASE_URL` / `SUPABASE_ANON_KEY` | 用于调用受控额度 RPC | 生产必填；仅服务端网关使用 |
 | `ALLOWED_ORIGIN` | 浏览器来源 | 生产站点的精确 HTTPS Origin |
 
 可选的保护参数：`AI_TIMEOUT_MS`（每次上游请求，默认 12000，最大 120000）、`AI_RETRY_ATTEMPTS`（默认 2，最大 3）、`AI_RETRY_DELAY_MS`（默认 1，最大 2000）、`AI_RATE_LIMIT`（每用户每分钟，默认 10）、`AI_DAILY_QUOTA`（默认 20）和 `AI_CACHE_TTL_MS`（默认 24 小时）。无效或过大的数值会回退/限制在安全范围内。
@@ -49,4 +50,4 @@ npm run test:gateway
 npx playwright test tests/contracts.spec.ts
 ```
 
-确认生产部署中已配置精确的 `ALLOWED_ORIGIN`、鉴权验证器和持久化的限流/缓存存储适配器；进程内 Map 仅适用于本地开发或单实例演示。
+确认生产部署中已配置精确的 `ALLOWED_ORIGIN`、鉴权验证器和 `SUPABASE_URL` / `SUPABASE_ANON_KEY`。网关使用已验证用户的 Bearer JWT 调用 `consume_ai_quota`；供应商失败时会调用 `release_ai_quota` 释放本次预扣额度。只发送 request id、操作种类与额度，不发送划词正文、图像或密钥。生产环境缺少持久化适配会在调用供应商前安全拒绝；进程内 Map 仅适用于本地开发或单实例演示。

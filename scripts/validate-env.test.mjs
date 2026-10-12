@@ -16,6 +16,8 @@ function validate(env) {
 const configured = {
   VITE_SUPABASE_URL: 'https://project.supabase.co',
   VITE_SUPABASE_ANON_KEY: 'anon-key-for-test',
+  SUPABASE_URL: 'https://project.supabase.co',
+  SUPABASE_ANON_KEY: 'anon-key-for-server-test',
   AI_PROVIDER: 'openai',
   AI_API_KEY: 'server-key-for-test',
   AI_BASE_URL: 'https://provider.example.test/v1',
@@ -48,4 +50,11 @@ test('production environment contract rejects mock providers, loose CORS and exp
   assert.match(result.payload.invalid.join('\n'), /AI_PROVIDER must not be mock/)
   assert.match(result.payload.invalid.join('\n'), /ALLOWED_ORIGIN/)
   assert.match(result.payload.invalid.join('\n'), /VITE_AI_API_KEY/)
+})
+
+test('production environment contract requires the durable Supabase quota adapter', () => {
+  const result = validate({ ...configured, SUPABASE_URL: '', SUPABASE_ANON_KEY: '' })
+  assert.equal(result.status, 1)
+  assert.match(result.payload.missing.join('\n'), /SUPABASE_URL/)
+  assert.match(result.payload.missing.join('\n'), /SUPABASE_ANON_KEY/)
 })

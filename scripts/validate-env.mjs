@@ -60,6 +60,8 @@ if (production) {
   required('AI_MODEL')
   required('AI_API_KEY')
   url('AI_BASE_URL')
+  url('SUPABASE_URL')
+  required('SUPABASE_ANON_KEY')
   required('OCR_PROVIDER')
   required('OCR_API_KEY')
   url('OCR_BASE_URL')
@@ -69,7 +71,7 @@ if (production) {
   if (values.AI_ENV?.trim() !== 'production') invalid.push('AI_ENV must be production')
   if (values.OCR_ENV?.trim() !== 'production') invalid.push('OCR_ENV must be production')
   if (values.AI_REQUIRE_AUTH?.trim() !== 'true') invalid.push('AI_REQUIRE_AUTH must be true in production')
-  for (const name of ['AI_API_KEY', 'AI_MODEL', 'AI_BASE_URL', 'OCR_API_KEY', 'OCR_BASE_URL']) notPlaceholder(name)
+  for (const name of ['AI_API_KEY', 'AI_MODEL', 'AI_BASE_URL', 'OCR_API_KEY', 'OCR_BASE_URL', 'SUPABASE_URL', 'SUPABASE_ANON_KEY']) notPlaceholder(name)
   for (const name of Object.keys(values)) {
     if (/^VITE_.*(?:API_KEY|SECRET|SERVICE_ROLE|TOKEN)/.test(name) && name !== 'VITE_SUPABASE_ANON_KEY') {
       invalid.push(`${name} must not be exposed with the VITE_ prefix`)
