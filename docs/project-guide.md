@@ -43,7 +43,7 @@ WorLibrary 是本地优先的多语言阅读器：用户导入自己拥有的 EP
 
 | 区域 | 主要文件 | 负责什么 | 修改时要注意 |
 | --- | --- | --- | --- |
-| 应用编排 | src/App.tsx | 页面视图、书架、导入、设置、会话、同步触发 | 不把文件解析或网络细节塞进这里；复用 lib 与组件 |
+| 应用编排 | src/App.tsx | 页面视图、书架与阅读器内导入、设置、会话、同步触发 | 不把文件解析或网络细节塞进这里；复用 lib 与组件 |
 | PWA 离线壳 | src/main.tsx、public/manifest.webmanifest、public/sw.js、public/offline.html | 注册 Service Worker、应用安装元数据、静态资源缓存、离线回退和更新激活 | 只缓存应用壳/静态资源；绝不缓存 API、Supabase、原始书籍文件或用户正文 |
 | 本地书库 | src/lib/storage.ts | 文件保存、书籍元数据、封面、进度、摘录、导入导出、作品/版本关系 | 修改 StoredBook 或备份格式时兼容旧记录，并补迁移/回归 |
 | EPUB 阅读器 | src/components/EpubReader.tsx、src/epub-reader.css | EPUB 打开、目录、分页、位置、选区操作 | EPUB 的位置用 CFI；测试刷新恢复和无目录回退 |

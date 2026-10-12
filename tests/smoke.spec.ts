@@ -61,6 +61,7 @@ test('reader, comparison and explanation flow are available', async ({ page }) =
   await page.goto('/')
   await importFixture(page)
   await page.getByRole('button', { name: /Reader Fixture/ }).click()
+  await expect(page.locator('.reader-header').getByRole('button', { name: /导入书籍|Import book/ })).toBeVisible()
   await expect(page.getByRole('button', { name: '⇄ 对照阅读' })).toBeVisible()
   await page.getByRole('button', { name: '⇄ 对照阅读' }).click()
   await expect(page.getByRole('status')).toContainText('请先导入并关联另一个译本')
