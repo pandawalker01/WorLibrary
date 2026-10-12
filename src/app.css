@@ -4,6 +4,8 @@
 * { box-sizing: border-box; }
 body { margin: 0; min-width: 320px; background: #f4f0e8; }
 button { color: inherit; font: inherit; cursor: pointer; }
+button:focus-visible, input:focus-visible, [tabindex]:focus-visible { outline: 3px solid #bf553d; outline-offset: 3px; }
+.reader-theme-night button:focus-visible, .reader-theme-night [tabindex]:focus-visible { outline-color: #e6b160; }
 .app-shell { display: flex; min-height: 100vh; }
 .rail { width: 116px; flex: 0 0 116px; padding: 34px 20px 28px; border-right: 1px solid #d8d0c2; display: flex; flex-direction: column; align-items: center; background: #eee9df; }
 .wordmark { border: 0; background: none; font: 600 29px 'Playfair Display', serif; letter-spacing: -2px; padding: 0; }.wordmark span { color: #bf553d; font-size: 19px; }

@@ -190,6 +190,16 @@ export default function EpubReader({ book, onNotice, onProgress, onHighlightSave
     const onKeyDown = (event: KeyboardEvent) => {
       const target = event.target as HTMLElement | null
       if (target && (['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName) || target.isContentEditable)) return
+      if (event.key === 'Escape') {
+        if (pendingSelection) {
+          event.preventDefault()
+          setPendingSelection(undefined)
+        } else if (showContents) {
+          event.preventDefault()
+          setShowContents(false)
+        }
+        return
+      }
       if (event.key === 'ArrowRight') {
         event.preventDefault()
         void renditionRef.current?.next?.()
@@ -200,7 +210,7 @@ export default function EpubReader({ book, onNotice, onProgress, onHighlightSave
     }
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
-  }, [])
+  }, [pendingSelection, showContents])
 
   async function persistSelection() {
     if (!pendingSelection) return
@@ -249,21 +259,21 @@ export default function EpubReader({ book, onNotice, onProgress, onHighlightSave
 
   return <div className={`epub-reader-shell reader-theme-${readerPreferences.theme}`} style={{ '--reader-font-scale': readerPreferences.fontScale } as CSSProperties}>
     <div className="epub-reader-toolbar">
-      <span>{status || (en ? 'EPUB · local reading' : 'EPUB 本地阅读')}</span>
-      <div className="reader-toolbar-actions"><button onClick={() => setReaderPreferences((current) => ({ ...current, fontScale: clampFontScale(current.fontScale - 0.05) }))} aria-label={en ? 'Decrease font size' : '减小字号'}>A−</button><button onClick={() => setReaderPreferences((current) => ({ ...current, fontScale: clampFontScale(current.fontScale + 0.05) }))} aria-label={en ? 'Increase font size' : '增大字号'}>A＋</button><button onClick={() => setReaderPreferences((current) => ({ ...current, theme: cycleTheme(current.theme) }))}>{readerThemeLabel(readerPreferences.theme)}</button>{chapters.length > 0 ? <button onClick={() => setShowContents(!showContents)}>{showContents ? ui.collapseContents : `${ui.contents} · ${chapters.length}`}</button> : <span className="epub-contents-unavailable" title={en ? 'This EPUB has no usable contents. You can still use page navigation.' : '此 EPUB 未提供可用目录，可继续使用上一页、下一页阅读'}>{ui.contentsUnavailable}</span>}</div>
+      <span aria-live="polite">{status || (en ? 'EPUB · local reading' : 'EPUB 本地阅读')}</span>
+      <div className="reader-toolbar-actions"><button onClick={() => setReaderPreferences((current) => ({ ...current, fontScale: clampFontScale(current.fontScale - 0.05) }))} aria-label={en ? 'Decrease font size' : '减小字号'}>A−</button><button onClick={() => setReaderPreferences((current) => ({ ...current, fontScale: clampFontScale(current.fontScale + 0.05) }))} aria-label={en ? 'Increase font size' : '增大字号'}>A＋</button><button onClick={() => setReaderPreferences((current) => ({ ...current, theme: cycleTheme(current.theme) }))}>{readerThemeLabel(readerPreferences.theme)}</button>{chapters.length > 0 ? <button onClick={() => setShowContents(!showContents)} aria-expanded={showContents} aria-controls="epub-contents">{showContents ? ui.collapseContents : `${ui.contents} · ${chapters.length}`}</button> : <span className="epub-contents-unavailable" title={en ? 'This EPUB has no usable contents. You can still use page navigation.' : '此 EPUB 未提供可用目录，可继续使用上一页、下一页阅读'}>{ui.contentsUnavailable}</span>}</div>
     </div>
     <div className="epub-navigation" aria-label={en ? 'EPUB page navigation' : 'EPUB 翻页'}><button aria-label={ui.previousPage} onClick={() => { void renditionRef.current?.prev?.() }} disabled={!renditionRef.current || readingProgress <= 0}>{ui.previousPage}</button><span data-testid="epub-progress">{chapterLabel ? `${chapterLabel} · ` : ''}{pageLabel || (en ? 'Preparing reading view' : '准备阅读')}</span><button aria-label={ui.nextPage} onClick={() => { void renditionRef.current?.next?.() }} disabled={!renditionRef.current || readingProgress >= 100}>{ui.nextPage}</button></div>
-    {pendingSelection && <div className="epub-selection-bar">
+    {pendingSelection && <section className="epub-selection-bar" aria-label={ui.selectedTextActions}>
       <span title={pendingSelection.text}>{pendingSelection.text}</span>
       <button className="translate-button" onClick={() => { void translatePendingSelection() }}>{translating ? (en ? 'Translating…' : '翻译中…') : ui.translation}</button>
       <button className="translate-button" onClick={() => { void explainPendingSelection() }}>{explaining ? (en ? 'Explaining…' : '解释中…') : ui.explanation}</button>
-      <div className="selection-colors" aria-label="摘录颜色"><button className={`gold ${selectionColor === 'gold' ? 'active' : ''}`} aria-label="金色" onClick={() => setSelectionColor('gold')} /><button className={`rose ${selectionColor === 'rose' ? 'active' : ''}`} aria-label="玫红" onClick={() => setSelectionColor('rose')} /><button className={`blue ${selectionColor === 'blue' ? 'active' : ''}`} aria-label="蓝色" onClick={() => setSelectionColor('blue')} /></div>
+      <div className="selection-colors" aria-label={ui.highlightColors}><button className={`gold ${selectionColor === 'gold' ? 'active' : ''}`} aria-label={ui.gold} aria-pressed={selectionColor === 'gold'} onClick={() => setSelectionColor('gold')} /><button className={`rose ${selectionColor === 'rose' ? 'active' : ''}`} aria-label={ui.rose} aria-pressed={selectionColor === 'rose'} onClick={() => setSelectionColor('rose')} /><button className={`blue ${selectionColor === 'blue' ? 'active' : ''}`} aria-label={ui.blue} aria-pressed={selectionColor === 'blue'} onClick={() => setSelectionColor('blue')} /></div>
       <button onClick={() => { void persistSelection() }}>{ui.saveHighlight}</button>
-      <button className="ghost" onClick={() => setPendingSelection(undefined)}>{ui.cancel}</button>
-    </div>}
+      <button className="ghost" onClick={() => setPendingSelection(undefined)} aria-label={ui.closeSelection}>{ui.cancel}</button>
+    </section>}
     {translation && <div className="epub-translation-result" data-testid="translation-result" aria-live="polite"><span>{ui.translation}</span>{translation}{explanation && <><span>{ui.explanation}</span>{explanation}</>}</div>}
     {aiFeedback && <div className="ai-request-feedback" role="status"><strong>{aiFeedback.title}</strong><span>{aiFeedback.detail}</span>{aiFeedback.retryable && pendingSelection && <button onClick={() => { void translatePendingSelection() }}>{ui.retryTranslation}</button>}</div>}
-    {showContents && <nav className="epub-contents" aria-label={en ? 'Table of contents' : '章节目录'}>{chapters.map((chapter) => <button key={chapter.href} onClick={() => { void renditionRef.current?.display(chapter.href); setShowContents(false) }}>{chapter.label}</button>)}</nav>}
+    {showContents && <nav id="epub-contents" className="epub-contents" aria-label={en ? 'Table of contents' : '章节目录'}>{chapters.map((chapter) => <button key={chapter.href} onClick={() => { void renditionRef.current?.display(chapter.href); setShowContents(false) }}>{chapter.label}</button>)}</nav>}
     <div className="epub-reader-frame" ref={mountRef} />
   </div>
 }

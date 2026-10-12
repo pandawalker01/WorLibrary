@@ -30,6 +30,7 @@ npm run qa
 | 双栏对照 | 左右栏分别渲染两本真实书籍；没有关联时不能展示 demo | `tests/multiedition.spec.ts` |
 | 移动端真实阅读 | 390px 视口导入 EPUB/PDF 后书架、翻页与阅读工具条均可见、可点击且无横向溢出 | `tests/qa/mobile-reader.spec.ts` |
 | PWA 应用壳 | 生产预览提供 standalone Manifest、图标与已激活的 Service Worker；离线状态明确提示，且不改变本地书库边界 | `tests/qa/pwa-shell.spec.ts` |
+| 键盘与辅助技术状态 | 主导航会标记当前页；中英文语言选择会公布选中状态；目录、选区与书籍信息对话框均可用 Escape 关闭 | `tests/qa/accessibility.spec.ts` |
 
 ## P1：核心阅读体验
 

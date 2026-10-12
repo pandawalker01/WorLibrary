@@ -14,6 +14,7 @@ WorLibrary 是本地优先的多语言阅读器：用户导入自己拥有的 EP
 - 手动关联版本、双栏对照及低置信度回退。
 - EPUB 内嵌原始封面提取；旧书可在设置中重新读取封面；用户上传的自定义封面不会被覆盖。
 - 简体中文与英文界面；中文、英文、日语、法语的 AI 理解/翻译目标语言。
+- 键盘与辅助技术基础支持：主导航和筛选会暴露当前状态；阅读器目录、选区操作与元数据对话框可用 Escape 关闭；所有交互控件有高对比度可见焦点。
 - 匿名/魔法链接认证、Supabase 同步元数据、AI 额度账本与受控 API 网关。
 
 书籍文件默认留在本机。同步的是元数据、进度、摘录和相关设置，不是原始书籍文件。
@@ -55,6 +56,7 @@ WorLibrary 是本地优先的多语言阅读器：用户导入自己拥有的 EP
 | 国际化 | src/lib/i18n.ts 与各组件 | 界面语言和 AI 输出语言 | 先读 docs/i18n-extension.md；两种语言配置独立 |
 | API 与额度 | api/、server/、supabase/migrations/ | 网关、JWT 校验、额度扣减、健康检查 | 密钥仅在环境变量；额度操作需服务端原子化 |
 | 样式 | src/*.css | 分区布局、阅读器与移动端适配 | 改动后检查桌面与 390px 窄屏用例 |
+| 无障碍与键盘阅读 | src/App.tsx、src/components/EpubReader.tsx、src/components/PdfReader.tsx、src/app.css | 焦点可见性、ARIA 当前/展开状态、Escape 关闭阅读器临时界面 | 同时检查中英文可访问名称，并运行 `tests/qa/accessibility.spec.ts` |
 
 ## 4. 常见改动如何落位
 
