@@ -243,7 +243,7 @@ function App() {
   return (
     <div className="app-shell">
       <aside className="rail">
-        <button className="wordmark" onClick={() => setView('library')} aria-label={ui.library}>WL<span>°</span></button>
+        <button className="wordmark" onClick={() => setView('library')} aria-label={ui.library}>WL</button>
         <nav aria-label={uiLocale === 'en' ? 'Main navigation' : '主导航'}>
           <button className={view === 'library' ? 'nav-item active' : 'nav-item'} onClick={() => setView('library')} aria-current={view === 'library' ? 'page' : undefined}><span>01</span>{ui.library}</button>
           <button className={view === 'highlights' ? 'nav-item active' : 'nav-item'} onClick={() => setView('highlights')} aria-current={view === 'highlights' ? 'page' : undefined}><span>02</span>{ui.highlights}</button>
