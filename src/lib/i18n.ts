@@ -57,6 +57,14 @@ export const copy = {
     readingLanguageTitle: '理解语言', readingLanguageCopy: 'AI 会把你划线的任意语言文本，翻译并解释成这个语言。',
     readingLanguageSaved: '已将 AI 理解语言设为：', uiLanguageSaved: '界面语言已切换为：',
     localBooks: '本地书籍管理', privacyTitle: '你的书，留在你的设备上。', privacyCopy: '已导入的书籍、阅读进度和摘录均可离线访问；仅在你请求解释或识别文字时，相关内容才会发送至 AI 服务。',
+    booksMatched: '找到 {count} 本匹配书籍', noMatches: '没有找到匹配的书籍或筛选结果', textMatch: '正文命中：', cover: '封面',
+    backToLibrary: '书库', compare: '⇄ 对照阅读', exitCompare: '↹ 退出对照', linkEdition: '＋ 关联译本', singleEdition: '单版本阅读', nowReading: '正在阅读',
+    localFileMissing: '找不到这本本地书籍，请返回书库重新导入。', savedLocally: '进度已保存到本机', scanPage: '◎ 扫描页？识别文字',
+    manageCover: '重新读取封面', readingCover: '读取封面中…', uploadCover: '上传本地封面', editInfo: '编辑信息', delete: '删除',
+    exportReading: '导出阅读数据', importReading: '导入阅读数据', readingAssistant: '阅读助手', translation: '翻译', explanation: '解释',
+    previousPage: '上一页', nextPage: '下一页', contents: '目录', collapseContents: '收起目录', contentsUnavailable: '目录不可用', saveHighlight: '保存摘录', cancel: '取消', retryTranslation: '重试翻译',
+    excerptsTitle: '摘录空间', excerptsCopy: '把读过的句子留下来，按书籍回看，也可以随时补充自己的理解。', searchHighlights: '搜索摘录', highlightSearchPlaceholder: '句子、备注或书名', filterBooks: '筛选书籍', allHighlights: '全部摘录', noHighlights: '还没有摘录', noHighlightsCopy: '打开一本 EPUB，选择你想留下的句子即可保存到这里。', localHighlight: '本地摘录', openOriginal: '打开原文', editNote: '编辑备注', addNote: '添加备注', saveNote: '保存备注',
+    accountSync: '账号与同步', syncLocal: '本地优先 · 尚未配置云端同步', syncPrivacy: '仅同步阅读进度、摘录与书籍信息；原始 EPUB/PDF 文件和封面始终留在本机。',
   },
   en: {
     library: 'Library', highlights: 'Highlights', settings: 'Settings', offlineReady: 'Offline ready', offlineNow: 'Offline',
@@ -72,5 +80,19 @@ export const copy = {
     readingLanguageTitle: 'Reading language', readingLanguageCopy: 'AI translates and explains any selected passage into this language.',
     readingLanguageSaved: 'AI reading language set to: ', uiLanguageSaved: 'Interface language changed to: ',
     localBooks: 'Local books', privacyTitle: 'Your books stay on your device.', privacyCopy: 'Imported books, progress, and highlights work offline. Only text you ask to explain or recognize is sent to AI services.',
+    booksMatched: '{count} matching books', noMatches: 'No books match this search or filter.', textMatch: 'Text match: ', cover: 'cover',
+    backToLibrary: 'Library', compare: '⇄ Compare editions', exitCompare: '↹ Exit comparison', linkEdition: '＋ Link an edition', singleEdition: 'Single-edition reading', nowReading: 'Now reading',
+    localFileMissing: 'This local book cannot be found. Return to the library and import it again.', savedLocally: 'Progress saved on this device', scanPage: '◎ Scan page · recognize text',
+    manageCover: 'Read cover again', readingCover: 'Reading cover…', uploadCover: 'Upload local cover', editInfo: 'Edit details', delete: 'Delete',
+    exportReading: 'Export reading data', importReading: 'Import reading data', readingAssistant: 'Reading assistant', translation: 'Translation', explanation: 'Explanation',
+    previousPage: 'Previous page', nextPage: 'Next page', contents: 'Contents', collapseContents: 'Hide contents', contentsUnavailable: 'Contents unavailable', saveHighlight: 'Save highlight', cancel: 'Cancel', retryTranslation: 'Retry translation',
+    excerptsTitle: 'Your excerpts', excerptsCopy: 'Keep the sentences that matter, revisit them by book, and add your own reading notes.', searchHighlights: 'Search highlights', highlightSearchPlaceholder: 'Passage, note, or book', filterBooks: 'Filter books', allHighlights: 'All highlights', noHighlights: 'No highlights yet', noHighlightsCopy: 'Open an EPUB and select a passage to save it here.', localHighlight: 'Local highlight', openOriginal: 'Open original', editNote: 'Edit note', addNote: 'Add note', saveNote: 'Save note',
+    accountSync: 'Account & sync', syncLocal: 'Local-first · cloud sync is not configured', syncPrivacy: 'Only reading progress, highlights, and book details sync. Original EPUB/PDF files and covers always stay on this device.',
   },
 } as const
+
+export type UiCopy = typeof copy[UiLocale]
+
+export function interpolate(template: string, values: Record<string, string | number>): string {
+  return template.replace(/\{(\w+)\}/g, (_, key: string) => String(values[key] ?? `{${key}}`))
+}

@@ -5,6 +5,7 @@ import { translateSelection } from '../lib/translation'
 import { explainSelection } from '../lib/explanation'
 import { clampFontScale, cycleTheme, loadReaderPreferences, readerThemeLabel, saveReaderPreferences, type ReaderPreferences } from '../lib/reader'
 import { aiFeedbackFor, type AiFeedback } from '../lib/ai-feedback'
+import { copy, type UiLocale } from '../lib/i18n'
 import '../epub-reader.css'
 
 type EpubReaderProps = {
@@ -13,6 +14,7 @@ type EpubReaderProps = {
   onProgress: (progress: number, location: string) => void
   onHighlightSaved?: (highlight: Highlight) => void
   targetLanguage?: string
+  uiLocale?: UiLocale
   preferences?: Partial<ReaderPreferences>
 }
 
@@ -71,7 +73,9 @@ function highlightStyles(color: Highlight['color']): Record<string, string> {
   return { fill, 'fill-opacity': '0.35' }
 }
 
-export default function EpubReader({ book, onNotice, onProgress, onHighlightSaved, targetLanguage = '中文', preferences }: EpubReaderProps) {
+export default function EpubReader({ book, onNotice, onProgress, onHighlightSaved, targetLanguage = '中文', uiLocale = 'zh-CN', preferences }: EpubReaderProps) {
+  const ui = copy[uiLocale]
+  const en = uiLocale === 'en'
   const mountRef = useRef<HTMLDivElement>(null)
   const renditionRef = useRef<Rendition | undefined>(undefined)
   const [status, setStatus] = useState('正在打开本地文件…')
@@ -245,21 +249,21 @@ export default function EpubReader({ book, onNotice, onProgress, onHighlightSave
 
   return <div className={`epub-reader-shell reader-theme-${readerPreferences.theme}`} style={{ '--reader-font-scale': readerPreferences.fontScale } as CSSProperties}>
     <div className="epub-reader-toolbar">
-      <span>{status || 'EPUB 本地阅读'}</span>
-      <div className="reader-toolbar-actions"><button onClick={() => setReaderPreferences((current) => ({ ...current, fontScale: clampFontScale(current.fontScale - 0.05) }))} aria-label="减小字号">A−</button><button onClick={() => setReaderPreferences((current) => ({ ...current, fontScale: clampFontScale(current.fontScale + 0.05) }))} aria-label="增大字号">A＋</button><button onClick={() => setReaderPreferences((current) => ({ ...current, theme: cycleTheme(current.theme) }))}>{readerThemeLabel(readerPreferences.theme)}</button>{chapters.length > 0 ? <button onClick={() => setShowContents(!showContents)}>{showContents ? '收起目录' : `目录 · ${chapters.length}`}</button> : <span className="epub-contents-unavailable" title="此 EPUB 未提供可用目录，可继续使用上一页、下一页阅读">目录不可用</span>}</div>
+      <span>{status || (en ? 'EPUB · local reading' : 'EPUB 本地阅读')}</span>
+      <div className="reader-toolbar-actions"><button onClick={() => setReaderPreferences((current) => ({ ...current, fontScale: clampFontScale(current.fontScale - 0.05) }))} aria-label={en ? 'Decrease font size' : '减小字号'}>A−</button><button onClick={() => setReaderPreferences((current) => ({ ...current, fontScale: clampFontScale(current.fontScale + 0.05) }))} aria-label={en ? 'Increase font size' : '增大字号'}>A＋</button><button onClick={() => setReaderPreferences((current) => ({ ...current, theme: cycleTheme(current.theme) }))}>{readerThemeLabel(readerPreferences.theme)}</button>{chapters.length > 0 ? <button onClick={() => setShowContents(!showContents)}>{showContents ? ui.collapseContents : `${ui.contents} · ${chapters.length}`}</button> : <span className="epub-contents-unavailable" title={en ? 'This EPUB has no usable contents. You can still use page navigation.' : '此 EPUB 未提供可用目录，可继续使用上一页、下一页阅读'}>{ui.contentsUnavailable}</span>}</div>
     </div>
-    <div className="epub-navigation" aria-label="EPUB 翻页"><button aria-label="上一页" onClick={() => { void renditionRef.current?.prev?.() }} disabled={!renditionRef.current || readingProgress <= 0}>上一页</button><span data-testid="epub-progress">{chapterLabel ? `${chapterLabel} · ` : ''}{pageLabel || '准备阅读'}</span><button aria-label="下一页" onClick={() => { void renditionRef.current?.next?.() }} disabled={!renditionRef.current || readingProgress >= 100}>下一页</button></div>
+    <div className="epub-navigation" aria-label={en ? 'EPUB page navigation' : 'EPUB 翻页'}><button aria-label={ui.previousPage} onClick={() => { void renditionRef.current?.prev?.() }} disabled={!renditionRef.current || readingProgress <= 0}>{ui.previousPage}</button><span data-testid="epub-progress">{chapterLabel ? `${chapterLabel} · ` : ''}{pageLabel || (en ? 'Preparing reading view' : '准备阅读')}</span><button aria-label={ui.nextPage} onClick={() => { void renditionRef.current?.next?.() }} disabled={!renditionRef.current || readingProgress >= 100}>{ui.nextPage}</button></div>
     {pendingSelection && <div className="epub-selection-bar">
       <span title={pendingSelection.text}>{pendingSelection.text}</span>
-      <button className="translate-button" onClick={() => { void translatePendingSelection() }}>{translating ? '翻译中…' : '翻译'}</button>
-      <button className="translate-button" onClick={() => { void explainPendingSelection() }}>{explaining ? '解释中…' : '解释'}</button>
+      <button className="translate-button" onClick={() => { void translatePendingSelection() }}>{translating ? (en ? 'Translating…' : '翻译中…') : ui.translation}</button>
+      <button className="translate-button" onClick={() => { void explainPendingSelection() }}>{explaining ? (en ? 'Explaining…' : '解释中…') : ui.explanation}</button>
       <div className="selection-colors" aria-label="摘录颜色"><button className={`gold ${selectionColor === 'gold' ? 'active' : ''}`} aria-label="金色" onClick={() => setSelectionColor('gold')} /><button className={`rose ${selectionColor === 'rose' ? 'active' : ''}`} aria-label="玫红" onClick={() => setSelectionColor('rose')} /><button className={`blue ${selectionColor === 'blue' ? 'active' : ''}`} aria-label="蓝色" onClick={() => setSelectionColor('blue')} /></div>
-      <button onClick={() => { void persistSelection() }}>保存摘录</button>
-      <button className="ghost" onClick={() => setPendingSelection(undefined)}>取消</button>
+      <button onClick={() => { void persistSelection() }}>{ui.saveHighlight}</button>
+      <button className="ghost" onClick={() => setPendingSelection(undefined)}>{ui.cancel}</button>
     </div>}
-    {translation && <div className="epub-translation-result" data-testid="translation-result" aria-live="polite"><span>译文</span>{translation}{explanation && <><span>解释</span>{explanation}</>}</div>}
-    {aiFeedback && <div className="ai-request-feedback" role="status"><strong>{aiFeedback.title}</strong><span>{aiFeedback.detail}</span>{aiFeedback.retryable && pendingSelection && <button onClick={() => { void translatePendingSelection() }}>重试翻译</button>}</div>}
-    {showContents && <nav className="epub-contents" aria-label="章节目录">{chapters.map((chapter) => <button key={chapter.href} onClick={() => { void renditionRef.current?.display(chapter.href); setShowContents(false) }}>{chapter.label}</button>)}</nav>}
+    {translation && <div className="epub-translation-result" data-testid="translation-result" aria-live="polite"><span>{ui.translation}</span>{translation}{explanation && <><span>{ui.explanation}</span>{explanation}</>}</div>}
+    {aiFeedback && <div className="ai-request-feedback" role="status"><strong>{aiFeedback.title}</strong><span>{aiFeedback.detail}</span>{aiFeedback.retryable && pendingSelection && <button onClick={() => { void translatePendingSelection() }}>{ui.retryTranslation}</button>}</div>}
+    {showContents && <nav className="epub-contents" aria-label={en ? 'Table of contents' : '章节目录'}>{chapters.map((chapter) => <button key={chapter.href} onClick={() => { void renditionRef.current?.display(chapter.href); setShowContents(false) }}>{chapter.label}</button>)}</nav>}
     <div className="epub-reader-frame" ref={mountRef} />
   </div>
 }
