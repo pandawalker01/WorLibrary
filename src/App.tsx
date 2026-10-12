@@ -28,6 +28,7 @@ const sampleBooks: DisplayBook[] = [
 
 const READING_SECONDS_KEY = 'worlibrary.reading-seconds'
 const READING_HISTORY_KEY = 'worlibrary.reading-history'
+const READING_BY_BOOK_KEY = 'worlibrary.reading-by-book'
 
 type ReadingHistory = Record<string, number>
 
@@ -54,6 +55,23 @@ function loadReadingHistory(): ReadingHistory {
 
 function saveReadingHistory(history: ReadingHistory): void {
   try { window.localStorage.setItem(READING_HISTORY_KEY, JSON.stringify(history)) } catch { /* Reading must work without storage. */ }
+}
+
+function loadBookReadingHistory(): ReadingHistory {
+  try {
+    const value = JSON.parse(window.localStorage.getItem(READING_BY_BOOK_KEY) ?? '{}') as Record<string, unknown>
+    const history: ReadingHistory = {}
+    for (const [bookId, seconds] of Object.entries(value)) {
+      if (bookId && typeof seconds === 'number' && Number.isFinite(seconds) && seconds >= 0) history[bookId] = seconds
+    }
+    return history
+  } catch {
+    return {}
+  }
+}
+
+function saveBookReadingHistory(history: ReadingHistory): void {
+  try { window.localStorage.setItem(READING_BY_BOOK_KEY, JSON.stringify(history)) } catch { /* Reading must work without storage. */ }
 }
 
 function recentReadingDays(history: ReadingHistory, locale: 'zh-CN' | 'en') {
@@ -118,6 +136,7 @@ function App() {
   const [highlightCount, setHighlightCount] = useState(0)
   const [readingSeconds, setReadingSeconds] = useState(loadReadingSeconds)
   const [readingHistory, setReadingHistory] = useState<ReadingHistory>(loadReadingHistory)
+  const [bookReadingHistory, setBookReadingHistory] = useState<ReadingHistory>(loadBookReadingHistory)
   const fileInput = useRef<HTMLInputElement>(null)
   const coverInput = useRef<HTMLInputElement>(null)
   const syncTimer = useRef<number | undefined>(undefined)
@@ -174,9 +193,14 @@ function App() {
         saveReadingHistory(next)
         return next
       })
+      setBookReadingHistory((current) => {
+        const next = { ...current, [selectedBook.id]: (current[selectedBook.id] ?? 0) + 1 }
+        saveBookReadingHistory(next)
+        return next
+      })
     }, 1000)
     return () => window.clearInterval(timer)
-  }, [view])
+  }, [selectedBook.id, view])
   useEffect(() => { if (view === 'profile') void listHighlights().then((items) => setHighlightCount(items.length)) }, [view])
 
   useEffect(() => {
@@ -389,7 +413,7 @@ function App() {
             <article><span>{ui.readingTime}</span><strong>{formatReadingTime(readingSeconds, uiLocale)}</strong></article><article><span>{ui.booksOwned}</span><strong>{books.length}</strong></article><article><span>{ui.booksInProgress}</span><strong>{readingBooks.length}</strong></article><article><span>{ui.highlightsSaved}</span><strong>{highlightCount}</strong></article>
           </div>
           <section className="profile-weekly" aria-labelledby="profile-weekly-title"><div><p className="eyebrow">{ui.weeklyReading}</p><h2 id="profile-weekly-title">{ui.weeklyReadingTitle}</h2><p>{ui.weeklyReadingCopy}</p></div><div className="reading-bars" aria-label={ui.weeklyReading}>{weeklyReading.map((day) => <div className="reading-bar" key={day.key}><span title={interpolate(ui.dayReading, { day: day.label, time: formatReadingTime(day.seconds, uiLocale) })} style={{ height: `${Math.round((day.seconds / weeklyReadingMax) * 100)}%` }} /><small>{day.label}</small></div>)}</div></section>
-          <section className="profile-recent" aria-labelledby="profile-recent-title"><div><p className="eyebrow">{ui.recentReading}</p><h2 id="profile-recent-title">{ui.recentReading}</h2><p>{ui.recentReadingCopy}</p></div>{recentBooks.length > 0 ? <div className="profile-book-list">{recentBooks.map((book) => <button key={book.id} onClick={() => { setSelectedBook(book); setView('reader') }}><span>{book.title}</span><small>{book.author} · {book.progress}% · {formatLastRead(book.lastReadAt, uiLocale, ui.notReadYet)}</small><i><b style={{ width: `${book.progress}%` }} /></i></button>)}</div> : <div className="profile-empty"><strong>{ui.profileEmpty}</strong><p>{ui.profileEmptyCopy}</p><button onClick={() => setView('library')}>{ui.importMine}</button></div>}</section>
+          <section className="profile-recent" aria-labelledby="profile-recent-title"><div><p className="eyebrow">{ui.recentReading}</p><h2 id="profile-recent-title">{ui.recentReading}</h2><p>{ui.recentReadingCopy}</p></div>{recentBooks.length > 0 ? <div className="profile-book-list">{recentBooks.map((book) => <button key={book.id} onClick={() => { setSelectedBook(book); setView('reader') }}><span>{book.title}</span><small>{book.author} · {book.progress}% · {formatLastRead(book.lastReadAt, uiLocale, ui.notReadYet)}</small><em>{interpolate(ui.bookReadingTime, { time: formatReadingTime(bookReadingHistory[book.id] ?? 0, uiLocale) })}</em><i><b style={{ width: `${book.progress}%` }} /></i></button>)}</div> : <div className="profile-empty"><strong>{ui.profileEmpty}</strong><p>{ui.profileEmptyCopy}</p><button onClick={() => setView('library')}>{ui.importMine}</button></div>}</section>
           <p className="profile-footnote">{completedBooks.length > 0 ? `${ui.booksCompleted}：${completedBooks.length}` : ui.profileLocalOnly}</p>
         </section>}
 

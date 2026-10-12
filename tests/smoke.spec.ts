@@ -72,6 +72,7 @@ test('profile shows local reading stats and routes back to the library', async (
   await expect(page.getByRole('heading', { name: '我的阅读' })).toBeVisible()
   await expect(page.getByText('累计阅读')).toBeVisible()
   await expect(page.getByRole('heading', { name: '阅读轨迹' })).toBeVisible()
+  await expect(page.getByText('阅读 0 分钟')).toBeVisible()
   await expect(page.getByText('本地书籍')).toBeVisible()
   await expect(page.getByRole('button', { name: /Reader Fixture/ })).toBeVisible()
   await page.getByRole('button', { name: '书库 →' }).click()

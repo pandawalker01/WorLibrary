@@ -16,7 +16,7 @@
 | 文件 | 职责 |
 | --- | --- |
 | src/lib/i18n.ts | UiLocale、UI_LOCALES、READING_LANGUAGES、copy 文案语言包与读写函数的唯一来源 |
-| src/App.tsx | 读取 uiLocale，将 copy[uiLocale] 注入书库、我的页（含近 7 天阅读轨迹）、设置、导航与 PWA 更新提示；提供设置入口 |
+| src/App.tsx | 读取 uiLocale，将 copy[uiLocale] 注入书库、我的页（含近 7 天轨迹和每本书阅读时长）、设置、导航与 PWA 更新提示；提供设置入口 |
 | src/components/EpubReader.tsx | EPUB 阅读器可见文案、阅读主题标签与划词操作 |
 | src/components/PdfReader.tsx | PDF 阅读器、翻页、OCR、阅读主题标签与划词操作 |
 | src/components/HighlightsView.tsx | 摘录筛选、编辑、删除等可见文案 |
