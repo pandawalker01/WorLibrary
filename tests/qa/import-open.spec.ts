@@ -5,6 +5,7 @@ import type { Page } from '@playwright/test'
 
 const fixturePath = resolve('tests/fixtures/reader-fixture.epub.b64')
 const noNavigationFixturePath = resolve('tests/fixtures/no-navigation-fixture.epub.b64')
+const coverFixturePath = resolve('tests/fixtures/cover-fixture.epub.b64')
 
 async function importFixture(page: Page) {
   const encoded = await readFile(fixturePath, 'utf8')
@@ -24,6 +25,16 @@ async function importNoNavigationFixture(page: Page) {
     buffer: Buffer.from(encoded.trim(), 'base64'),
   })
   await expect(page.getByRole('heading', { name: 'no nav fixture' })).toBeVisible()
+}
+
+async function importCoverFixture(page: Page) {
+  const encoded = await readFile(coverFixturePath, 'utf8')
+  await page.locator('input[type=file][accept*=".epub"]').setInputFiles({
+    name: 'cover-fixture.epub',
+    mimeType: 'application/epub+zip',
+    buffer: Buffer.from(encoded.trim(), 'base64'),
+  })
+  await expect(page.getByRole('heading', { name: 'Cover Fixture' })).toBeVisible()
 }
 
 test('P0: imported EPUB renders fixture content instead of demo content', async ({ page }) => {
@@ -58,6 +69,23 @@ test('P0: imported EPUB metadata can be corrected without re-importing the file'
   await expect(page.getByRole('heading', { name: '校正后的书名' })).toBeVisible()
   await page.getByRole('button', { name: /校正后的书名/ }).click()
   await expect(page.frameLocator('.epub-reader-frame iframe').getByText('ORCHARD_FIXTURE_FIRST_PAGE')).toBeVisible({ timeout: 10_000 })
+})
+
+test('P0: standard EPUB cover survives import, refresh and reopening the library', async ({ page }) => {
+  await page.goto('/')
+  await importCoverFixture(page)
+  const shelfCover = page.getByRole('img', { name: 'Cover Fixture 封面' })
+  await expect(shelfCover).toBeVisible()
+  await expect(shelfCover).toHaveAttribute('src', /^data:image\/png;base64,/)
+
+  await page.reload()
+  await expect(shelfCover).toBeVisible()
+  await page.getByRole('button', { name: '设置' }).click()
+  await page.getByRole('button', { name: '重新读取封面' }).click()
+  await expect(page.locator('.toast')).toContainText('已从 EPUB 重新读取原书封面')
+  await page.getByRole('button', { name: '01 书库' }).click()
+  await expect(shelfCover).toBeVisible()
+  await expect(shelfCover).toHaveAttribute('src', /^data:image\/png;base64,/)
 })
 
 test('P0: imported EPUB provides explicit pagination and reaches the next chapter', async ({ page }) => {

@@ -104,17 +104,42 @@ function blobToDataUrl(blob: Blob): Promise<string> {
   })
 }
 
-type EpubManifestItem = { id?: string; href?: string; properties?: string; mediaType?: string; 'media-type'?: string }
+type EpubManifestItem = { id?: string; href?: string; properties?: string | string[]; type?: string; mediaType?: string; 'media-type'?: string }
 type EpubPublication = {
   coverUrl?: () => Promise<string | undefined>
-  packaging?: { manifest?: Record<string, EpubManifestItem>; metadata?: { cover?: string } }
+  packaging?: { manifest?: Record<string, EpubManifestItem>; metadata?: { cover?: string }; coverPath?: string }
   resolve?: (href: string) => string
   archive?: { getBlob?: (path: string) => Promise<Blob> | undefined }
 }
 
-async function imageDataUrl(blob: Blob | undefined): Promise<string | undefined> {
-  if (!blob || !blob.type.startsWith('image/') || blob.size > MAX_COVER_BYTES) return undefined
-  return blobToDataUrl(blob)
+async function imageDataUrl(blob: Blob | undefined, declaredType?: string): Promise<string | undefined> {
+  if (!blob || blob.size > MAX_COVER_BYTES) return undefined
+  // A few EPUB producers omit a MIME type in the ZIP entry. The OPF manifest
+  // is authoritative in that case, and wrapping the bytes ensures FileReader
+  // emits an image data URL that the shelf can render after a page reload.
+  const mimeType = blob.type.startsWith('image/') ? blob.type : declaredType
+  if (!mimeType?.startsWith('image/')) return undefined
+  return blobToDataUrl(blob.type === mimeType ? blob : new Blob([blob], { type: mimeType }))
+}
+
+async function archiveImage(publication: EpubPublication, href: string, declaredType?: string): Promise<string | undefined> {
+  const getBlob = publication.archive?.getBlob?.bind(publication.archive)
+  if (!getBlob) return undefined
+  const resolved = publication.resolve?.(href)
+  // epub.js archives expect a leading slash. Keep the original href as a
+  // fallback for EPUBs whose manifest root differs from the package root.
+  const candidates = [resolved, href.startsWith('/') ? href : `/${href}`, href]
+    .filter((value): value is string => Boolean(value))
+    .filter((value, index, values) => values.indexOf(value) === index)
+  for (const path of candidates) {
+    try {
+      const image = await imageDataUrl(await getBlob(path), declaredType)
+      if (image) return image
+    } catch {
+      // Try another normalized package path before giving up on this image.
+    }
+  }
+  return undefined
 }
 
 /**
@@ -123,15 +148,19 @@ async function imageDataUrl(blob: Blob | undefined): Promise<string | undefined>
  */
 async function findManifestCover(publication: EpubPublication): Promise<string | undefined> {
   const manifest = publication.packaging?.manifest
-  const resolve = publication.resolve
-  const getBlob = publication.archive?.getBlob?.bind(publication.archive)
-  if (!manifest || !resolve || !getBlob) return undefined
+  if (!manifest) return undefined
   const metadataCoverId = publication.packaging?.metadata?.cover
-  const images = Object.values(manifest).filter((item) => (item.mediaType ?? item['media-type'] ?? '').startsWith('image/') && item.href)
+  const coverPath = publication.packaging?.coverPath
+  const mediaType = (item: EpubManifestItem) => item.type ?? item.mediaType ?? item['media-type']
+  const properties = (item: EpubManifestItem) => Array.isArray(item.properties) ? item.properties.join(' ') : item.properties ?? ''
+  // epub.js normalizes OPF's `media-type` into `type`, whereas JSON manifests
+  // commonly retain mediaType. Accept all three forms before ranking candidates.
+  const images = Object.values(manifest).filter((item) => mediaType(item)?.startsWith('image/') && item.href)
   images.sort((left, right) => {
     const score = (item: EpubManifestItem) => {
       if (item.id && item.id === metadataCoverId) return 0
-      if (/cover-image|cover/i.test(item.properties ?? '')) return 1
+      if (item.href && item.href === coverPath) return 0
+      if (/cover-image|cover/i.test(properties(item))) return 1
       if (/cover|title|front/i.test(item.href ?? '')) return 2
       return 3
     }
@@ -139,10 +168,7 @@ async function findManifestCover(publication: EpubPublication): Promise<string |
   })
   for (const image of images) {
     try {
-      // ZIP paths vary between EPUB 2 and EPUB 3 producers. epub.js normally
-      // resolves them, but some archives only accept the manifest href.
-      const resolved = resolve(image.href!)
-      const cover = await imageDataUrl(await getBlob(resolved) ?? await getBlob(image.href!))
+      const cover = await archiveImage(publication, image.href!, mediaType(image))
       if (cover) return cover
     } catch {
       // Continue through the manifest: one corrupt image should not hide a later cover.
@@ -159,13 +185,18 @@ async function readImportedMetadata(file: File, extension: string): Promise<Impo
     await publication.ready
     const metadata = await (publication.loaded as unknown as { metadata: Promise<{ title?: string; creator?: string }> }).metadata
     let coverImage: string | undefined
+    const epub = publication as unknown as EpubPublication
     try {
-      const epub = publication as unknown as EpubPublication
       const coverUrl = await epub.coverUrl?.()
       if (coverUrl) {
         const response = await fetch(coverUrl)
         coverImage = await imageDataUrl(await response.blob())
       }
+    } catch {
+      // Blob URLs from a few archive implementations cannot be fetched. Fall
+      // through to the OPF manifest rather than abandoning cover extraction.
+    }
+    try {
       coverImage ??= await findManifestCover(epub)
     } catch {
       // Cover art is optional; a readable EPUB should never fail to import because of it.
