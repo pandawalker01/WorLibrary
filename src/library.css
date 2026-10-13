@@ -15,12 +15,10 @@
 .saved-world-shelf h2 { font-size: 17px; }
 .world-recommendations h3 { font-size: 16px; }
 
-/* Management stays alongside the local shelf instead of being hidden in settings. */
-.library-management { max-width: 1500px; margin: 42px auto 0; padding-top: 24px; border-top: 1px solid #d8e6f2; }
-.library-management h2 { color: #29435d; }
-.library-management .local-book-row { border-top-color: #d7e3ef; }
-.library-management .local-book-row strong { color: #29435d; }
-.library-management .local-book-row small { color: #71869b; }
-.library-management .local-book-row button { border-color: #c9dfef; background: #fff; color: #3975a0; }
-.library-management .local-book-row button:hover { border-color: #8fc1e6; background: #fafdff; }
-.library-management .local-book-row button.danger { color: #b75555; }
+/* A compact contextual menu keeps management attached to the selected book. */
+.book-context-menu { position: fixed; z-index: 30; width: 206px; display: grid; gap: 3px; padding: 8px; border: 1px solid #b8d5eb; border-radius: 6px; background: #fff; box-shadow: 0 16px 38px #2347652b; color: #29435d; }
+.book-context-menu strong { overflow: hidden; padding: 6px 8px 9px; border-bottom: 1px solid #e1edf5; color: #527089; font: 10px 'DM Mono', monospace; text-overflow: ellipsis; white-space: nowrap; }
+.book-context-menu button { border: 0; border-radius: 3px; padding: 8px; background: transparent; color: #29435d; font: 12px 'Noto Serif SC', serif; text-align: left; }
+.book-context-menu button:hover, .book-context-menu button:focus-visible { background: #eaf6ff; color: #1762a0; outline: 0; }
+.book-context-menu button.danger { color: #b75555; }
+.book-context-menu button.danger:hover, .book-context-menu button.danger:focus-visible { background: #fff2f2; color: #9f3939; }

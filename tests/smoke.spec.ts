@@ -90,11 +90,13 @@ test('library filter controls expose reading and edition views', async ({ page }
   await expect(page.getByText('没有找到匹配的书籍或筛选结果')).toBeVisible()
 })
 
-test('local book management belongs to the library instead of settings', async ({ page }) => {
+test('local book actions are available from the library card context menu', async ({ page }) => {
   await page.goto('/')
   await importFixture(page)
-  await expect(page.getByRole('heading', { name: '本地书籍管理' })).toBeVisible()
-  await expect(page.getByRole('button', { name: '编辑信息' })).toBeVisible()
+  await page.getByRole('button', { name: /Reader Fixture/ }).click({ button: 'right' })
+  await expect(page.getByRole('menu', { name: '本地书籍管理' })).toBeVisible()
+  await expect(page.getByRole('menuitem', { name: '编辑信息' })).toBeVisible()
+  await expect(page.getByRole('menuitem', { name: '删除' })).toBeVisible()
   await page.getByRole('button', { name: '设置' }).click()
   await expect(page.getByRole('heading', { name: '本地书籍管理' })).toHaveCount(0)
 })
