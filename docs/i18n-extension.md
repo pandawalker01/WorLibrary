@@ -16,6 +16,7 @@
 | 文件 | 职责 |
 | --- | --- |
 | src/lib/i18n.ts | UiLocale、UI_LOCALES、READING_LANGUAGES、copy 文案语言包与读写函数的唯一来源 |
+| src/lib/interface-locale-registry.ts | 全球界面语言的可用/规划元数据、回退解析与 RTL 方向；不承载用户可见译文 |
 | src/App.tsx | 读取 uiLocale，将 copy[uiLocale] 注入我的书库、世界书库（含来源/版权边界提示）、我的页（含近 7 天轨迹和每本书阅读时长）、设置、导航与 PWA 更新提示；提供设置入口 |
 | src/components/EpubReader.tsx | EPUB 阅读器可见文案、阅读主题标签与划词操作 |
 | src/components/PdfReader.tsx | PDF 阅读器、翻页、OCR、阅读主题标签与划词操作 |
@@ -30,9 +31,9 @@
 
 以下以 Spanish（es）为例。只要按顺序完成即可，不需要重新设计阅读器逻辑。
 
-1. 在 src/lib/i18n.ts 的 UiLocale 联合类型中加入 es。
-2. 在 UI_LOCALES 中加入语言选项，例如 value 为 es、label 为 Español。
-3. 在 copy 对象新增 es 语言包，键必须与现有 zh-CN 和 en 完全一致。
+1. 先在 src/lib/interface-locale-registry.ts 登记 es，初始状态必须是 planned；它不会因此出现在设置页。
+2. 在 src/lib/i18n.ts 的 UiLocale 联合类型中加入 es，并在 UI_LOCALES 中加入语言选项，例如 value 为 es、label 为 Español。
+3. 在 copy 对象新增 es 语言包，键必须与现有 zh-CN 和 en 完全一致；完成版式、无障碍和 RTL（如适用）测试后，才将注册表状态改为 available。
 4. 所有变量文案使用同文件导出的 interpolate(template, values) 函数，不要在组件里字符串拼接。例如“找到 N 本书”应使用语言包中的统一模板和 interpolate。
 5. 检查新增或近期修改的组件中是否仍有用户可见硬编码文字；必要时把键补进语言包。
 6. 运行类型检查与生产构建。
@@ -53,7 +54,7 @@
 - 页面切换、刷新和重新打开书籍后，语言选择保持。
 - 文案切换不改变书籍文件、阅读进度、摘录或 AI 目标语言。
 - 英文和新增语言下，按钮仍有可访问名称；不要只依赖图标。
-- 失败提示、空状态、确认框、Toast 与 PWA 更新提示也必须本地化；世界书库的来源名称、联网收藏、本地导入、语言筛选、多语种/版本计数、主题推荐与版权边界提示同样属于必须双语维护的可见文案。全球语言名称不在语言包中逐项复制：通过 `worldLanguageName(code, uiLocale)` 调用浏览器 `Intl.DisplayNames` 生成，并对不支持的浏览器安全回退为 ISO 代码。
+- 失败提示、空状态、确认框、Toast 与 PWA 更新提示也必须本地化；世界书库的来源名称、联网收藏、本地导入、语言筛选、多语种/版本计数、主题推荐与版权边界提示同样属于必须双语维护的可见文案。全球书目语言名称不在语言包中逐项复制：通过 `worldLanguageName(code, uiLocale)` 调用浏览器 `Intl.DisplayNames` 生成。选择器会尝试英文名称回退；若仍不能得到可读名称，则隐藏该项，绝不向用户展示 ISO 代码。
 - 交互状态文案也必须双语维护：例如“已选中”、目录展开/收起、选区关闭、OCR 结果与重试。状态按钮应同步提供 `aria-pressed`、`aria-expanded` 或 `aria-current`，而不是只用颜色表示状态。
 - 失败提示、空状态、确认框和 Toast 也必须本地化。
 - 日期、数字和复数规则较复杂时，优先引入成熟的 Intl 或 FormatJS 方案，不要手写多语言分支。

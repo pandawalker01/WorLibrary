@@ -1,0 +1,17 @@
+.world-language-picker { position: relative; display: grid; gap: 6px; min-width: min(100%, 280px); color: #54718a; font: 600 12px 'Noto Serif SC', serif; }
+.world-language-picker__label { letter-spacing: .01em; }
+.world-language-picker__trigger { display: flex; width: 100%; align-items: center; justify-content: space-between; gap: 12px; border: 1px solid #bed7ea; border-radius: 5px; padding: 10px 12px; background: #fff; color: #24445e; font: 13px 'Noto Serif SC', serif; text-align: left; }
+.world-language-picker__trigger:hover:not(:disabled), .world-language-picker__trigger[aria-expanded='true'] { border-color: #6caedb; background: #fafdff; }
+.world-language-picker__trigger:disabled { cursor: not-allowed; opacity: .58; }
+.world-language-picker__chevron { color: #2e86c9; font: 18px/1 Georgia, serif; transition: transform .18s ease; }
+.world-language-picker__trigger[aria-expanded='true'] .world-language-picker__chevron { transform: rotate(180deg); }
+.world-language-picker__popover { position: absolute; z-index: 8; top: calc(100% + 7px); width: min(360px, calc(100vw - 40px)); overflow: hidden; border: 1px solid #acd1eb; border-radius: 7px; background: #fff; box-shadow: 0 18px 42px #274b6d29; }
+.world-language-picker__search { width: 100%; border: 0; border-bottom: 1px solid #deebf5; padding: 12px 13px; outline: 0; color: #26455e; font: 13px 'Noto Serif SC', serif; }
+.world-language-picker__search::placeholder { color: #7f99ae; }
+.world-language-picker__search:focus { box-shadow: inset 0 -2px #2e86c9; }
+.world-language-picker__options { max-height: 290px; overflow-y: auto; padding: 5px; }
+.world-language-picker__options button { display: block; width: 100%; border: 0; border-radius: 4px; padding: 9px 10px; background: transparent; color: #294961; font: 13px 'Noto Serif SC', serif; text-align: left; }
+.world-language-picker__options button:hover, .world-language-picker__options button.is-active { background: #edf7ff; color: #1762a0; }
+.world-language-picker__options button.is-selected { background: #2e86c9; color: #fff; }
+.world-language-picker__options p { margin: 12px 10px; color: #71899d; font-size: 12px; line-height: 1.5; }
+@media (max-width: 760px) { .world-language-picker { width: min(100%, 360px); }.world-language-picker__popover { width: min(100%, calc(100vw - 48px)); } }

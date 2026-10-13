@@ -15,8 +15,8 @@ WorLibrary 是本地优先的多语言阅读器：用户导入自己拥有的 EP
 - 选中文字后的翻译、解释、保存摘录、颜色和笔记编辑。
 - 手动关联版本、双栏对照及低置信度回退。
 - EPUB 内嵌原始封面提取；旧书可在设置中重新读取封面；用户上传的自定义封面不会被覆盖。
-- 双书库入口：“我的书库”清楚区分本地导入与联网收藏；“世界书库”仅在用户主动搜索时查询 Open Library 的开放书目元数据。书目语言筛选提供覆盖全球主要书目语言的 ISO 639-3 列表，并用浏览器 `Intl.DisplayNames` 按当前界面语言显示名称；也可优先查看拥有多语言记录的作品，并展示其语言/版本计数。世界书库不复用本地书库的大型营销标题，优先给搜索与发现留出空间。收藏后保存来源链接。推荐区采用透明的主题策展，点击后才执行检索，不伪装成缺乏统计口径的全网排行榜。它不下载、保存或分发未获授权的正文，能否阅读全文以原始来源的版权与访问规则为准。
-- 简体中文与英文界面；中文、英文、日语、法语的 AI 理解/翻译目标语言。
+- 双书库入口：“我的书库”清楚区分本地导入与联网收藏；“世界书库”仅在用户主动搜索时查询 Open Library 的开放书目元数据。书目语言筛选提供覆盖全球主要书目语言的 ISO 639-3 列表，并用浏览器 `Intl.DisplayNames` 按当前界面语言显示名称；通过可搜索、键盘可操作的选择器显示完整名称，无法命名的代码不展示，也不直接暴露裸代码。也可优先查看拥有多语言记录的作品，并展示其语言/版本计数。世界书库不复用本地书库的大型营销标题，优先给搜索与发现留出空间。收藏后保存来源链接。推荐区采用透明的主题策展，点击后才执行检索，不伪装成缺乏统计口径的全网排行榜。它不下载、保存或分发未获授权的正文，能否阅读全文以原始来源的版权与访问规则为准。
+- 简体中文与英文界面；`src/lib/interface-locale-registry.ts` 已建立全球界面语言的可用/规划状态、稳定回退与 RTL 能力，避免未完成翻译包被误开放；中文、英文、日语、法语的 AI 理解/翻译目标语言。
 - “我的”本地阅读页：统计本设备中的累计阅读时长、书籍、正在读、已完成与摘录数量；另以本地持久化的近 7 天阅读时长展示阅读轨迹，并记录每本书的本地阅读时长、按最后阅读时间提供最近阅读记录。仅在阅读器所在的浏览器标签页处于前台可见时计时。这些数据不伪装成云端账户数据。右上角账户入口显示会话身份的首字母头像，并通向设置中的账号与同步区。
 - 键盘与辅助技术基础支持：主导航和筛选会暴露当前状态；阅读器目录、选区操作与元数据对话框可用 Escape 关闭；阅读器翻页快捷键只在阅读内容区域生效，目录、工具栏与 OCR 编辑控件保留自身键盘交互；所有交互控件有高对比度可见焦点。
 - 匿名/魔法链接认证、Supabase 同步元数据、AI 额度账本与受控 API 网关。
@@ -48,7 +48,7 @@ WorLibrary 是本地优先的多语言阅读器：用户导入自己拥有的 EP
 | 区域 | 主要文件 | 负责什么 | 修改时要注意 |
 | --- | --- | --- | --- |
 | 应用编排 | src/App.tsx | 页面视图、我的/世界书库、阅读器内导入、统一阅读排版面板、我的页本地统计、设置、会话、同步触发 | 不把文件解析或网络细节塞进这里；复用 lib 与组件 |
-| 世界书库 | src/lib/world-library.ts、src/App.tsx | 用户主动发起的 Open Library 书目检索、全球语言列表与本地化显示、多语种筛选、主题推荐、来源标注、联网收藏的本地持久化 | `WORLD_LANGUAGE_CODES` 是可扩展的 ISO 639-3 代码集，名称由 `worldLanguageName` 用 `Intl.DisplayNames` 显示；多语种以 Open Library 书目语言数组为准；不要把搜索结果伪装为已授权全文，也不要把联网收藏写入 StoredBook 或同步成原始文件 |
+| 世界书库 | src/lib/world-library.ts、src/components/WorldLanguagePicker.tsx、src/App.tsx | 用户主动发起的 Open Library 书目检索、全球语言列表与可搜索本地化选择器、多语种筛选、主题推荐、来源标注、联网收藏的本地持久化 | `WORLD_LANGUAGE_CODES` 是可扩展的 ISO 639-3 代码集，名称由 `worldLanguageName` 用 `Intl.DisplayNames` 显示；选择器禁止展示无法解释的裸代码；多语种以 Open Library 书目语言数组为准；不要把搜索结果伪装为已授权全文，也不要把联网收藏写入 StoredBook 或同步成原始文件 |
 | PWA 离线壳 | src/main.tsx、public/manifest.webmanifest、public/sw.js、public/offline.html | 注册 Service Worker、应用安装元数据、静态资源缓存、离线回退和更新激活 | 只缓存应用壳/静态资源；绝不缓存 API、Supabase、原始书籍文件或用户正文 |
 | 本地书库 | src/lib/storage.ts | 文件保存、书籍元数据、封面、进度、摘录、导入导出、作品/版本关系 | 修改 StoredBook 或备份格式时兼容旧记录，并补迁移/回归 |
 | EPUB 阅读器 | src/components/EpubReader.tsx、src/epub-reader.css | EPUB 打开、目录、分页、位置、选区操作 | EPUB 的位置用 CFI；测试刷新恢复和无目录回退 |
@@ -58,7 +58,7 @@ WorLibrary 是本地优先的多语言阅读器：用户导入自己拥有的 EP
 | AI 客户端 | src/lib/translation.ts、src/lib/explanation.ts、src/lib/ai-result-cache.ts | 调网关、缓存、错误与重试信息 | 浏览器不能保存供应商密钥；仅传选区和必要上下文 |
 | OCR 客户端 | src/lib/ocr.ts、docs/ocr.md | 当前 PDF 页转数据并请求 OCR | 只发送用户主动选定的页；不要上传整本书；校正草稿不可自动发给 AI |
 | 认证与同步 | src/lib/auth.ts、src/lib/remote.ts、src/lib/sync.ts、src/components/AuthPanel.tsx | 匿名/魔法链接会话、远端行同步、队列与冲突处理 | 原始书籍不进入同步；RLS 是服务端最终边界 |
-| 国际化 | src/lib/i18n.ts 与各组件 | 界面语言和 AI 输出语言 | 先读 docs/i18n-extension.md；两种语言配置独立 |
+| 国际化 | src/lib/i18n.ts、src/lib/interface-locale-registry.ts 与各组件 | 界面语言和 AI 输出语言；界面语言的可用/规划状态、稳定回退与 RTL 方向 | 先读 docs/i18n-extension.md；两种语言配置独立；planned 语言没有完整文案前不得出现在可切换列表 |
 | API 与额度 | api/、server/、supabase/migrations/ | 网关、JWT 校验、额度扣减、健康检查 | 密钥仅在环境变量；额度操作需服务端原子化 |
 | 部署预检 | scripts/validate-env.mjs、.github/workflows/ci.yml | 区分本地优先 staging、完整生产云服务与 Vercel 部署凭据 | 不打印 Secret；staging/production 云端端点必须 HTTPS；AI/OCR 启用时必须同时校验 JWT、CORS 与持久化额度依赖 |
 | 样式 | src/*.css | 分区布局、阅读器与移动端适配 | 改动后检查桌面与 390px 窄屏用例 |
