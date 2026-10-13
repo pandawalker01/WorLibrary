@@ -143,6 +143,9 @@ function App() {
   const [worldResults, setWorldResults] = useState<WorldBook[]>([])
   const [worldStatus, setWorldStatus] = useState<'idle' | 'loading' | 'error'>('idle')
   const [savedWorldBooks, setSavedWorldBooks] = useState<WorldBook[]>(loadSavedWorldBooks)
+  const [worldLanguage, setWorldLanguage] = useState('')
+  const [multiLanguageOnly, setMultiLanguageOnly] = useState(false)
+  const [worldHasSearched, setWorldHasSearched] = useState(false)
   const fileInput = useRef<HTMLInputElement>(null)
   const coverInput = useRef<HTMLInputElement>(null)
   const syncTimer = useRef<number | undefined>(undefined)
@@ -242,16 +245,27 @@ function App() {
     window.setTimeout(() => setNotice(''), 2800)
   }, [])
 
-  async function submitWorldSearch(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault()
-    if (!worldQuery.trim()) return
+  async function runWorldSearch(query: string, language = worldLanguage, multilingual = multiLanguageOnly) {
+    if (!query.trim()) return
     setWorldStatus('loading')
+    setWorldHasSearched(true)
     try {
-      setWorldResults(await searchWorldLibrary(worldQuery))
+      setWorldResults(await searchWorldLibrary(query, { language: language || undefined, multiLanguageOnly: multilingual }))
       setWorldStatus('idle')
     } catch {
       setWorldStatus('error')
     }
+  }
+
+  async function submitWorldSearch(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    await runWorldSearch(worldQuery)
+  }
+
+  function useWorldRecommendation(query: string, multilingual = false) {
+    setWorldQuery(query)
+    setMultiLanguageOnly(multilingual)
+    void runWorldSearch(query, worldLanguage, multilingual)
   }
 
   function addWorldBook(book: WorldBook) {
@@ -386,6 +400,9 @@ function App() {
   const recentBooks = books.filter((book) => Boolean(book.lastReadAt)).sort((left, right) => (right.lastReadAt ?? 0) - (left.lastReadAt ?? 0)).slice(0, 3)
   const weeklyReading = recentReadingDays(readingHistory, uiLocale)
   const weeklyReadingMax = Math.max(1, ...weeklyReading.map((day) => day.seconds))
+  const worldLanguageOptions = [
+    { value: 'eng', label: ui.catalogLanguageEnglish }, { value: 'chi', label: ui.catalogLanguageChinese }, { value: 'jpn', label: ui.catalogLanguageJapanese }, { value: 'fre', label: ui.catalogLanguageFrench }, { value: 'ger', label: ui.catalogLanguageGerman }, { value: 'spa', label: ui.catalogLanguageSpanish },
+  ]
 
   return (
     <div className="app-shell">
@@ -425,7 +442,7 @@ function App() {
               <button className="import-card" onClick={importBooks}><span>＋</span><strong>{ui.importMine}</strong><small>EPUB · PDF</small></button>
             </div>
             {savedWorldBooks.length > 0 && <section className="saved-world-shelf" aria-labelledby="saved-online-books"><div><p className="eyebrow">{ui.onlineCollection}</p><h2 id="saved-online-books">{ui.savedOnlineBooks}</h2></div><div className="world-results">{savedWorldBooks.map((book) => <article className="world-book-card" key={book.id}><div className="world-cover">{book.coverUrl ? <img src={book.coverUrl} referrerPolicy="no-referrer" alt={`${book.title} ${ui.cover}`} /> : <span>{book.title.slice(0, 2)}</span>}</div><div><span className="source-badge">{ui.onlineSaved}</span><h3>{book.title}</h3><p>{book.author || ui.unknownAuthor}{book.year ? ` · ${book.year}` : ''}</p><small>{ui.onlineSource} {book.sourceName}</small><button onClick={() => openWorldBook(book)}>{ui.openAtSource}</button></div></article>)}</div></section>}
-          </> : <section className="world-library-view" aria-labelledby="world-library-title"><div className="world-heading"><p className="eyebrow">OPEN CATALOG</p><h2 id="world-library-title">{ui.worldLibraryTitle}</h2><p>{ui.worldLibraryCopy}</p></div><form className="world-search-form" onSubmit={submitWorldSearch}><input value={worldQuery} onChange={(event) => setWorldQuery(event.target.value)} placeholder={ui.searchWorldPlaceholder} aria-label={ui.searchWorld} /><button type="submit">{ui.searchWorld}</button></form><p className="world-rights-notice">{ui.worldRightsNotice}</p>{worldStatus === 'loading' && <p role="status">{ui.worldLoading}</p>}{worldStatus === 'error' && <p role="alert">{ui.worldUnavailable}</p>}{worldStatus === 'idle' && worldQuery.trim() && worldResults.length === 0 && <p role="status">{ui.worldEmpty}</p>}<div className="world-results">{worldResults.map((book) => { const saved = savedWorldBooks.some((item) => item.id === book.id); return <article className="world-book-card" key={book.id}><div className="world-cover">{book.coverUrl ? <img src={book.coverUrl} referrerPolicy="no-referrer" alt={`${book.title} ${ui.cover}`} /> : <span>{book.title.slice(0, 2)}</span>}</div><div><span className="source-badge">{ui.onlineSource} {book.sourceName}</span><h3>{book.title}</h3><p>{book.author || ui.unknownAuthor}{book.year ? ` · ${book.year}` : ''}</p><div className="world-card-actions"><button onClick={() => addWorldBook(book)} disabled={saved}>{saved ? ui.savedToMyLibrary : ui.addToMyLibrary}</button><button className="text-action" onClick={() => openWorldBook(book)}>{ui.openAtSource}</button></div></div></article> })}</div></section>}
+          </> : <section className="world-library-view" aria-labelledby="world-library-title"><div className="world-heading"><p className="eyebrow">OPEN CATALOG</p><h2 id="world-library-title">{ui.worldLibraryTitle}</h2><p>{ui.worldLibraryCopy}</p></div><section className="world-recommendations" aria-labelledby="world-recommendations-title"><div><p className="eyebrow">CURATED DISCOVERY</p><h3 id="world-recommendations-title">{ui.recommendedReading}</h3><p>{ui.recommendedReadingCopy}</p></div><div className="recommendation-chips"><button onClick={() => useWorldRecommendation('world classics', true)}>{ui.recommendationClassics}</button><button onClick={() => useWorldRecommendation('literature', true)}>{ui.recommendationTranslation}</button><button onClick={() => useWorldRecommendation('public domain')}>{ui.recommendationPublicDomain}</button></div></section><form className="world-search-form" onSubmit={submitWorldSearch}><input value={worldQuery} onChange={(event) => setWorldQuery(event.target.value)} placeholder={ui.searchWorldPlaceholder} aria-label={ui.searchWorld} /><button type="submit">{ui.searchWorld}</button></form><div className="world-filters" aria-label={ui.worldFilters}><label>{ui.catalogLanguage}<select value={worldLanguage} onChange={(event) => setWorldLanguage(event.target.value)}><option value="">{ui.allLanguages}</option>{worldLanguageOptions.map((language) => <option key={language.value} value={language.value}>{language.label}</option>)}</select></label><label className="world-multilingual-filter"><input type="checkbox" checked={multiLanguageOnly} onChange={(event) => setMultiLanguageOnly(event.target.checked)} /><span>{ui.multiLanguageOnly}</span><small>{ui.multiLanguageHint}</small></label></div><p className="world-rights-notice">{ui.worldRightsNotice}</p>{worldStatus === 'loading' && <p role="status">{ui.worldLoading}</p>}{worldStatus === 'error' && <p role="alert">{ui.worldUnavailable}</p>}{worldStatus === 'idle' && worldHasSearched && worldResults.length === 0 && <p role="status">{ui.worldEmpty}</p>}<div className="world-results">{worldResults.map((book) => { const saved = savedWorldBooks.some((item) => item.id === book.id); return <article className="world-book-card" key={book.id}><div className="world-cover">{book.coverUrl ? <img src={book.coverUrl} referrerPolicy="no-referrer" alt={`${book.title} ${ui.cover}`} /> : <span>{book.title.slice(0, 2)}</span>}</div><div><span className="source-badge">{ui.onlineSource} {book.sourceName}</span><h3>{book.title}</h3><p>{book.author || ui.unknownAuthor}{book.year ? ` · ${book.year}` : ''}</p><small>{book.languages.length ? interpolate(ui.languagesAvailable, { count: book.languages.length }) : ''}{book.editionCount ? ` · ${interpolate(ui.editionsAvailable, { count: book.editionCount })}` : ''}</small><div className="world-card-actions"><button onClick={() => addWorldBook(book)} disabled={saved}>{saved ? ui.savedToMyLibrary : ui.addToMyLibrary}</button><button className="text-action" onClick={() => openWorldBook(book)}>{ui.openAtSource}</button></div></div></article> })}</div></section>}
         </section>}
 
         {view === 'highlights' && <HighlightsView uiLocale={uiLocale} books={books.filter((book): book is StoredBook => Boolean(book.storage && book.fileName))} onNotice={toast} onChanged={() => { scheduleSync(); void listHighlights().then((items) => setHighlightCount(items.length)) }} onDeleted={(id) => { if (session) void deleteRemoteHighlight(createRemoteClient(session), id).catch(() => scheduleSync()); else scheduleSync(); void listHighlights().then((items) => setHighlightCount(items.length)) }} onOpenHighlight={(highlight: Highlight) => {

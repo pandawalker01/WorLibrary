@@ -34,6 +34,23 @@ test('world library saves a source-labelled catalog book to my library', async (
   await expect(page.getByText('联网收藏')).toBeVisible()
 })
 
+test('world library filters catalog search by language and multilingual availability', async ({ page }) => {
+  let requestedUrl = ''
+  await page.route('https://openlibrary.org/search.json**', async (route) => {
+    requestedUrl = route.request().url()
+    await route.fulfill({ json: { docs: [{ key: '/works/OLlanguageW', title: 'Multilingual Fixture', author_name: ['Catalog Author'], language: ['eng', 'chi'], edition_count: 7 }] } })
+  })
+  await page.goto('/')
+  await page.getByRole('tab', { name: '世界书库' }).click()
+  await page.getByRole('combobox', { name: '书目语言' }).selectOption('eng')
+  await page.getByRole('checkbox', { name: '优先多语种版本' }).check()
+  await page.getByRole('textbox', { name: '搜索世界书库' }).fill('fixture')
+  await page.getByRole('button', { name: '搜索世界书库' }).click()
+  await expect(page.getByRole('heading', { name: 'Multilingual Fixture' })).toBeVisible()
+  await expect(page.getByText('2 种语言 · 7 个版本')).toBeVisible()
+  expect(requestedUrl).toContain('language=eng')
+})
+
 test('library search includes imported file names and stays usable on a narrow screen', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 })
   await page.goto('/')
