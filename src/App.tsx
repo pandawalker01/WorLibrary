@@ -14,12 +14,13 @@ import AuthPanel from './components/AuthPanel'
 import { getSession, type AuthSession } from './lib/auth'
 import { createRemoteClient } from './lib/remote'
 import { createIndexedDbSyncAdapter, deleteRemoteHighlight, enqueueSync, flushQueuedSync } from './lib/sync'
-import { copy, interpolate, loadReadingLanguage, loadUiLocale, saveReadingLanguage, saveUiLocale, UI_LOCALES, type ReadingLanguage } from './lib/i18n'
+import { copy, interpolate, loadReadingLanguage, loadUiLocale, saveReadingLanguage, saveUiLocale, type ReadingLanguage } from './lib/i18n'
 import { clampFontScale, loadReaderPreferences, type ReaderPreferences } from './lib/reader'
 import { loadSavedWorldBooks, saveWorldBook, searchWorldLibrary, type WorldBook } from './lib/world-library'
 import WorldLanguagePicker from './components/WorldLanguagePicker'
 import ReadingLanguagePicker from './components/ReadingLanguagePicker'
-import { interfaceLocaleDirection } from './lib/interface-locale-registry'
+import InterfaceLanguagePicker from './components/InterfaceLanguagePicker'
+import { interfaceLocaleDirection, presentInterfaceLocales } from './lib/interface-locale-registry'
 
 type View = 'library' | 'reader' | 'highlights' | 'profile' | 'settings'
 type DisplayBook = Pick<StoredBook, 'id' | 'title' | 'author' | 'language' | 'progress' | 'cover'> & Partial<Pick<StoredBook, 'fileName' | 'fileType' | 'storage' | 'createdAt' | 'lastReadAt' | 'location' | 'workId' | 'coverImage'>>
@@ -344,7 +345,8 @@ function App() {
 
   function changeUiLocale(nextLocale: typeof uiLocale) {
     setUiLocale(nextLocale)
-    toast(`${copy[nextLocale].uiLanguageSaved}${UI_LOCALES.find((item) => item.value === nextLocale)?.label ?? nextLocale}`)
+    const localeName = presentInterfaceLocales(nextLocale, false).find((item) => item.code === nextLocale)?.displayName ?? nextLocale
+    toast(`${copy[nextLocale].uiLanguageSaved}${localeName}`)
   }
 
   function changeReadingLanguage(nextLanguage: ReadingLanguage) {
@@ -550,7 +552,7 @@ function App() {
           <div className="reader-bottom"><span>{selectedBook.progress}%</span><div><i style={{ width: `${selectedBook.progress}%` }} /></div><span>{selectedBook.fileName ? ui.savedLocally : '4 / 11'}</span><button onClick={() => toast(uiLocale === 'en' ? 'OCR is available from the PDF reader.' : 'OCR 是下一步真实服务接入点')}>{ui.scanPage}</button></div>
         </section>}
 
-        {view === 'settings' && <section className="settings-view"><div className="settings-wrap"><p className="eyebrow">{ui.preferences}</p><h1>{ui.settingsTitle}</h1><section className="language-section" aria-labelledby="ui-language-title"><div className="language-heading"><h2 id="ui-language-title">{ui.uiLanguageTitle}</h2><p>{ui.uiLanguageCopy}</p></div><div className="language-grid language-grid-compact">{UI_LOCALES.map((item) => <button className={uiLocale === item.value ? 'language-choice active' : 'language-choice'} key={item.value} onClick={() => changeUiLocale(item.value)} aria-pressed={uiLocale === item.value}>{item.label}<span>{item.value === 'zh-CN' ? 'Simplified Chinese' : 'English'}</span></button>)}</div></section><section className="language-section" aria-labelledby="reading-language-title"><div className="language-heading"><h2 id="reading-language-title">{ui.readingLanguageTitle}</h2><p>{ui.readingLanguageCopy}</p></div><ReadingLanguagePicker value={language} onChange={changeReadingLanguage} locale={uiLocale} label={ui.readingLanguagePickerLabel} searchLabel={ui.searchReadingLanguage} searchPlaceholder={ui.searchReadingLanguagePlaceholder} /></section><div className="settings-note"><span>◎</span><p><strong>{ui.privacyTitle}</strong><br />{ui.privacyCopy}</p></div></div></section>}
+        {view === 'settings' && <section className="settings-view"><div className="settings-wrap"><p className="eyebrow">{ui.preferences}</p><h1>{ui.settingsTitle}</h1><section className="language-section" aria-labelledby="ui-language-title"><div className="language-heading"><h2 id="ui-language-title">{ui.uiLanguageTitle}</h2><p>{ui.uiLanguageCopy}</p></div><InterfaceLanguagePicker value={uiLocale} onChange={changeUiLocale} locale={uiLocale} label={ui.interfaceLanguagePickerLabel} searchLabel={ui.searchInterfaceLanguage} searchPlaceholder={ui.searchInterfaceLanguagePlaceholder} availableLabel={ui.interfaceLanguageAvailable} plannedLabel={ui.interfaceLanguagePlanned} plannedCopy={ui.interfaceLanguagePlannedCopy} emptyLabel={ui.interfaceLanguageEmpty} /></section><section className="language-section" aria-labelledby="reading-language-title"><div className="language-heading"><h2 id="reading-language-title">{ui.readingLanguageTitle}</h2><p>{ui.readingLanguageCopy}</p></div><ReadingLanguagePicker value={language} onChange={changeReadingLanguage} locale={uiLocale} label={ui.readingLanguagePickerLabel} searchLabel={ui.searchReadingLanguage} searchPlaceholder={ui.searchReadingLanguagePlaceholder} /></section><div className="settings-note"><span>◎</span><p><strong>{ui.privacyTitle}</strong><br />{ui.privacyCopy}</p></div></div></section>}
       </main>
       {bookContextMenu && <div className="book-context-menu" role="menu" aria-label={ui.localBooks} style={{ left: bookContextMenu.x, top: bookContextMenu.y }}><strong>{bookContextMenu.book.title}</strong>{bookContextMenu.book.fileName?.toLowerCase().endsWith('.epub') && <button role="menuitem" onClick={() => { void refreshCover(bookContextMenu.book); setBookContextMenu(null) }} disabled={refreshingCoverId === bookContextMenu.book.id}>{refreshingCoverId === bookContextMenu.book.id ? ui.readingCover : ui.manageCover}</button>}<button role="menuitem" onClick={() => { selectCustomCover(bookContextMenu.book); setBookContextMenu(null) }}>{ui.uploadCover}</button><button role="menuitem" onClick={() => { setMetadataDraft(bookContextMenu.book as StoredBook); setBookContextMenu(null) }}>{ui.editInfo}</button><button className="danger" role="menuitem" onClick={() => { void removeBook(bookContextMenu.book); setBookContextMenu(null) }}>{ui.delete}</button></div>}
       {metadataDraft && <div className="metadata-dialog-backdrop"><form className="metadata-dialog" onSubmit={(event) => { void saveMetadata(event) }} role="dialog" aria-modal="true" aria-labelledby="metadata-dialog-title"><div><p className="eyebrow">LOCAL METADATA</p><h2 id="metadata-dialog-title">校正书籍信息</h2><p>只修改书架显示和本地阅读数据，不会改动或上传原始文件。</p></div><label>书名<input name="title" defaultValue={metadataDraft.title} autoFocus /></label><label>作者<input name="author" defaultValue={metadataDraft.author} /></label><div className="metadata-dialog-actions"><button type="button" onClick={() => setMetadataDraft(null)}>取消</button><button type="submit">保存信息</button></div></form></div>}

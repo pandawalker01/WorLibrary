@@ -28,11 +28,21 @@
 
 不要在组件中新增硬编码的用户可见文案。先在 i18n.ts 建立键，再从当前语言包读取。
 
+### 全球界面语言选择器的呈现规则
+
+界面语言设置应使用 `presentInterfaceLocales(uiLocale)` 获得可本地化显示的全球语言清单，而不是在页面中再硬编码两张语言卡。清单必须分为“已支持”和“计划中”两个区域（区域标题、状态说明和“即将支持”标记均来自 `i18n.ts` 的界面文案）。
+
+- 只有 `status: available` 的项目可点击、可保存到 `worlibrary.ui-locale`，也才允许实际切换页面文案。
+- `status: planned` 的项目可以作为路线图被看见，但必须禁用，并明确说明其完整翻译与无障碍检查尚未完成；不能制造“已经切换成功”的假象。
+- 展示名称应使用注册表的 `displayName` 和 `nativeName`；不要把 `ja`、`ar` 或 `pt-BR` 之类的代码直接作为界面标签。
+- 当一项 RTL 语言（例如阿拉伯语）从 planned 升为 available 时，除了完整翻译包外，必须验证 `document.documentElement.dir = 'rtl'` 下的阅读器工具栏、侧栏、表单、焦点环和数字方向；不能仅修改文本。
+- 旧版 localStorage 中的 planned 或无效界面语言必须由 `resolveInterfaceLocale` 安全回退到可用语言，且绝不能影响 AI 理解语言。
+
 ## 新增界面语言的步骤
 
 以下以 Spanish（es）为例。只要按顺序完成即可，不需要重新设计阅读器逻辑。
 
-1. 先在 src/lib/interface-locale-registry.ts 登记 es，初始状态必须是 planned；它不会因此出现在设置页。
+1. 先在 src/lib/interface-locale-registry.ts 登记 es，初始状态必须是 planned；它会作为不可切换的路线图项目出现，但不能作为已支持语言。
 2. 在 src/lib/i18n.ts 的 UiLocale 联合类型中加入 es，并在 UI_LOCALES 中加入语言选项，例如 value 为 es、label 为 Español。
 3. 在 copy 对象新增 es 语言包，键必须与现有 zh-CN 和 en 完全一致；完成版式、无障碍和 RTL（如适用）测试后，才将注册表状态改为 available。
 4. 所有变量文案使用同文件导出的 interpolate(template, values) 函数，不要在组件里字符串拼接。例如“找到 N 本书”应使用语言包中的统一模板和 interpolate。

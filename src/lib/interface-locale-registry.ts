@@ -26,6 +26,13 @@ export type InterfaceLocale = {
   direction: 'ltr' | 'rtl'
 }
 
+export type PresentedInterfaceLocale = InterfaceLocale & {
+  /** The locale's name in the language currently used by the reader. */
+  displayName: string
+  /** The language's self-name, useful when the display locale differs. */
+  nativeName: string
+}
+
 /**
  * `available` means a complete interface copy pack exists. `planned` items
  * establish the expansion order only; callers must not offer them for UI
@@ -46,6 +53,19 @@ export const INTERFACE_LOCALES: readonly InterfaceLocale[] = [
 
 export const DEFAULT_INTERFACE_LOCALE: InterfaceLocaleCode = 'zh-CN'
 
+const FALLBACK_LOCALE_NAMES: Record<InterfaceLocaleCode, string> = {
+  'zh-CN': '简体中文',
+  en: 'English',
+  ja: '日本語',
+  ko: '한국어',
+  fr: 'Français',
+  es: 'Español',
+  de: 'Deutsch',
+  'pt-BR': 'Português (Brasil)',
+  ru: 'Русский',
+  ar: 'العربية',
+}
+
 function languagePart(locale: string): string {
   return locale.trim().replace(/_/g, '-').split('-')[0]?.toLowerCase() ?? ''
 }
@@ -56,6 +76,42 @@ export function availableInterfaceLocales(): readonly InterfaceLocale[] {
 
 export function recommendedInterfaceLocales(includePlanned = false): readonly InterfaceLocale[] {
   return INTERFACE_LOCALES.filter((locale) => locale.recommended && (includePlanned || locale.status === 'available'))
+}
+
+/**
+ * Returns a readable locale name without leaking a raw locale code into UI.
+ * `Intl.DisplayNames` is deliberately best-effort: older browsers get a
+ * curated human-readable fallback, never a raw locale code.
+ */
+export function interfaceLocaleName(locale: InterfaceLocaleCode, displayLocale: string): string {
+  try {
+    const translated = new Intl.DisplayNames([displayLocale], { type: 'language' }).of(locale)
+    if (translated && translated.toLowerCase() !== locale.toLowerCase()) return translated
+  } catch {
+    // Continue to the English and curated fallbacks below.
+  }
+  try {
+    const english = new Intl.DisplayNames(['en'], { type: 'language' }).of(locale)
+    if (english && english.toLowerCase() !== locale.toLowerCase()) return english
+  } catch {
+    // The curated self-name remains readable in browsers without Intl.DisplayNames.
+  }
+  return FALLBACK_LOCALE_NAMES[locale]
+}
+
+/**
+ * A presentation-ready list for a global interface-language chooser. Planned
+ * entries are intentionally retained so a chooser can explain the roadmap,
+ * but callers must disable them and only persist `status === 'available'`.
+ */
+export function presentInterfaceLocales(displayLocale: string, includePlanned = true): readonly PresentedInterfaceLocale[] {
+  return INTERFACE_LOCALES
+    .filter((locale) => includePlanned || locale.status === 'available')
+    .map((locale) => ({
+      ...locale,
+      displayName: interfaceLocaleName(locale.code, displayLocale),
+      nativeName: interfaceLocaleName(locale.code, locale.code),
+    }))
 }
 
 /** Resolves browser or stored values without ever selecting a planned locale. */
