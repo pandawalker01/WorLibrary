@@ -24,3 +24,6 @@
 .highlights-empty { margin-top: 50px; padding: 70px 20px; border: 1px dashed #aacbe4; text-align: center; color: #71869b; background: #fafdff; }
 .highlights-empty span { display: block; color: #1976bd; font-size: 26px; }.highlights-empty strong { display: block; margin-top: 12px; color: #29435d; font-size: 16px; font-weight: 500; }.highlights-empty p { margin: 8px 0 0; font-size: 12px; }
 @media (max-width: 760px) { .highlights-view { margin-top: 55px; }.highlights-heading { display: block; }.highlights-heading label { margin-top: 24px; }.highlights-filters { display: grid; }.highlights-filters input, .highlights-filters select { width: 100%; min-width: 0; }.highlight-list { grid-template-columns: 1fr; }.highlight-card { padding: 20px 18px 16px; }.highlight-actions { flex-wrap: wrap; justify-content: flex-start; gap: 11px; }.highlight-colors { margin-left: 0; } }
+
+/* Align the highlights page with the compact display scale used elsewhere. */
+.highlights-heading h1 { font-size: clamp(15px, 1.15vw, 19px); letter-spacing: -.025em; line-height: 1.25; }

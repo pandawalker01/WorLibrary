@@ -48,3 +48,10 @@ button:focus-visible, input:focus-visible, [tabindex]:focus-visible { outline: 3
 @media (max-width: 700px) { .account-button { padding-left: 0; }.account-button strong { display: none; } }
 .content:has(.library-view) .hero { margin: 38px auto 28px; align-items: center; }.content:has(.library-view) .hero h1 { max-width: 720px; font-size: clamp(34px, 4vw, 60px); line-height: 1.12; }.content:has(.library-view) .hero-copy { max-width: 330px; margin-bottom: 0; }
 .content:has(.library-view) .library-view.is-world-library { max-width: 1500px; margin: 0 auto; }.content:has(.library-view) .library-view.is-world-library .library-mode-switch { margin-top: 28px; }
+
+/* Keep navigation and reading controls comfortably legible while making display
+   typography compact enough that the catalogue stays the visual priority. */
+.hero h1, .settings-wrap h1, .profile-heading h1 { font-size: clamp(15px, 1.15vw, 19px); letter-spacing: -.025em; line-height: 1.25; }
+.content:has(.library-view) .hero h1 { max-width: 520px; font-size: clamp(15px, 1.15vw, 19px); letter-spacing: -.025em; line-height: 1.25; }
+.profile-weekly h2, .profile-recent h2 { font-size: 17px; }
+@media (max-width: 560px) { .hero h1, .settings-wrap h1, .profile-heading h1, .content:has(.library-view) .hero h1 { font-size: 16px; } }
