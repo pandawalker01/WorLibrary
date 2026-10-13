@@ -47,3 +47,4 @@ button:focus-visible, input:focus-visible, [tabindex]:focus-visible { outline: 3
 @media (max-width: 560px) { .reader-layout-panel { top: 113px; right: 0; }.reader-theme-choices button { padding-inline: 6px; } }
 @media (max-width: 700px) { .account-button { padding-left: 0; }.account-button strong { display: none; } }
 .content:has(.library-view) .hero { margin: 38px auto 28px; align-items: center; }.content:has(.library-view) .hero h1 { max-width: 720px; font-size: clamp(34px, 4vw, 60px); line-height: 1.12; }.content:has(.library-view) .hero-copy { max-width: 330px; margin-bottom: 0; }
+.content:has(.library-view) .library-view.is-world-library { max-width: 1500px; margin: 0 auto; }.content:has(.library-view) .library-view.is-world-library .library-mode-switch { margin-top: 28px; }
