@@ -31,6 +31,9 @@ function url(name) {
   try {
     const parsed = new URL(value)
     if (!['http:', 'https:'].includes(parsed.protocol)) invalid.push(`${name} must use http or https`)
+    if ((profile === 'production' || profile === 'staging') && parsed.protocol !== 'https:') {
+      invalid.push(`${name} must use https in ${profile}`)
+    }
   } catch {
     invalid.push(`${name} must be a valid URL`)
   }

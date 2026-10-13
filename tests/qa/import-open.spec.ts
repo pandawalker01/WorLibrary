@@ -37,6 +37,10 @@ async function importCoverFixture(page: Page) {
   await expect(page.getByRole('heading', { name: 'Cover Fixture' })).toBeVisible()
 }
 
+function primaryNavigationButton(page: Page, name: string) {
+  return page.getByRole('navigation', { name: '主导航' }).getByRole('button', { name, exact: true })
+}
+
 test('P0: imported EPUB renders fixture content instead of demo content', async ({ page }) => {
   await page.goto('/')
   await importFixture(page)
@@ -45,6 +49,21 @@ test('P0: imported EPUB renders fixture content instead of demo content', async 
   await expect(page.getByText('进度已保存到本机', { exact: true })).toBeVisible()
   const reader = page.frameLocator('.epub-reader-frame iframe')
   await expect(reader.getByText('ORCHARD_FIXTURE_FIRST_PAGE')).toBeVisible({ timeout: 10_000 })
+})
+
+test('P1: incomplete reading-data backup is rejected without adding an unreadable shelf record', async ({ page }) => {
+  await page.goto('/')
+  await importFixture(page)
+  await page.getByRole('button', { name: '设置' }).click()
+  await page.locator('input[accept="application/json,.json"]').setInputFiles({
+    name: 'incomplete-backup.json',
+    mimeType: 'application/json',
+    buffer: Buffer.from(JSON.stringify({ version: 2, books: [{ id: 'missing-file', title: 'Missing file', fileName: 'missing.epub' }], highlights: [], files: {} })),
+  })
+  await expect(page.locator('.toast')).toContainText('备份缺少《Missing file》的原始文件')
+  await primaryNavigationButton(page, '书库').click()
+  await expect(page.getByRole('heading', { name: 'Reader Fixture' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Missing file' })).not.toBeVisible()
 })
 
 test('P0: imported EPUB metadata can be corrected without re-importing the file', async ({ page }) => {
@@ -57,7 +76,7 @@ test('P0: imported EPUB metadata can be corrected without re-importing the file'
     name: 'cover.png', mimeType: 'image/png', buffer: Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Y9Jc8AAAAAASUVORK5CYII=', 'base64'),
   })
   await expect(page.locator('.toast')).toContainText('已设置本地书籍封面')
-  await page.getByRole('button', { name: '01 书库' }).click()
+  await primaryNavigationButton(page, '书库').click()
   await expect(page.getByRole('img', { name: 'Reader Fixture 封面' })).toBeVisible()
   await page.getByRole('button', { name: '设置' }).click()
   await page.getByRole('button', { name: '编辑信息' }).click()
@@ -65,7 +84,7 @@ test('P0: imported EPUB metadata can be corrected without re-importing the file'
   await page.getByRole('textbox', { name: '作者' }).fill('校正后的作者')
   await page.getByRole('button', { name: '保存信息' }).click()
   await expect(page.locator('.toast')).toContainText('书籍信息已在本地更新')
-  await page.getByRole('button', { name: '01 书库' }).click()
+  await primaryNavigationButton(page, '书库').click()
   await expect(page.getByRole('heading', { name: '校正后的书名' })).toBeVisible()
   await page.getByRole('button', { name: /校正后的书名/ }).click()
   await expect(page.frameLocator('.epub-reader-frame iframe').getByText('ORCHARD_FIXTURE_FIRST_PAGE')).toBeVisible({ timeout: 10_000 })
@@ -83,9 +102,12 @@ test('P0: standard EPUB cover survives import, refresh and reopening the library
   await page.getByRole('button', { name: '设置' }).click()
   await page.getByRole('button', { name: '重新读取封面' }).click()
   await expect(page.locator('.toast')).toContainText('已从 EPUB 重新读取原书封面')
-  await page.getByRole('button', { name: '01 书库' }).click()
+  await primaryNavigationButton(page, '书库').click()
   await expect(shelfCover).toBeVisible()
   await expect(shelfCover).toHaveAttribute('src', /^data:image\/png;base64,/)
+  await page.getByRole('button', { name: /Cover Fixture/i }).click()
+  await expect(page.locator('.epub-reader-frame iframe')).toBeVisible({ timeout: 10_000 })
+  await expect(page.locator('.toast')).not.toContainText('找不到本地书籍文件')
 })
 
 test('P0: an old imported EPUB without a stored cover can recover its original cover', async ({ page }) => {
@@ -118,7 +140,7 @@ test('P0: an old imported EPUB without a stored cover can recover its original c
   await page.getByRole('button', { name: '设置' }).click()
   await page.getByRole('button', { name: '重新读取封面' }).click()
   await expect(page.locator('.toast')).toContainText('已从 EPUB 重新读取原书封面')
-  await page.getByRole('button', { name: '01 书库' }).click()
+  await primaryNavigationButton(page, '书库').click()
   await expect(page.getByRole('img', { name: 'Cover Fixture 封面' })).toBeVisible()
 })
 
@@ -133,7 +155,7 @@ test('P1: refreshing an EPUB never overwrites a reader-uploaded cover', async ({
   await expect(page.locator('.toast')).toContainText('已设置本地书籍封面')
   await page.getByRole('button', { name: '重新读取封面' }).click()
   await expect(page.locator('.toast')).toContainText('已保留你上传的本地封面')
-  await page.getByRole('button', { name: '01 书库' }).click()
+  await primaryNavigationButton(page, '书库').click()
   await expect(page.getByRole('img', { name: 'Cover Fixture 封面' })).toHaveAttribute('src', /^data:image\/png;base64,/)
 })
 
@@ -145,6 +167,9 @@ test('P0: imported EPUB provides explicit pagination and reaches the next chapte
   await page.getByRole('button', { name: '下一页' }).click()
   const reader = page.frameLocator('.epub-reader-frame iframe')
   await expect(reader.getByText('ORCHARD_FIXTURE_SECOND_PAGE')).toBeVisible({ timeout: 10_000 })
+  // Page shortcuts are intentionally disabled while toolbar controls have focus.
+  // Clear the toolbar button focus before testing reader-level keyboard pagination.
+  await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur())
   await page.keyboard.press('ArrowLeft')
   await expect(reader.getByText('ORCHARD_FIXTURE_FIRST_PAGE')).toBeVisible({ timeout: 10_000 })
   await page.keyboard.press('ArrowRight')

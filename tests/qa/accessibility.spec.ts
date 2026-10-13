@@ -34,6 +34,17 @@ test('P1: navigation, language controls, contents, and metadata dialog expose ke
   await page.keyboard.press('Escape')
   await expect(contents).toHaveAttribute('aria-expanded', 'false')
 
+  // Reader pagination shortcuts belong to the reading surface, not focused
+  // controls. Without this boundary, pressing an arrow key while operating the
+  // contents control would unexpectedly turn a page.
+  const progress = page.getByTestId('epub-progress')
+  await expect(progress).not.toContainText('准备阅读')
+  const positionBeforeControlShortcut = await progress.textContent()
+  await contents.focus()
+  await page.keyboard.press('ArrowRight')
+  await page.waitForTimeout(400)
+  await expect(progress).toHaveText(positionBeforeControlShortcut ?? '')
+
   await page.getByRole('button', { name: '← 书库' }).click()
   await page.getByRole('button', { name: '设置' }).click()
   await page.getByRole('button', { name: '编辑信息' }).click()

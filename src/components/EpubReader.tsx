@@ -34,6 +34,11 @@ type Rendition = {
 
 type Chapter = { label: string; href: string; subitems?: Chapter[] }
 
+function isReaderShortcutTarget(target: EventTarget | null) {
+  if (!(target instanceof HTMLElement)) return false
+  return Boolean(target.closest('button, a, input, textarea, select, [contenteditable="true"], [role="button"], [role="textbox"], [role="dialog"], [role="menuitem"]'))
+}
+
 /** EPUB navigation is frequently nested (and occasionally has blank labels).
  * Flatten it once so the compact reader menu remains usable on both EPUB 2 NCX
  * and EPUB 3 nav documents. */
@@ -208,6 +213,10 @@ export default function EpubReader({ book, onNotice, onProgress, onHighlightSave
         }
         return
       }
+      // Arrow keys navigate the publication only while the reading surface is
+      // active. They must not hijack keyboard interaction with toolbar and
+      // contents controls, where arrows may be used by assistive technology.
+      if (isReaderShortcutTarget(event.target)) return
       if (event.key === 'ArrowRight') {
         event.preventDefault()
         void renditionRef.current?.next?.()

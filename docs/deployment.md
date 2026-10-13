@@ -36,6 +36,8 @@ npm run validate:env -- --production --json
 
 `--staging` 的 Supabase、AI、OCR 都是独立的可选能力：完全未配置时，应用仍可部署并提供本地导入和离线阅读，JSON 的 `capabilities` 会标为 `disabled`，同时给出用户可读的 `warnings`。一旦填了其中任一变量，该能力会转为 `enabled`，预检会要求它的完整安全依赖，避免“页面看似已启用、实际半配置”的状态。AI 或 OCR 启用时，必须同时配置服务端 `SUPABASE_URL`、`SUPABASE_ANON_KEY`、`SUPABASE_JWT_SECRET`、精确 HTTPS `ALLOWED_ORIGIN`、`*_ENV=production` 与 `*_REQUIRE_AUTH=true`。
 
+在 staging 与 production 中，`VITE_SUPABASE_URL`、`SUPABASE_URL`、`AI_BASE_URL` 与 `OCR_BASE_URL` 必须使用 HTTPS；HTTP 仅可用于本地开发。预检会拒绝不安全端点，避免浏览器混合内容、登录/同步不可用或服务端密钥走明文链路。
+
 `--production` 用于公开完整云服务，强制要求浏览器 Supabase 配置、AI/OCR 网关、精确 HTTPS CORS Origin、生产模式、鉴权开关和 URL 格式。它拒绝占位值、`mock` 供应商、通配 CORS 与任何意外使用 `VITE_` 前缀的密钥。`VITE_SUPABASE_ANON_KEY` 可以出现在浏览器构建中；`AI_API_KEY`、`OCR_API_KEY`、`SUPABASE_JWT_SECRET`、Supabase service-role key 和部署平台 token 绝不能出现。`--deployment` 只检查 Vercel 的 `VERCEL_TOKEN`、`VERCEL_ORG_ID`、`VERCEL_PROJECT_ID` 是否存在，不会读取或回显它们。
 
 ### 首次生产配置：最小操作清单

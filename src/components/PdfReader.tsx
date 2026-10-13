@@ -32,6 +32,11 @@ type PdfPage = {
   getTextContent: () => Promise<{ items: Array<{ str?: string }> }>
 }
 
+function isReaderShortcutTarget(target: EventTarget | null) {
+  if (!(target instanceof HTMLElement)) return false
+  return Boolean(target.closest('button, a, input, textarea, select, [contenteditable="true"], [role="button"], [role="textbox"], [role="dialog"], [role="menuitem"]'))
+}
+
 export default function PdfReader({ book, onNotice, onProgress, targetLanguage = '中文', uiLocale = 'zh-CN', preferences, onHighlightSaved, onPreferencesChange }: PdfReaderProps) {
   const ui = copy[uiLocale]
   const en = uiLocale === 'en'
@@ -183,7 +188,10 @@ export default function PdfReader({ book, onNotice, onProgress, targetLanguage =
         }
         return
       }
-      if (event.target instanceof HTMLInputElement || event.target instanceof HTMLTextAreaElement || event.target instanceof HTMLButtonElement) return
+      // Keep page shortcuts on the reading surface. A focused button or OCR
+      // editor should retain its native keyboard behavior instead of turning a
+      // user interaction into an unexpected page change.
+      if (isReaderShortcutTarget(event.target)) return
       if (event.key === 'ArrowLeft' || event.key === 'PageUp') {
         event.preventDefault()
         void moveToPage(page - 1)

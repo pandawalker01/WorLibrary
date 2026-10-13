@@ -102,3 +102,18 @@ test('staging gateway configuration requires an HTTPS browser origin', () => {
   assert.equal(result.status, 1)
   assert.match(result.payload.invalid.join('\n'), /ALLOWED_ORIGIN must use https in staging/)
 })
+
+test('cloud endpoints require HTTPS outside local browser development', () => {
+  const result = validate({
+    ...configured,
+    VITE_SUPABASE_URL: 'http://project.supabase.co',
+    SUPABASE_URL: 'http://project.supabase.co',
+    AI_BASE_URL: 'http://provider.example.test/v1',
+    OCR_BASE_URL: 'http://ocr.example.test/v1',
+  })
+  assert.equal(result.status, 1)
+  assert.match(result.payload.invalid.join('\n'), /VITE_SUPABASE_URL must use https in production/)
+  assert.match(result.payload.invalid.join('\n'), /SUPABASE_URL must use https in production/)
+  assert.match(result.payload.invalid.join('\n'), /AI_BASE_URL must use https in production/)
+  assert.match(result.payload.invalid.join('\n'), /OCR_BASE_URL must use https in production/)
+})

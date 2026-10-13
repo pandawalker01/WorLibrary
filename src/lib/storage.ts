@@ -511,8 +511,20 @@ export async function exportLibraryData(): Promise<LibraryBackup> {
 
 export async function importLibraryData(backup: LibraryBackup): Promise<{ books: number; highlights: number }> {
   if (backup.version !== 2 || !Array.isArray(backup.books) || !Array.isArray(backup.highlights) || !backup.files) throw new Error('备份版本过旧，请重新导出')
-  for (const book of backup.books) {
-    const bytes = decodeBytes(backup.files[book.id] ?? '')
+  // Validate and decode every source file before writing anything. Previously a
+  // backup missing one `files[book.id]` entry created a visible shelf record
+  // backed by an empty Blob, which could only fail later when the reader opened.
+  // A rejected backup must leave the existing local shelf untouched.
+  const importedFiles = backup.books.map((book) => {
+    const encoded = backup.files[book.id]
+    if (typeof encoded !== 'string' || encoded.length === 0) throw new Error(`备份缺少《${book.title || book.fileName}》的原始文件，已取消导入`)
+    try {
+      return { book, bytes: decodeBytes(encoded) }
+    } catch {
+      throw new Error(`备份中的《${book.title || book.fileName}》文件已损坏，已取消导入`)
+    }
+  })
+  for (const { book, bytes } of importedFiles) {
     await transaction(BLOBS_STORE, 'readwrite', (store) => store.put(new Blob([bytes], { type: book.fileType }), book.id))
     await transaction(BOOKS_STORE, 'readwrite', (store) => store.put({ ...book, storage: 'indexeddb' }))
   }
