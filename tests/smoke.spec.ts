@@ -19,6 +19,21 @@ test('library opens to an empty local shelf and guides the first import', async 
   await expect(page.getByRole('button', { name: '导入书籍' })).toBeVisible()
 })
 
+test('world library saves a source-labelled catalog book to my library', async ({ page }) => {
+  await page.route('https://openlibrary.org/search.json**', async (route) => {
+    await route.fulfill({ json: { docs: [{ key: '/works/OLfixtureW', title: 'World Fixture', author_name: ['Catalog Author'], first_publish_year: 2024, language: ['eng'] }] } })
+  })
+  await page.goto('/')
+  await page.getByRole('tab', { name: '世界书库' }).click()
+  await page.getByRole('textbox', { name: '搜索世界书库' }).fill('fixture')
+  await page.getByRole('button', { name: '搜索世界书库' }).click()
+  await expect(page.getByRole('heading', { name: 'World Fixture' })).toBeVisible()
+  await page.getByRole('button', { name: '加入我的书库' }).click()
+  await page.getByRole('tab', { name: '我的书库' }).click()
+  await expect(page.getByRole('heading', { name: 'World Fixture' })).toBeVisible()
+  await expect(page.getByText('联网收藏')).toBeVisible()
+})
+
 test('library search includes imported file names and stays usable on a narrow screen', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 })
   await page.goto('/')

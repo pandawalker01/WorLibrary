@@ -16,6 +16,7 @@ import { createRemoteClient } from './lib/remote'
 import { createIndexedDbSyncAdapter, deleteRemoteHighlight, enqueueSync, flushQueuedSync } from './lib/sync'
 import { copy, interpolate, loadReadingLanguage, loadUiLocale, READING_LANGUAGES, saveReadingLanguage, saveUiLocale, UI_LOCALES, type ReadingLanguage } from './lib/i18n'
 import { clampFontScale, loadReaderPreferences, type ReaderPreferences } from './lib/reader'
+import { loadSavedWorldBooks, saveWorldBook, searchWorldLibrary, type WorldBook } from './lib/world-library'
 
 type View = 'library' | 'reader' | 'highlights' | 'profile' | 'settings'
 type DisplayBook = Pick<StoredBook, 'id' | 'title' | 'author' | 'language' | 'progress' | 'cover'> & Partial<Pick<StoredBook, 'fileName' | 'fileType' | 'storage' | 'createdAt' | 'lastReadAt' | 'location' | 'workId' | 'coverImage'>>
@@ -137,6 +138,11 @@ function App() {
   const [readingSeconds, setReadingSeconds] = useState(loadReadingSeconds)
   const [readingHistory, setReadingHistory] = useState<ReadingHistory>(loadReadingHistory)
   const [bookReadingHistory, setBookReadingHistory] = useState<ReadingHistory>(loadBookReadingHistory)
+  const [libraryMode, setLibraryMode] = useState<'mine' | 'world'>('mine')
+  const [worldQuery, setWorldQuery] = useState('')
+  const [worldResults, setWorldResults] = useState<WorldBook[]>([])
+  const [worldStatus, setWorldStatus] = useState<'idle' | 'loading' | 'error'>('idle')
+  const [savedWorldBooks, setSavedWorldBooks] = useState<WorldBook[]>(loadSavedWorldBooks)
   const fileInput = useRef<HTMLInputElement>(null)
   const coverInput = useRef<HTMLInputElement>(null)
   const syncTimer = useRef<number | undefined>(undefined)
@@ -235,6 +241,27 @@ function App() {
     setNotice(message)
     window.setTimeout(() => setNotice(''), 2800)
   }, [])
+
+  async function submitWorldSearch(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    if (!worldQuery.trim()) return
+    setWorldStatus('loading')
+    try {
+      setWorldResults(await searchWorldLibrary(worldQuery))
+      setWorldStatus('idle')
+    } catch {
+      setWorldStatus('error')
+    }
+  }
+
+  function addWorldBook(book: WorldBook) {
+    setSavedWorldBooks(saveWorldBook(book))
+    toast(interpolate(ui.worldBookSaved, { title: book.title }))
+  }
+
+  function openWorldBook(book: WorldBook) {
+    window.open(book.sourceUrl, '_blank', 'noopener,noreferrer')
+  }
 
   function changeUiLocale(nextLocale: typeof uiLocale) {
     setUiLocale(nextLocale)
@@ -386,15 +413,19 @@ function App() {
 
         {view === 'library' && <section className="library-view">
           <div className="hero"><div><p className="eyebrow">{ui.shelf}</p><h1>{ui.hero}<em>{ui.heroEmphasis}</em></h1></div><p className="hero-copy">{ui.heroCopy}</p></div>
-          <div className="library-search"><span aria-hidden="true">⌕</span><input value={searchQuery} onChange={(event) => setSearchQuery(event.target.value)} placeholder={ui.searchPlaceholder} aria-label={ui.searchLibrary} />{searchQuery && <button onClick={() => setSearchQuery('')} aria-label={ui.clearSearch}>×</button>}</div>
-          <div className="shelf-toolbar"><div className="filter-row"><button className={libraryFilter === 'all' ? 'filter active' : 'filter'} onClick={() => setLibraryFilter('all')} aria-pressed={libraryFilter === 'all'}>{ui.all} <b>{String(books.length).padStart(2, '0')}</b></button><button className={libraryFilter === 'reading' ? 'filter active' : 'filter'} onClick={() => setLibraryFilter('reading')} aria-pressed={libraryFilter === 'reading'}>{ui.reading} <b>{String(books.filter((book) => book.progress > 0 && book.progress < 100).length).padStart(2, '0')}</b></button><button className={libraryFilter === 'multi' ? 'filter active' : 'filter'} onClick={() => setLibraryFilter('multi')} aria-pressed={libraryFilter === 'multi'}>{ui.editions} <b>{String(books.filter((book) => Boolean(book.workId && editionCounts[book.workId] > 1)).length).padStart(2, '0')}</b></button></div><button className="sort-button" onClick={() => setSortNewest((current) => !current)} aria-pressed={!sortNewest}>{sortNewest ? ui.recent : ui.alphabetical}</button></div>
-          {normalizedSearch && <p className="library-search-result" role="status">{interpolate(ui.booksMatched, { count: filteredBooks.length })}</p>}
-          <div className="shelf">
-            {filteredBooks.map((book) => <button className="book-card" key={book.id} onClick={() => { setSelectedBook(book); setView('reader') }}><div className={`cover ${book.cover}`}>{book.coverImage ? <img className="cover-image" src={book.coverImage} alt={`${book.title} ${ui.cover}`} /> : <><span>{book.id === 'invisible' ? <>THE<br />INVISIBLE<br />LIFE</> : book.id === 'stranger' ? "L'ÉTRANGER" : book.id === 'kafka' ? <>变<br />形<br />记</> : book.title.slice(0, 18)}</span><small>{book.author}</small></>}</div><div className="book-info"><p className="book-lang">{book.language}</p><h2>{book.title}</h2><p>{book.author}</p>{textMatches[book.id] && <p className="book-search-snippet" title={textMatches[book.id]}>{ui.textMatch}{textMatches[book.id]}</p>}<div className="progress"><i style={{ width: `${book.progress}%` }} /></div><small>{book.progress}% · {ui.localReading}</small></div></button>)}
-            {books.length === 0 && <div className="library-no-results">{ui.emptyShelf}</div>}
-            {books.length > 0 && filteredBooks.length === 0 && <div className="library-no-results">{ui.noMatches}</div>}
-            <button className="import-card" onClick={importBooks}><span>＋</span><strong>{ui.importMine}</strong><small>EPUB · PDF</small></button>
-          </div>
+          <div className="library-mode-switch" role="tablist" aria-label={ui.libraryMode}><button role="tab" aria-selected={libraryMode === 'mine'} className={libraryMode === 'mine' ? 'active' : ''} onClick={() => setLibraryMode('mine')}>{ui.myLibrary}</button><button role="tab" aria-selected={libraryMode === 'world'} className={libraryMode === 'world' ? 'active' : ''} onClick={() => setLibraryMode('world')}>{ui.worldLibrary}</button></div>
+          {libraryMode === 'mine' ? <>
+            <div className="library-search"><span aria-hidden="true">⌕</span><input value={searchQuery} onChange={(event) => setSearchQuery(event.target.value)} placeholder={ui.searchPlaceholder} aria-label={ui.searchLibrary} />{searchQuery && <button onClick={() => setSearchQuery('')} aria-label={ui.clearSearch}>×</button>}</div>
+            <div className="shelf-toolbar"><div className="filter-row"><button className={libraryFilter === 'all' ? 'filter active' : 'filter'} onClick={() => setLibraryFilter('all')} aria-pressed={libraryFilter === 'all'}>{ui.all} <b>{String(books.length).padStart(2, '0')}</b></button><button className={libraryFilter === 'reading' ? 'filter active' : 'filter'} onClick={() => setLibraryFilter('reading')} aria-pressed={libraryFilter === 'reading'}>{ui.reading} <b>{String(books.filter((book) => book.progress > 0 && book.progress < 100).length).padStart(2, '0')}</b></button><button className={libraryFilter === 'multi' ? 'filter active' : 'filter'} onClick={() => setLibraryFilter('multi')} aria-pressed={libraryFilter === 'multi'}>{ui.editions} <b>{String(books.filter((book) => Boolean(book.workId && editionCounts[book.workId] > 1)).length).padStart(2, '0')}</b></button></div><button className="sort-button" onClick={() => setSortNewest((current) => !current)} aria-pressed={!sortNewest}>{sortNewest ? ui.recent : ui.alphabetical}</button></div>
+            {normalizedSearch && <p className="library-search-result" role="status">{interpolate(ui.booksMatched, { count: filteredBooks.length })}</p>}
+            <div className="shelf">
+              {filteredBooks.map((book) => <button className="book-card" key={book.id} onClick={() => { setSelectedBook(book); setView('reader') }}><div className={`cover ${book.cover}`}>{book.coverImage ? <img className="cover-image" src={book.coverImage} alt={`${book.title} ${ui.cover}`} /> : <><span>{book.id === 'invisible' ? <>THE<br />INVISIBLE<br />LIFE</> : book.id === 'stranger' ? "L'ÉTRANGER" : book.id === 'kafka' ? <>变<br />形<br />记</> : book.title.slice(0, 18)}</span><small>{book.author}</small></>}</div><div className="book-info"><p className="book-lang">{ui.localImport} · {book.language}</p><h2>{book.title}</h2><p>{book.author}</p>{textMatches[book.id] && <p className="book-search-snippet" title={textMatches[book.id]}>{ui.textMatch}{textMatches[book.id]}</p>}<div className="progress"><i style={{ width: `${book.progress}%` }} /></div><small>{book.progress}% · {ui.localReading}</small></div></button>)}
+              {books.length === 0 && savedWorldBooks.length === 0 && <div className="library-no-results">{ui.emptyShelf}</div>}
+              {books.length > 0 && filteredBooks.length === 0 && <div className="library-no-results">{ui.noMatches}</div>}
+              <button className="import-card" onClick={importBooks}><span>＋</span><strong>{ui.importMine}</strong><small>EPUB · PDF</small></button>
+            </div>
+            {savedWorldBooks.length > 0 && <section className="saved-world-shelf" aria-labelledby="saved-online-books"><div><p className="eyebrow">{ui.onlineCollection}</p><h2 id="saved-online-books">{ui.savedOnlineBooks}</h2></div><div className="world-results">{savedWorldBooks.map((book) => <article className="world-book-card" key={book.id}><div className="world-cover">{book.coverUrl ? <img src={book.coverUrl} referrerPolicy="no-referrer" alt={`${book.title} ${ui.cover}`} /> : <span>{book.title.slice(0, 2)}</span>}</div><div><span className="source-badge">{ui.onlineSaved}</span><h3>{book.title}</h3><p>{book.author || ui.unknownAuthor}{book.year ? ` · ${book.year}` : ''}</p><small>{ui.onlineSource} {book.sourceName}</small><button onClick={() => openWorldBook(book)}>{ui.openAtSource}</button></div></article>)}</div></section>}
+          </> : <section className="world-library-view" aria-labelledby="world-library-title"><div className="world-heading"><p className="eyebrow">OPEN CATALOG</p><h2 id="world-library-title">{ui.worldLibraryTitle}</h2><p>{ui.worldLibraryCopy}</p></div><form className="world-search-form" onSubmit={submitWorldSearch}><input value={worldQuery} onChange={(event) => setWorldQuery(event.target.value)} placeholder={ui.searchWorldPlaceholder} aria-label={ui.searchWorld} /><button type="submit">{ui.searchWorld}</button></form><p className="world-rights-notice">{ui.worldRightsNotice}</p>{worldStatus === 'loading' && <p role="status">{ui.worldLoading}</p>}{worldStatus === 'error' && <p role="alert">{ui.worldUnavailable}</p>}{worldStatus === 'idle' && worldQuery.trim() && worldResults.length === 0 && <p role="status">{ui.worldEmpty}</p>}<div className="world-results">{worldResults.map((book) => { const saved = savedWorldBooks.some((item) => item.id === book.id); return <article className="world-book-card" key={book.id}><div className="world-cover">{book.coverUrl ? <img src={book.coverUrl} referrerPolicy="no-referrer" alt={`${book.title} ${ui.cover}`} /> : <span>{book.title.slice(0, 2)}</span>}</div><div><span className="source-badge">{ui.onlineSource} {book.sourceName}</span><h3>{book.title}</h3><p>{book.author || ui.unknownAuthor}{book.year ? ` · ${book.year}` : ''}</p><div className="world-card-actions"><button onClick={() => addWorldBook(book)} disabled={saved}>{saved ? ui.savedToMyLibrary : ui.addToMyLibrary}</button><button className="text-action" onClick={() => openWorldBook(book)}>{ui.openAtSource}</button></div></div></article> })}</div></section>}
         </section>}
 
         {view === 'highlights' && <HighlightsView uiLocale={uiLocale} books={books.filter((book): book is StoredBook => Boolean(book.storage && book.fileName))} onNotice={toast} onChanged={() => { scheduleSync(); void listHighlights().then((items) => setHighlightCount(items.length)) }} onDeleted={(id) => { if (session) void deleteRemoteHighlight(createRemoteClient(session), id).catch(() => scheduleSync()); else scheduleSync(); void listHighlights().then((items) => setHighlightCount(items.length)) }} onOpenHighlight={(highlight: Highlight) => {
