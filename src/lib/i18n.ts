@@ -1,6 +1,7 @@
 export type UiLocale = 'zh-CN' | 'en'
 
-export type ReadingLanguage = '中文' | 'English' | '日本語' | 'Français'
+/** Human-readable AI target language name. Existing saved values stay valid. */
+export type ReadingLanguage = string
 
 const UI_LOCALE_KEY = 'worlibrary.ui-locale'
 const READING_LANGUAGE_KEY = 'worlibrary.reading-language'
@@ -8,13 +9,6 @@ const READING_LANGUAGE_KEY = 'worlibrary.reading-language'
 export const UI_LOCALES: Array<{ value: UiLocale; label: string }> = [
   { value: 'zh-CN', label: '简体中文' },
   { value: 'en', label: 'English' },
-]
-
-export const READING_LANGUAGES: Array<{ value: ReadingLanguage; zhLabel: string; enLabel: string }> = [
-  { value: '中文', zhLabel: '简体中文', enLabel: 'Chinese (Simplified)' },
-  { value: 'English', zhLabel: '英语', enLabel: 'English' },
-  { value: '日本語', zhLabel: '日语', enLabel: 'Japanese' },
-  { value: 'Français', zhLabel: '法语', enLabel: 'French' },
 ]
 
 export function loadUiLocale(): UiLocale {
@@ -28,7 +22,7 @@ export function saveUiLocale(locale: UiLocale): void {
 export function loadReadingLanguage(): ReadingLanguage {
   try {
     const saved = window.localStorage.getItem(READING_LANGUAGE_KEY)
-    return READING_LANGUAGES.some((language) => language.value === saved) ? saved as ReadingLanguage : '中文'
+    return saved?.trim().slice(0, 64) || '中文'
   } catch {
     return '中文'
   }
@@ -54,7 +48,7 @@ export const copy = {
     importMine: '导入我的书', localReading: '本地阅读', preferences: 'PREFERENCES',
     profileEyebrow: 'MY READING', profileTitle: '我的阅读', profileCopy: '阅读进度、摘录与时光，都留在这台设备上。', readingTime: '累计阅读', booksOwned: '本地书籍', booksInProgress: '正在阅读', booksCompleted: '已完成', highlightsSaved: '保存摘录', weeklyReading: '近 7 天', weeklyReadingTitle: '阅读轨迹', weeklyReadingCopy: '每天的阅读时长只保存在这台设备上。', dayReading: '{day} · {time}', bookReadingTime: '阅读 {time}', recentReading: '最近阅读', recentReadingCopy: '从上次停下的地方继续。', profileEmpty: '还没有阅读记录', profileEmptyCopy: '打开一本书开始阅读，时长和进度会自动保存在本地。', profileLocalOnly: '阅读数据仅保存在本地设备。', notReadYet: '尚未阅读',
     settingsTitle: '阅读与界面语言', uiLanguageTitle: '界面语言', uiLanguageCopy: '切换书库、设置和阅读器控制的界面文案；不会改变翻译目标语言。',
-    readingLanguageTitle: '理解语言', readingLanguageCopy: 'AI 会把你划线的任意语言文本，翻译并解释成这个语言。',
+    readingLanguageTitle: '理解语言', readingLanguageCopy: 'AI 会把你划线的任意语言文本，翻译并解释成这个语言。', readingLanguagePickerLabel: '选择全球理解语言', searchReadingLanguage: '搜索全球理解语言', searchReadingLanguagePlaceholder: '输入语言名称，例如 阿拉伯语',
     readingLanguageSaved: '已将 AI 理解语言设为：', uiLanguageSaved: '界面语言已切换为：',
     localBooks: '本地书籍管理', privacyTitle: '你的书，留在你的设备上。', privacyCopy: '已导入的书籍、阅读进度和摘录均可离线访问；仅在你请求解释或识别文字时，相关内容才会发送至 AI 服务。',
     booksMatched: '找到 {count} 本匹配书籍', noMatches: '没有找到匹配的书籍或筛选结果', textMatch: '正文命中：', cover: '封面',
@@ -84,7 +78,7 @@ export const copy = {
     importMine: 'Import my book', localReading: 'Local reading', preferences: 'PREFERENCES',
     profileEyebrow: 'MY READING', profileTitle: 'My reading', profileCopy: 'Your progress, highlights, and reading time stay on this device.', readingTime: 'Reading time', booksOwned: 'Local books', booksInProgress: 'In progress', booksCompleted: 'Completed', highlightsSaved: 'Saved highlights', weeklyReading: 'LAST 7 DAYS', weeklyReadingTitle: 'Reading rhythm', weeklyReadingCopy: 'Each day’s reading time stays on this device.', dayReading: '{day} · {time}', bookReadingTime: '{time} read', recentReading: 'Continue reading', recentReadingCopy: 'Pick up right where you left off.', profileEmpty: 'No reading history yet', profileEmptyCopy: 'Open a book to start keeping time and progress on this device.', profileLocalOnly: 'Reading data is stored only on this device.', notReadYet: 'Not read yet',
     settingsTitle: 'Reading & interface languages', uiLanguageTitle: 'Interface language', uiLanguageCopy: 'Changes the library, settings, and reader controls. It does not change your translation target.',
-    readingLanguageTitle: 'Reading language', readingLanguageCopy: 'AI translates and explains any selected passage into this language.',
+    readingLanguageTitle: 'Reading language', readingLanguageCopy: 'AI translates and explains any selected passage into this language.', readingLanguagePickerLabel: 'Choose a global reading language', searchReadingLanguage: 'Search global reading languages', searchReadingLanguagePlaceholder: 'Type a language name, such as Arabic',
     readingLanguageSaved: 'AI reading language set to: ', uiLanguageSaved: 'Interface language changed to: ',
     localBooks: 'Local books', privacyTitle: 'Your books stay on your device.', privacyCopy: 'Imported books, progress, and highlights work offline. Only text you ask to explain or recognize is sent to AI services.',
     booksMatched: '{count} matching books', noMatches: 'No books match this search or filter.', textMatch: 'Text match: ', cover: 'cover',

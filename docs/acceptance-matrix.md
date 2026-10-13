@@ -28,6 +28,7 @@ npm run qa
 | 划词翻译与失败反馈 | 真实 EPUB 选区出现翻译入口；网关超时、限流、不可用和额度耗尽均给出可理解提示，且仅可重试的错误显示重试 | `tests/qa/import-open.spec.ts`、`tests/qa/ai-feedback.spec.ts` |
 | 生产鉴权与用量账本 | 已验证 JWT 在没有持久化额度适配器时必须于供应商调用前拒绝；适配器以请求 ID 去重、额度耗尽不调用供应商，账本和可观察日志都不得包含划词正文、访问令牌或供应商密钥 | `server/usage-ledger.quality.test.mjs` |
 | 界面语言与理解语言分离 | 中/英文界面切换在刷新后保持；切换界面语言绝不修改理解语言，也不会改变翻译请求的 `targetLanguage` | `tests/qa/cover-and-interface-language.spec.ts` |
+| 全球理解语言 | 可搜索并选择非默认的全球语言，刷新后保持，选择器使用完整语言名且不展示裸 ISO 代码 | `tests/qa/cover-and-interface-language.spec.ts` |
 | 译本关联 | 两本真实导入书籍可以关联到同一 Work | `tests/multiedition.spec.ts` |
 | 双栏对照 | 左右栏分别渲染两本真实书籍；没有关联时不能展示 demo | `tests/multiedition.spec.ts` |
 | 移动端真实阅读 | 390px 视口导入 EPUB/PDF 后书架、翻页与阅读工具条均可见、可点击且无横向溢出 | `tests/qa/mobile-reader.spec.ts` |
@@ -40,6 +41,7 @@ npm run qa
 | --- | --- |
 | 摘录 | 可保存、编辑、删除，并在刷新后恢复 |
 | 进度 | EPUB/PDF 各自保存独立阅读进度；PDF 页码、EPUB CFI 均覆盖刷新后恢复 |
+| 页面恢复 | 设置、摘录、我的、世界书库和已导入书籍阅读页刷新后仍停留在对应页面；浏览器前进后退与复制链接保持一致，且不占用认证回调 hash | `tests/smoke.spec.ts` |
 | 离线 | 已导入文件在断网时仍能打开 |
 | 同步 | 仅同步元数据和摘录；不把本地原文件误标为已上传 |
 | 排版 | 字号、主题、目录和阅读进度显示正常 |

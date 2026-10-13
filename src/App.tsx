@@ -14,14 +14,33 @@ import AuthPanel from './components/AuthPanel'
 import { getSession, type AuthSession } from './lib/auth'
 import { createRemoteClient } from './lib/remote'
 import { createIndexedDbSyncAdapter, deleteRemoteHighlight, enqueueSync, flushQueuedSync } from './lib/sync'
-import { copy, interpolate, loadReadingLanguage, loadUiLocale, READING_LANGUAGES, saveReadingLanguage, saveUiLocale, UI_LOCALES, type ReadingLanguage } from './lib/i18n'
+import { copy, interpolate, loadReadingLanguage, loadUiLocale, saveReadingLanguage, saveUiLocale, UI_LOCALES, type ReadingLanguage } from './lib/i18n'
 import { clampFontScale, loadReaderPreferences, type ReaderPreferences } from './lib/reader'
 import { loadSavedWorldBooks, saveWorldBook, searchWorldLibrary, type WorldBook } from './lib/world-library'
 import WorldLanguagePicker from './components/WorldLanguagePicker'
+import ReadingLanguagePicker from './components/ReadingLanguagePicker'
 import { interfaceLocaleDirection } from './lib/interface-locale-registry'
 
 type View = 'library' | 'reader' | 'highlights' | 'profile' | 'settings'
 type DisplayBook = Pick<StoredBook, 'id' | 'title' | 'author' | 'language' | 'progress' | 'cover'> & Partial<Pick<StoredBook, 'fileName' | 'fileType' | 'storage' | 'createdAt' | 'lastReadAt' | 'location' | 'workId' | 'coverImage'>>
+type AppRoute = { view: View; libraryMode: 'mine' | 'world'; bookId?: string }
+
+function readAppRoute(): AppRoute {
+  const params = new URLSearchParams(window.location.search)
+  const candidate = params.get('view')
+  const view: View = candidate === 'reader' || candidate === 'highlights' || candidate === 'profile' || candidate === 'settings' ? candidate : 'library'
+  return { view, libraryMode: params.get('scope') === 'world' ? 'world' : 'mine', bookId: params.get('book') ?? undefined }
+}
+
+function writeAppRoute(route: AppRoute): void {
+  const url = new URL(window.location.href)
+  url.searchParams.set('view', route.view)
+  if (route.view === 'library' && route.libraryMode === 'world') url.searchParams.set('scope', 'world')
+  else url.searchParams.delete('scope')
+  if (route.view === 'reader' && route.bookId) url.searchParams.set('book', route.bookId)
+  else url.searchParams.delete('book')
+  window.history.pushState({}, '', url)
+}
 
 const sampleBooks: DisplayBook[] = [
   { id: 'invisible', title: 'The Invisible Life of Addie LaRue', author: 'V. E. Schwab', language: 'English · 3 versions', progress: 38, cover: 'ink' },
@@ -112,8 +131,10 @@ function accountIdentity(session: AuthSession | null, signedOutLabel: string, gu
 }
 
 function App() {
+  const initialRoute = useRef(readAppRoute()).current
   const [books, setBooks] = useState<DisplayBook[]>([])
-  const [view, setView] = useState<View>('library')
+  const [booksLoaded, setBooksLoaded] = useState(false)
+  const [view, setView] = useState<View>(initialRoute.view)
   // The interface locale and AI reading language are intentionally distinct:
   // changing UI copy must never silently change a reader's translation target.
   const [uiLocale, setUiLocale] = useState(loadUiLocale)
@@ -141,7 +162,8 @@ function App() {
   const [readingSeconds, setReadingSeconds] = useState(loadReadingSeconds)
   const [readingHistory, setReadingHistory] = useState<ReadingHistory>(loadReadingHistory)
   const [bookReadingHistory, setBookReadingHistory] = useState<ReadingHistory>(loadBookReadingHistory)
-  const [libraryMode, setLibraryMode] = useState<'mine' | 'world'>('mine')
+  const [libraryMode, setLibraryMode] = useState<'mine' | 'world'>(initialRoute.libraryMode)
+  const [routedBookId, setRoutedBookId] = useState<string | undefined>(initialRoute.bookId)
   const [worldQuery, setWorldQuery] = useState('')
   const [worldResults, setWorldResults] = useState<WorldBook[]>([])
   const [worldStatus, setWorldStatus] = useState<'idle' | 'loading' | 'error'>('idle')
@@ -170,8 +192,37 @@ function App() {
   }, [syncNow])
 
   useEffect(() => {
-    void Promise.all([listBooks(), listEditions(), listAlignments(), listHighlights()]).then(([savedBooks, savedEditions, savedAlignments, savedHighlights]) => { setBooks(savedBooks); setEditions(savedEditions); setAlignments(savedAlignments); setHighlightCount(savedHighlights.length) })
+    void Promise.all([listBooks(), listEditions(), listAlignments(), listHighlights()]).then(([savedBooks, savedEditions, savedAlignments, savedHighlights]) => { setBooks(savedBooks); setEditions(savedEditions); setAlignments(savedAlignments); setHighlightCount(savedHighlights.length); setBooksLoaded(true) })
   }, [])
+
+  useEffect(() => {
+    const restoreRoute = () => {
+      const route = readAppRoute()
+      setView(route.view)
+      setLibraryMode(route.libraryMode)
+      setRoutedBookId(route.bookId)
+    }
+    window.addEventListener('popstate', restoreRoute)
+    return () => window.removeEventListener('popstate', restoreRoute)
+  }, [])
+
+  useEffect(() => {
+    if (!booksLoaded || view !== 'reader' || !routedBookId) return
+    const routedBook = books.find((book) => book.id === routedBookId && book.storage && book.fileName)
+    if (routedBook) { setSelectedBook(routedBook); return }
+    setView('library')
+    setRoutedBookId(undefined)
+    toast('找不到这本本地书籍，请返回书库重新导入')
+  }, [books, booksLoaded, routedBookId, view])
+
+  useEffect(() => {
+    const currentRoute = readAppRoute()
+    // A reader URL can arrive before IndexedDB has restored its book list. Do
+    // not replace it with the default sample book while that restoration runs.
+    if (view === 'reader' && currentRoute.bookId && currentRoute.bookId !== selectedBook.id) return
+    const nextRoute: AppRoute = { view, libraryMode, bookId: view === 'reader' ? selectedBook.id : undefined }
+    if (currentRoute.view !== nextRoute.view || currentRoute.libraryMode !== nextRoute.libraryMode || currentRoute.bookId !== nextRoute.bookId) writeAppRoute(nextRoute)
+  }, [libraryMode, selectedBook.id, view])
 
   useEffect(() => { void getSession().then((next) => { setSession(next); if (next) void syncNow() }) }, [syncNow])
   useEffect(() => {
@@ -499,7 +550,7 @@ function App() {
           <div className="reader-bottom"><span>{selectedBook.progress}%</span><div><i style={{ width: `${selectedBook.progress}%` }} /></div><span>{selectedBook.fileName ? ui.savedLocally : '4 / 11'}</span><button onClick={() => toast(uiLocale === 'en' ? 'OCR is available from the PDF reader.' : 'OCR 是下一步真实服务接入点')}>{ui.scanPage}</button></div>
         </section>}
 
-        {view === 'settings' && <section className="settings-view"><div className="settings-wrap"><p className="eyebrow">{ui.preferences}</p><h1>{ui.settingsTitle}</h1><section className="language-section" aria-labelledby="ui-language-title"><div className="language-heading"><h2 id="ui-language-title">{ui.uiLanguageTitle}</h2><p>{ui.uiLanguageCopy}</p></div><div className="language-grid language-grid-compact">{UI_LOCALES.map((item) => <button className={uiLocale === item.value ? 'language-choice active' : 'language-choice'} key={item.value} onClick={() => changeUiLocale(item.value)} aria-pressed={uiLocale === item.value}>{item.label}<span>{item.value === 'zh-CN' ? 'Simplified Chinese' : 'English'}</span></button>)}</div></section><section className="language-section" aria-labelledby="reading-language-title"><div className="language-heading"><h2 id="reading-language-title">{ui.readingLanguageTitle}</h2><p>{ui.readingLanguageCopy}</p></div><div className="language-grid">{READING_LANGUAGES.map((item) => <button className={language === item.value ? 'language-choice active' : 'language-choice'} key={item.value} onClick={() => changeReadingLanguage(item.value)} aria-pressed={language === item.value}>{item.value}<span>{uiLocale === 'en' ? item.enLabel : item.zhLabel}</span></button>)}</div></section><div className="settings-note"><span>◎</span><p><strong>{ui.privacyTitle}</strong><br />{ui.privacyCopy}</p></div></div></section>}
+        {view === 'settings' && <section className="settings-view"><div className="settings-wrap"><p className="eyebrow">{ui.preferences}</p><h1>{ui.settingsTitle}</h1><section className="language-section" aria-labelledby="ui-language-title"><div className="language-heading"><h2 id="ui-language-title">{ui.uiLanguageTitle}</h2><p>{ui.uiLanguageCopy}</p></div><div className="language-grid language-grid-compact">{UI_LOCALES.map((item) => <button className={uiLocale === item.value ? 'language-choice active' : 'language-choice'} key={item.value} onClick={() => changeUiLocale(item.value)} aria-pressed={uiLocale === item.value}>{item.label}<span>{item.value === 'zh-CN' ? 'Simplified Chinese' : 'English'}</span></button>)}</div></section><section className="language-section" aria-labelledby="reading-language-title"><div className="language-heading"><h2 id="reading-language-title">{ui.readingLanguageTitle}</h2><p>{ui.readingLanguageCopy}</p></div><ReadingLanguagePicker value={language} onChange={changeReadingLanguage} locale={uiLocale} label={ui.readingLanguagePickerLabel} searchLabel={ui.searchReadingLanguage} searchPlaceholder={ui.searchReadingLanguagePlaceholder} /></section><div className="settings-note"><span>◎</span><p><strong>{ui.privacyTitle}</strong><br />{ui.privacyCopy}</p></div></div></section>}
       </main>
       {bookContextMenu && <div className="book-context-menu" role="menu" aria-label={ui.localBooks} style={{ left: bookContextMenu.x, top: bookContextMenu.y }}><strong>{bookContextMenu.book.title}</strong>{bookContextMenu.book.fileName?.toLowerCase().endsWith('.epub') && <button role="menuitem" onClick={() => { void refreshCover(bookContextMenu.book); setBookContextMenu(null) }} disabled={refreshingCoverId === bookContextMenu.book.id}>{refreshingCoverId === bookContextMenu.book.id ? ui.readingCover : ui.manageCover}</button>}<button role="menuitem" onClick={() => { selectCustomCover(bookContextMenu.book); setBookContextMenu(null) }}>{ui.uploadCover}</button><button role="menuitem" onClick={() => { setMetadataDraft(bookContextMenu.book as StoredBook); setBookContextMenu(null) }}>{ui.editInfo}</button><button className="danger" role="menuitem" onClick={() => { void removeBook(bookContextMenu.book); setBookContextMenu(null) }}>{ui.delete}</button></div>}
       {metadataDraft && <div className="metadata-dialog-backdrop"><form className="metadata-dialog" onSubmit={(event) => { void saveMetadata(event) }} role="dialog" aria-modal="true" aria-labelledby="metadata-dialog-title"><div><p className="eyebrow">LOCAL METADATA</p><h2 id="metadata-dialog-title">校正书籍信息</h2><p>只修改书架显示和本地阅读数据，不会改动或上传原始文件。</p></div><label>书名<input name="title" defaultValue={metadataDraft.title} autoFocus /></label><label>作者<input name="author" defaultValue={metadataDraft.author} /></label><div className="metadata-dialog-actions"><button type="button" onClick={() => setMetadataDraft(null)}>取消</button><button type="submit">保存信息</button></div></form></div>}

@@ -7,7 +7,7 @@
 | 配置 | 当前值 | 保存位置 | 影响范围 |
 | --- | --- | --- | --- |
 | 界面语言 | 简体中文、English | localStorage，键为 wor-library-ui-locale | 书库、阅读器、摘录、设置、登录同步、导入导出等可见文案 |
-| AI 理解/翻译目标语言 | 中文、English、日本語、Français | localStorage，键为 wor-library-reading-language | 划词翻译、解释与 OCR 文本的输出目标 |
+| AI 理解/翻译目标语言 | 可搜索的全球语言列表 | localStorage，键为 wor-library-reading-language | 划词翻译、解释与 OCR 文本的输出目标 |
 
 界面语言切换不会改变 AI 输出语言；反过来也一样。新功能必须遵守这一规则。
 
@@ -15,7 +15,8 @@
 
 | 文件 | 职责 |
 | --- | --- |
-| src/lib/i18n.ts | UiLocale、UI_LOCALES、READING_LANGUAGES、copy 文案语言包与读写函数的唯一来源 |
+| src/lib/i18n.ts | UiLocale、UI_LOCALES、copy 文案语言包与读写函数的唯一来源 |
+| src/components/ReadingLanguagePicker.tsx | 以完整名称显示、搜索和选择全球 AI 理解语言；对外保存稳定英文语言名称，不展示裸 ISO 代码 |
 | src/lib/interface-locale-registry.ts | 全球界面语言的可用/规划元数据、回退解析与 RTL 方向；不承载用户可见译文 |
 | src/App.tsx | 读取 uiLocale，将 copy[uiLocale] 注入我的书库、世界书库（含来源/版权边界提示）、我的页（含近 7 天轨迹和每本书阅读时长）、设置、导航与 PWA 更新提示；提供设置入口 |
 | src/components/EpubReader.tsx | EPUB 阅读器可见文案、阅读主题标签与划词操作 |
@@ -42,12 +43,11 @@
 
 ## 新增 AI 理解/翻译目标语言的步骤
 
-1. 在 ReadingLanguage 类型与 READING_LANGUAGES 中加入目标语言。
-2. 同时提供每个界面语言下的显示名，例如 zhLabel、enLabel；若将来加入更多界面语言，应将这些名称也纳入语言包。
-3. 确认 AI/OCR 服务端允许该目标语言，并在真实环境测试一段文本的翻译和解释。
-4. 确认默认值、旧 localStorage 值和无效值回退仍然安全。
-5. 补充测试：切换目标语言后刷新仍保持，切换界面语言不改变该值。
-6. 更新本手册与 docs/project-guide.md。
+1. 全球语言选择器由 `ReadingLanguagePicker` 从共享语言代码集生成；不要在设置页重新维护一份固定卡片列表。
+2. 确认 AI/OCR 服务端允许该目标语言，并在真实环境测试一段文本的翻译和解释。
+3. 确认默认值、旧 localStorage 值和无效值回退仍然安全。
+4. 补充测试：搜索并选择非默认语言后刷新仍保持，切换界面语言不改变该值。
+5. 更新本手册与 docs/project-guide.md。
 
 ## 质量清单
 

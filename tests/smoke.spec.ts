@@ -169,3 +169,27 @@ test('top account avatar leads to account settings', async ({ page }) => {
   await expect(page.getByRole('heading', { name: '阅读与界面语言' })).toBeVisible()
   await expect(page.getByRole('region', { name: '账号与同步' })).toBeVisible()
 })
+
+test('refresh and browser history restore the current application route', async ({ page }) => {
+  await page.goto('/')
+  await page.getByRole('button', { name: '设置' }).click()
+  await expect(page).toHaveURL(/view=settings/)
+  await page.reload()
+  await expect(page.getByRole('heading', { name: '阅读与界面语言' })).toBeVisible()
+  await page.getByRole('navigation', { name: '主导航' }).getByRole('button', { name: '书库', exact: true }).click()
+  await page.getByRole('tab', { name: '世界书库' }).click()
+  await expect(page).toHaveURL(/view=library.*scope=world/)
+  await page.goBack()
+  await expect(page.getByRole('heading', { name: '把世界的书，' })).toBeVisible()
+  await page.goBack()
+  await expect(page.getByRole('heading', { name: '阅读与界面语言' })).toBeVisible()
+})
+
+test('refresh restores an imported reader route', async ({ page }) => {
+  await page.goto('/')
+  await importFixture(page)
+  await page.getByRole('button', { name: /Reader Fixture/ }).click()
+  await expect(page).toHaveURL(/view=reader.*book=/)
+  await page.reload()
+  await expect(page.getByRole('button', { name: '← 书库' })).toBeVisible()
+})
