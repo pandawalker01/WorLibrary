@@ -14,3 +14,13 @@
 /* World-library section labels are intentionally secondary to the catalogue. */
 .saved-world-shelf h2 { font-size: 17px; }
 .world-recommendations h3 { font-size: 16px; }
+
+/* Management stays alongside the local shelf instead of being hidden in settings. */
+.library-management { max-width: 1500px; margin: 42px auto 0; padding-top: 24px; border-top: 1px solid #d8e6f2; }
+.library-management h2 { color: #29435d; }
+.library-management .local-book-row { border-top-color: #d7e3ef; }
+.library-management .local-book-row strong { color: #29435d; }
+.library-management .local-book-row small { color: #71869b; }
+.library-management .local-book-row button { border-color: #c9dfef; background: #fff; color: #3975a0; }
+.library-management .local-book-row button:hover { border-color: #8fc1e6; background: #fafdff; }
+.library-management .local-book-row button.danger { color: #b75555; }
