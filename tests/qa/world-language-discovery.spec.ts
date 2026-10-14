@@ -11,6 +11,21 @@ test('P1: legacy Open Library saves remain usable as catalog-only records', asyn
   await expect(page.getByRole('button', { name: '前往来源阅读' })).toBeVisible()
 })
 
+test('P1: a stalled catalog request leaves loading state and can be retried', async ({ page }) => {
+  await page.route('https://openlibrary.org/search.json**', async (route) => {
+    await new Promise((resolve) => setTimeout(resolve, 9_000))
+    await route.fulfill({ json: { docs: [] } }).catch(() => undefined)
+  })
+
+  await page.goto('/')
+  await page.getByRole('tab', { name: '世界书库' }).click()
+  await page.getByRole('textbox', { name: '搜索世界书库' }).fill('stalled fixture')
+  await page.getByRole('button', { name: '搜索世界书库' }).click()
+  await expect(page.getByRole('alert')).toHaveText('暂时无法连接开放书目，请稍后重试。', { timeout: 10_000 })
+  await expect(page.getByRole('status', { name: '正在检索开放书目…' })).toHaveCount(0)
+  await expect(page.getByRole('button', { name: '搜索世界书库' })).toBeEnabled()
+})
+
 test('P1: world catalog presents a global, readable language picker and carries its selection into search', async ({ page }) => {
   let requestedUrl = ''
   await page.route('https://openlibrary.org/search.json**', async (route) => {

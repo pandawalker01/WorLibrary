@@ -31,6 +31,10 @@ export type WorldCatalogSource = {
 }
 
 const SAVED_WORLD_BOOKS_KEY = 'worlibrary.saved-world-books'
+// A browser request can remain pending during DNS, captive-portal or upstream
+// outages. Catalog search must return control to the reader instead of leaving
+// the UI in an indefinite loading state.
+export const WORLD_CATALOG_REQUEST_TIMEOUT_MS = 8_000
 
 // Open Library indexes ISO 639-3 language codes. This intentionally stays
 // global rather than being a short, product-defined language whitelist.
@@ -43,6 +47,18 @@ export function worldLanguageName(code: string, locale: string): string {
 }
 
 type OpenLibraryDoc = { key?: string; title?: string; author_name?: string[]; first_publish_year?: number; language?: string[]; edition_count?: number; cover_i?: number }
+
+function sourceRequestSignal(parent?: AbortSignal) {
+  const controller = new AbortController()
+  const abortFromParent = () => controller.abort(parent?.reason)
+  if (parent?.aborted) abortFromParent()
+  else parent?.addEventListener('abort', abortFromParent, { once: true })
+  const timeout = globalThis.setTimeout(() => controller.abort(new DOMException('Catalog request timed out', 'TimeoutError')), WORLD_CATALOG_REQUEST_TIMEOUT_MS)
+  return {
+    signal: controller.signal,
+    dispose: () => { globalThis.clearTimeout(timeout); parent?.removeEventListener('abort', abortFromParent) },
+  }
+}
 
 function normalizeOpenLibraryBook(doc: OpenLibraryDoc): WorldBook | undefined {
   if (!doc.key || !doc.title) return undefined
@@ -63,10 +79,13 @@ const openLibrarySource: WorldCatalogSource = {
   id: 'open-library', name: 'Open Library',
   async search(query, options, signal) {
     const languageQuery = options.language ? `&language=${encodeURIComponent(options.language)}` : ''
-    const response = await fetch(`https://openlibrary.org/search.json?q=${encodeURIComponent(query)}${languageQuery}&limit=24&fields=key,title,author_name,first_publish_year,language,edition_count,cover_i`, { signal })
-    if (!response.ok) throw new Error('WORLD_LIBRARY_UNAVAILABLE')
-    const payload = await response.json() as { docs?: OpenLibraryDoc[] }
-    return (payload.docs ?? []).map(normalizeOpenLibraryBook).filter((book): book is WorldBook => Boolean(book)).filter((book) => !options.multiLanguageOnly || book.languages.length > 1)
+    const request = sourceRequestSignal(signal)
+    try {
+      const response = await fetch(`https://openlibrary.org/search.json?q=${encodeURIComponent(query)}${languageQuery}&limit=24&fields=key,title,author_name,first_publish_year,language,edition_count,cover_i`, { signal: request.signal })
+      if (!response.ok) throw new Error('WORLD_LIBRARY_UNAVAILABLE')
+      const payload = await response.json() as { docs?: OpenLibraryDoc[] }
+      return (payload.docs ?? []).map(normalizeOpenLibraryBook).filter((book): book is WorldBook => Boolean(book)).filter((book) => !options.multiLanguageOnly || book.languages.length > 1)
+    } finally { request.dispose() }
   },
 }
 
