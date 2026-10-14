@@ -50,6 +50,8 @@ export default function PdfReader({ book, onNotice, onProgress, targetLanguage =
   const [page, setPage] = useState(Number(book.location?.replace('pdf:', '')) || 1)
   const intendedPageRef = useRef(page)
   const [status, setStatus] = useState('正在打开本地 PDF…')
+  const [openFailed, setOpenFailed] = useState(false)
+  const [openAttempt, setOpenAttempt] = useState(0)
   const [pageText, setPageText] = useState('')
   const [showText, setShowText] = useState(false)
   const [selectedText, setSelectedText] = useState('')
@@ -116,6 +118,8 @@ export default function PdfReader({ book, onNotice, onProgress, targetLanguage =
   useEffect(() => {
     let active = true
     async function openDocument() {
+      setOpenFailed(false)
+      setStatus(en ? 'Opening local PDF…' : '正在打开本地 PDF…')
       try {
         const pdfjsLib = await import('pdfjs-dist')
         pdfjsLib.GlobalWorkerOptions.workerSrc = workerSrc
@@ -141,8 +145,9 @@ export default function PdfReader({ book, onNotice, onProgress, targetLanguage =
           await saveBookTextIndex(book.id, pages.join(' '))
         })()
       } catch (error) {
-        setStatus(error instanceof Error ? error.message : '无法打开这本 PDF')
-        onNotice('PDF 解析失败，请确认文件完整后重新导入')
+        setOpenFailed(true)
+        setStatus(ui.readerOpenFailed)
+        onNotice(en ? 'The PDF could not be opened. Try again or import the file again from your library.' : '无法打开 PDF。请重试；若仍失败，请返回书库重新导入。')
       }
     }
     void openDocument()
@@ -150,7 +155,7 @@ export default function PdfReader({ book, onNotice, onProgress, targetLanguage =
       active = false
       if (documentRef.current && typeof documentRef.current.destroy === 'function') void documentRef.current.destroy()
     }
-  }, [book.id, book.fileName, book.storage, onNotice])
+  }, [book.id, book.fileName, book.storage, en, onNotice, openAttempt, ui.readerOpenFailed])
 
   useEffect(() => {
     if (!document || !canvasRef.current) return
@@ -280,6 +285,11 @@ export default function PdfReader({ book, onNotice, onProgress, targetLanguage =
 
   return <div className={`pdf-reader-shell reader-theme-${readerPreferences.theme}`} style={{ '--reader-font-scale': readerPreferences.fontScale } as CSSProperties}>
     <div className="pdf-reader-toolbar"><span aria-live="polite">{status || (en ? `PDF · local reading · page ${page} / ${document?.numPages ?? '…'} · ${Math.round(readerPreferences.pdfZoom / 1.35 * 100)}%` : `PDF 本地阅读 · 第 ${page} / ${document?.numPages ?? '…'} 页 · ${Math.round(readerPreferences.pdfZoom / 1.35 * 100)}%`)}</span><div><button onClick={() => setReaderPreferences((current) => ({ ...current, fontScale: clampFontScale(current.fontScale - 0.05) }))} aria-label={en ? 'Decrease font size' : '减小字号'}>A−</button><button onClick={() => setReaderPreferences((current) => ({ ...current, fontScale: clampFontScale(current.fontScale + 0.05) }))} aria-label={en ? 'Increase font size' : '增大字号'}>A＋</button><button onClick={() => setReaderPreferences((current) => ({ ...current, pdfZoom: clampPdfZoom(current.pdfZoom - 0.15) }))} aria-label={en ? 'Zoom out' : '缩小页面'}>−</button><button onClick={() => setReaderPreferences((current) => ({ ...current, pdfZoom: clampPdfZoom(current.pdfZoom + 0.15) }))} aria-label={en ? 'Increase page zoom' : '放大页面'}>＋</button><button onClick={() => setReaderPreferences((current) => ({ ...current, theme: cycleTheme(current.theme) }))}>{themeLabel}</button><button onClick={() => { void recognizeCurrentPage() }} disabled={!document || ocrStatus === 'uploading' || ocrStatus === 'recognizing'}>{ocrStatus === 'uploading' ? (en ? 'Preparing upload…' : '准备上传…') : ocrStatus === 'recognizing' ? (en ? 'Recognizing…' : '识别中…') : (en ? 'Recognize page' : '识别当前页')}</button><button disabled={!pageText} onClick={() => setShowText((current) => !current)} aria-pressed={showText} aria-controls="pdf-page-text">{showText ? (en ? 'Hide text' : '收起文字') : (en ? 'View text' : '查看文字')}</button><button disabled={!pageText} onClick={() => { void saveText(pageText) }}>{en ? 'Save page' : '保存整页'}</button><button disabled={!selectedText} onClick={() => { void saveText(selectedText) }}>{en ? 'Save selection' : '保存选中'}</button></div></div>
+    {openFailed && <section className="reader-file-recovery" role="alert">
+      <strong>{ui.readerOpenFailed}</strong>
+      <p>{ui.readerOpenFailedCopy}</p>
+      <button onClick={() => setOpenAttempt((current) => current + 1)}>{ui.retryOpenBook}</button>
+    </section>}
     {showText && <div id="pdf-page-text" ref={textLayerRef} className="pdf-text-layer" tabIndex={0} aria-label={ui.pdfPageText} onMouseUp={captureSelection} onKeyUp={captureSelection}>{pageText}</div>}
     {selectedText && <section className="pdf-selection-bar" aria-label={ui.selectedTextActions}><span title={selectedText}>{selectedText}</span><button onClick={() => { void translateSelectedText() }}>{translating ? (en ? 'Translating…' : '翻译中…') : ui.translation}</button><button className="ghost" onClick={() => { setSelectedText(''); window.getSelection()?.removeAllRanges() }} aria-label={ui.closeSelection}>{ui.cancel}</button></section>}
     {translation && <div className="pdf-translation-result"><span>{ui.translation}</span>{translation}</div>}

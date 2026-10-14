@@ -178,7 +178,11 @@ export function createAiGateway({ env = {}, fetchImpl = fetch, logger = console.
 
   return async function handle(request) {
     const requestId = requestIdFor(request)
-    const cors = { 'access-control-allow-origin': env.ALLOWED_ORIGIN || '*', 'access-control-allow-headers': 'authorization, content-type, x-anonymous-id, x-request-id', 'access-control-allow-methods': 'GET, POST, OPTIONS', 'x-request-id': requestId }
+    // AI responses can contain selected reader text. Never allow a browser,
+    // proxy, or shared CDN cache to persist either successful results or
+    // failures; the in-process cache below is keyed by user request content
+    // and is the only intentional cache layer.
+    const cors = { 'access-control-allow-origin': env.ALLOWED_ORIGIN || '*', 'access-control-allow-headers': 'authorization, content-type, x-anonymous-id, x-request-id', 'access-control-allow-methods': 'GET, POST, OPTIONS', 'cache-control': 'no-store', 'x-request-id': requestId }
     if (request.method === 'OPTIONS') return new Response(null, { status: 204, headers: cors })
     const url = new URL(request.url)
     if (request.method === 'GET' && (url.pathname === '/health' || url.pathname === '/api/health')) return healthResponse(env, requestId)

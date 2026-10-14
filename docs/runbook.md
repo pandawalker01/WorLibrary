@@ -33,7 +33,7 @@ curl -fsS -D - https://app.example.com/api/health
 
 应返回 HTTP 200、`status: "ok"` 和 `x-request-id`。若健康探针失败，先保留响应头中的 request id，再检查部署日志；不要为了让探针变绿而暴露 API 密钥或放宽 CORS。
 
-自动化检查失败时先区分失败位置：`/api/health` 的状态、`cache-control` 或 request id 异常通常意味着网关/路由配置问题；若 `providerConfigured` 与部署变量不一致，检查 Vercel 的服务端环境是否已为当前 Preview/Production deployment 生效，而不是把密钥改为 `VITE_*` 变量。首页安全头缺失通常意味着托管平台没有应用 `public/_headers` 的等效规则。HTTPS/HSTS 缺失时不得通过降级为 HTTP 或删除该检查发布。
+自动化检查失败时先区分失败位置：`/api/health` 的状态、`cache-control` 或 request id 异常通常意味着网关/路由配置问题；若 `providerConfigured` 与部署变量不一致，检查 Vercel 的服务端环境是否已为当前 Preview/Production deployment 生效，而不是把密钥改为 `VITE_*` 变量。翻译或解释响应的 `Cache-Control` 不是 `no-store` 时，停止发布并检查共享网关的响应头：选区文本和错误信息不能进入浏览器或 CDN 的共享缓存。首页安全头缺失通常意味着托管平台没有应用 `public/_headers` 的等效规则。HTTPS/HSTS 缺失时不得通过降级为 HTTP 或删除该检查发布。
 
 ## 回滚
 

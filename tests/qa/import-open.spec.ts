@@ -198,6 +198,40 @@ test('P1: imported EPUB always exposes a usable contents affordance', async ({ p
   await expect(page.getByRole('navigation', { name: '章节目录' }).getByRole('button').first()).toBeVisible()
 })
 
+test('P0: a missing local EPUB file gives a recoverable reader error instead of a blank page', async ({ page }) => {
+  await page.goto('/')
+  await importFixture(page)
+  await page.evaluate(async () => {
+    await new Promise<void>((resolve, reject) => {
+      const open = indexedDB.open('wor-library')
+      open.onerror = () => reject(open.error)
+      open.onsuccess = () => {
+        const db = open.result
+        const transaction = db.transaction(['books', 'book-blobs'], 'readwrite')
+        const books = transaction.objectStore('books')
+        const request = books.getAll()
+        request.onerror = () => reject(request.error)
+        request.onsuccess = () => {
+          const book = request.result[0]
+          book.storage = 'indexeddb'
+          books.put(book)
+          transaction.objectStore('book-blobs').delete(book.id)
+        }
+        transaction.oncomplete = () => { db.close(); resolve() }
+        transaction.onerror = () => { db.close(); reject(transaction.error) }
+      }
+    })
+  })
+  await page.reload()
+  await page.getByRole('button', { name: /reader fixture/i }).click()
+  const recovery = page.getByRole('alert')
+  await expect(recovery).toContainText('无法打开本地文件')
+  const retry = recovery.getByRole('button', { name: '重新尝试打开' })
+  await expect(retry).toBeVisible()
+  await retry.click()
+  await expect(recovery).toBeVisible()
+})
+
 test('P1: EPUB without a navigation document falls back to spine chapters', async ({ page }) => {
   await page.goto('/')
   await importNoNavigationFixture(page)

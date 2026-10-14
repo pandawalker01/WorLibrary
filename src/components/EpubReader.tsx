@@ -85,6 +85,8 @@ export default function EpubReader({ book, onNotice, onProgress, onHighlightSave
   const mountRef = useRef<HTMLDivElement>(null)
   const renditionRef = useRef<Rendition | undefined>(undefined)
   const [status, setStatus] = useState('正在打开本地文件…')
+  const [openFailed, setOpenFailed] = useState(false)
+  const [openAttempt, setOpenAttempt] = useState(0)
   const [chapters, setChapters] = useState<Array<{ label: string; href: string }>>([])
   const [showContents, setShowContents] = useState(false)
   const [pendingSelection, setPendingSelection] = useState<{ text: string; cfi: string }>()
@@ -123,6 +125,8 @@ export default function EpubReader({ book, onNotice, onProgress, onHighlightSave
     let publication: { destroy: () => void } | undefined
 
     async function openPublication() {
+      setOpenFailed(false)
+      setStatus(en ? 'Opening local file…' : '正在打开本地文件…')
       try {
         const file = await getBookFile(book)
         const loadedBook = ePub(await file.arrayBuffer())
@@ -187,8 +191,9 @@ export default function EpubReader({ book, onNotice, onProgress, onHighlightSave
         savedHighlights.forEach((highlight) => rendition?.annotations?.highlight(highlight.location, highlightStyles(highlight.color)))
         setStatus('')
       } catch (error) {
-        setStatus(error instanceof Error ? error.message : '无法打开这本 EPUB')
-        onNotice('EPUB 解析失败，请确认文件完整后重新导入')
+        setOpenFailed(true)
+        setStatus(ui.readerOpenFailed)
+        onNotice(en ? 'The EPUB could not be opened. Try again or import the file again from your library.' : '无法打开 EPUB。请重试；若仍失败，请返回书库重新导入。')
       }
     }
     void openPublication()
@@ -199,7 +204,7 @@ export default function EpubReader({ book, onNotice, onProgress, onHighlightSave
       publication?.destroy()
       setPendingSelection(undefined)
     }
-  }, [book.id, book.fileName, book.storage, onNotice])
+  }, [book.id, book.fileName, book.storage, en, onNotice, openAttempt, ui.readerOpenFailed])
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -296,6 +301,11 @@ export default function EpubReader({ book, onNotice, onProgress, onHighlightSave
       <span aria-live="polite">{status || (en ? 'EPUB · local reading' : 'EPUB 本地阅读')}</span>
       <div className="reader-toolbar-actions"><button onClick={() => setReaderPreferences((current) => ({ ...current, fontScale: clampFontScale(current.fontScale - 0.05) }))} aria-label={en ? 'Decrease font size' : '减小字号'}>A−</button><button onClick={() => setReaderPreferences((current) => ({ ...current, fontScale: clampFontScale(current.fontScale + 0.05) }))} aria-label={en ? 'Increase font size' : '增大字号'}>A＋</button><button onClick={() => setReaderPreferences((current) => ({ ...current, theme: cycleTheme(current.theme) }))}>{themeLabel}</button>{chapters.length > 0 ? <button onClick={() => setShowContents(!showContents)} aria-expanded={showContents} aria-controls="epub-contents">{showContents ? ui.collapseContents : `${ui.contents} · ${chapters.length}`}</button> : <span className="epub-contents-unavailable" title={en ? 'This EPUB has no usable contents. You can still use page navigation.' : '此 EPUB 未提供可用目录，可继续使用上一页、下一页阅读'}>{ui.contentsUnavailable}</span>}</div>
     </div>
+    {openFailed && <section className="reader-file-recovery" role="alert">
+      <strong>{ui.readerOpenFailed}</strong>
+      <p>{ui.readerOpenFailedCopy}</p>
+      <button onClick={() => setOpenAttempt((current) => current + 1)}>{ui.retryOpenBook}</button>
+    </section>}
     <div className="epub-navigation" aria-label={en ? 'EPUB page navigation' : 'EPUB 翻页'}><button aria-label={ui.previousPage} onClick={() => { void renditionRef.current?.prev?.() }}>{ui.previousPage}</button><span data-testid="epub-progress">{chapterLabel ? `${chapterLabel} · ` : ''}{pageLabel || (en ? 'Preparing reading view' : '准备阅读')}</span><button aria-label={ui.nextPage} onClick={() => { void goToNextPage() }}>{ui.nextPage}</button></div>
     {pendingSelection && <section className="epub-selection-bar" aria-label={ui.selectedTextActions}>
       <span title={pendingSelection.text}>{pendingSelection.text}</span>

@@ -41,6 +41,41 @@ test('P1: imported PDF renders, paginates with controls and supports keyboard na
   await page.keyboard.press('ArrowLeft')
 })
 
+test('P0: a missing local PDF file gives a recoverable reader error instead of a blank page', async ({ page }) => {
+  await page.goto('/')
+  await page.locator('input[type=file][accept*=".pdf"]').setInputFiles({ name: 'pdf-recovery.pdf', mimeType: 'application/pdf', buffer: pdfFixture() })
+  await expect(page.getByRole('heading', { name: 'pdf recovery' })).toBeVisible()
+  await page.evaluate(async () => {
+    await new Promise<void>((resolve, reject) => {
+      const open = indexedDB.open('wor-library')
+      open.onerror = () => reject(open.error)
+      open.onsuccess = () => {
+        const db = open.result
+        const transaction = db.transaction(['books', 'book-blobs'], 'readwrite')
+        const books = transaction.objectStore('books')
+        const request = books.getAll()
+        request.onerror = () => reject(request.error)
+        request.onsuccess = () => {
+          const book = request.result[0]
+          book.storage = 'indexeddb'
+          books.put(book)
+          transaction.objectStore('book-blobs').delete(book.id)
+        }
+        transaction.oncomplete = () => { db.close(); resolve() }
+        transaction.onerror = () => { db.close(); reject(transaction.error) }
+      }
+    })
+  })
+  await page.reload()
+  await page.getByRole('button', { name: /pdf recovery/i }).click()
+  const recovery = page.getByRole('alert')
+  await expect(recovery).toContainText('无法打开本地文件')
+  const retry = recovery.getByRole('button', { name: '重新尝试打开' })
+  await expect(retry).toBeVisible()
+  await retry.click()
+  await expect(recovery).toBeVisible()
+})
+
 test('P1: PDF Home and End keys jump to reading boundaries without affecting focused controls', async ({ page }) => {
   await page.goto('/')
   await page.locator('input[type=file][accept*=".pdf"]').setInputFiles({

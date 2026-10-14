@@ -49,6 +49,20 @@ test('health probe is safe, cache-free, and carries a trace id', async () => {
   assert.equal(JSON.stringify(payload).includes('server-only'), false)
 })
 
+test('AI responses and errors are never cacheable by a shared HTTP cache', async () => {
+  const gateway = createAiGateway({
+    provider: async () => ({ translation: '译文', provider: 'test', model: 'test-1' }),
+    logger: () => {},
+  })
+  const successful = await gateway(request('/api/translate', { text: 'private selection', requestId: 'no-store-success' }))
+  assert.equal(successful.headers.get('cache-control'), 'no-store')
+
+  const failed = await gateway(new Request('https://example.test/api/translate', { method: 'POST' }))
+  assert.equal(failed.status, 400)
+  assert.equal(failed.headers.get('cache-control'), 'no-store')
+  assert.equal(failed.headers.get('x-request-id')?.length > 0, true)
+})
+
 test('serverless API runtime passes deployment environment to the shared gateway', async () => {
   const runtimeGateway = createRuntimeGateway({
     AI_PROVIDER: 'openai',

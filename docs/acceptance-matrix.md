@@ -20,6 +20,7 @@ npm run qa
 | 新用户阅读闭环 | 全新浏览器状态可完成带原书封面 EPUB 导入、打开、翻页、划词翻译、保存摘录、刷新恢复，并可中英来回切换界面而不改变理解语言 | `tests/qa/reader-e2e-flow.spec.ts` |
 | 真实内容打开 | 阅读器 iframe 出现 fixture 特征文本，而不是演示文案 | `tests/qa/import-open.spec.ts` |
 | EPUB 翻页 | 有上/下一页和键盘翻页；翻页后出现下一章节特征文本 | `tests/qa/import-open.spec.ts` |
+| 本地文件恢复提示 | 已导入书籍的原始文件被浏览器清理或损坏时，阅读器明确说明原因并提供重试入口，而不是空白页或演示内容 | `tests/qa/import-open.spec.ts` |
 | EPUB 阅读偏好恢复 | 字号和主题在刷新、重新打开后保持一致 | `tests/qa/import-open.spec.ts` |
 | PDF 导入、打开与翻页 | PDF 渲染真实页面；工具栏、方向键/PageUp/PageDown、Home/End 首末页跳转和页码边界均可用；聚焦工具栏控件时这些快捷键不会误翻页 | `tests/qa/pdf-reader.spec.ts` |
 | PDF 阅读偏好恢复 | 字号、主题与缩放在刷新、重新打开后保持一致 | `tests/qa/pdf-reader.spec.ts` |
