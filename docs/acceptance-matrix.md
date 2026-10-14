@@ -21,7 +21,7 @@ npm run qa
 | 真实内容打开 | 阅读器 iframe 出现 fixture 特征文本，而不是演示文案 | `tests/qa/import-open.spec.ts` |
 | EPUB 翻页 | 有上/下一页和键盘翻页；翻页后出现下一章节特征文本 | `tests/qa/import-open.spec.ts` |
 | EPUB 阅读偏好恢复 | 字号和主题在刷新、重新打开后保持一致 | `tests/qa/import-open.spec.ts` |
-| PDF 导入、打开与翻页 | PDF 渲染真实页面；工具栏、键盘和页码边界均可用 | `tests/qa/pdf-reader.spec.ts` |
+| PDF 导入、打开与翻页 | PDF 渲染真实页面；工具栏、方向键/PageUp/PageDown、Home/End 首末页跳转和页码边界均可用；聚焦工具栏控件时这些快捷键不会误翻页 | `tests/qa/pdf-reader.spec.ts` |
 | PDF 阅读偏好恢复 | 字号、主题与缩放在刷新、重新打开后保持一致 | `tests/qa/pdf-reader.spec.ts` |
 | PDF OCR 本地校正 | 用户可编辑识别文字并确认；后续翻译请求与保存摘录使用确认后的文字，不会使用未确认草稿 | `tests/qa/pdf-reader.spec.ts` |
 | 阅读位置恢复 | PDF 切换到第二页后，刷新及回到书库重新打开都恢复到第二页 | `tests/qa/reader-position.spec.ts` |

@@ -9,6 +9,7 @@
 - [ ] 确认 staging/production 的 `VITE_SUPABASE_URL`、`SUPABASE_URL`、`AI_BASE_URL` 与 `OCR_BASE_URL` 都是 HTTPS；HTTP 地址只允许本地开发。
 - [ ] Playwright 冒烟覆盖书库搜索、阅读/对照、AI 解释入口和备份控件。
 - [ ] staging 可访问，HTTPS 和安全响应头齐全。
+- [ ] 部署 action 完成后，`npm run verify:deployment -- https://<当前部署域名>` 通过；它同时验证 `/api/health`、request id 回显、禁止健康响应缓存，以及首页的 CSP/HSTS/反 MIME 嗅探/反 iframe/Referrer Policy。
 - [ ] 在 staging 安装 WorLibrary；首次联网打开后断网刷新，确认应用壳可打开、离线提示可见、此前导入的 EPUB/PDF 仍可打开。
 - [ ] 确认 DevTools/Application 中 Service Worker 的 scope 为 `/`，且 Cache Storage 中没有 API 响应、Supabase 响应或 `.epub` / `.pdf` 文件。
 - [ ] 用测试文件验证 EPUB/PDF 导入、阅读位置、摘录和备份恢复。
@@ -31,6 +32,8 @@ curl -fsS -D - https://app.example.com/api/health
 ```
 
 应返回 HTTP 200、`status: "ok"` 和 `x-request-id`。若健康探针失败，先保留响应头中的 request id，再检查部署日志；不要为了让探针变绿而暴露 API 密钥或放宽 CORS。
+
+自动化检查失败时先区分失败位置：`/api/health` 的状态、`cache-control` 或 request id 异常通常意味着网关/路由配置问题；首页安全头缺失通常意味着托管平台没有应用 `public/_headers` 的等效规则。HTTPS/HSTS 缺失时不得通过降级为 HTTP 或删除该检查发布。
 
 ## 回滚
 

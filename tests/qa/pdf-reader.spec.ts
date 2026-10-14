@@ -41,6 +41,27 @@ test('P1: imported PDF renders, paginates with controls and supports keyboard na
   await page.keyboard.press('ArrowLeft')
 })
 
+test('P1: PDF Home and End keys jump to reading boundaries without affecting focused controls', async ({ page }) => {
+  await page.goto('/')
+  await page.locator('input[type=file][accept*=".pdf"]').setInputFiles({
+    name: 'pdf-boundary-keys.pdf', mimeType: 'application/pdf', buffer: pdfFixture(['PDF_PAGE_ONE', 'PDF_PAGE_TWO']),
+  })
+  await page.getByRole('button', { name: /pdf boundary keys/i }).click()
+  await expect(page.getByText(/PDF 本地阅读 · 第 1 \/ 2 页 ·/)).toBeVisible({ timeout: 15_000 })
+  await expect(page.getByRole('button', { name: '查看文字' })).toBeEnabled({ timeout: 15_000 })
+
+  await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur())
+  await page.keyboard.press('End')
+  await expect(page.getByText(/PDF 本地阅读 · 第 2 \/ 2 页 ·/)).toBeVisible({ timeout: 15_000 })
+  await page.keyboard.press('Home')
+  await expect(page.getByText(/PDF 本地阅读 · 第 1 \/ 2 页 ·/)).toBeVisible({ timeout: 15_000 })
+
+  const nextPage = page.getByRole('button', { name: '下一页' })
+  await nextPage.focus()
+  await page.keyboard.press('End')
+  await expect(page.getByText(/PDF 本地阅读 · 第 1 \/ 2 页 ·/)).toBeVisible()
+})
+
 test('P1: PDF reading preferences survive refresh and reopening', async ({ page }) => {
   await page.goto('/')
   await page.locator('input[type=file][accept*=".pdf"]').setInputFiles({ name: 'pdf-preferences.pdf', mimeType: 'application/pdf', buffer: pdfFixture() })
@@ -55,6 +76,10 @@ test('P1: PDF reading preferences survive refresh and reopening', async ({ page 
   await expect(page.getByText(/111%/)).toBeVisible()
 
   await page.reload()
+  await expect(page.getByText(/PDF 本地阅读 · 第 1 \/ 1 页 ·.*111%/)).toBeVisible({ timeout: 15_000 })
+  await expect(page.locator('.pdf-reader-shell')).toHaveClass(/reader-theme-sepia/)
+  await expect(page.locator('.pdf-reader-shell')).toHaveAttribute('style', /--reader-font-scale: 1.05/)
+  await page.getByRole('button', { name: '← 书库' }).click()
   await page.getByRole('button', { name: /pdf preferences/i }).click()
   await expect(page.getByText(/PDF 本地阅读 · 第 1 \/ 1 页 ·.*111%/)).toBeVisible({ timeout: 15_000 })
   await expect(page.locator('.pdf-reader-shell')).toHaveClass(/reader-theme-sepia/)
@@ -143,6 +168,8 @@ test('P0: two-page PDF restores the latest page after refreshing', async ({ page
   await page.waitForTimeout(300)
 
   await page.reload()
+  await expect(page.getByText(/PDF 本地阅读 · 第 2 \/ 2 页 ·/)).toBeVisible({ timeout: 15_000 })
+  await page.getByRole('button', { name: '← 书库' }).click()
   await page.getByRole('button', { name: /pdf progress/i }).click()
   await expect(page.getByText(/PDF 本地阅读 · 第 2 \/ 2 页 ·/)).toBeVisible({ timeout: 15_000 })
 

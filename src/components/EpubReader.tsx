@@ -94,7 +94,6 @@ export default function EpubReader({ book, onNotice, onProgress, onHighlightSave
   const [explanation, setExplanation] = useState('')
   const [translating, setTranslating] = useState(false)
   const [explaining, setExplaining] = useState(false)
-  const [readingProgress, setReadingProgress] = useState(0)
   const [pageLabel, setPageLabel] = useState('')
   const [chapterLabel, setChapterLabel] = useState('')
   const [readerPreferences, setReaderPreferences] = useState<ReaderPreferences>(() => ({ ...loadReaderPreferences(), ...preferences }))
@@ -163,7 +162,6 @@ export default function EpubReader({ book, onNotice, onProgress, onHighlightSave
           if (!cfi) return
           const progress = Math.round(loadedBook.locations.percentageFromCfi(cfi) * 100)
           const displayed = location.start?.displayed
-          setReadingProgress(progress)
           setPageLabel(displayed?.page && displayed?.total ? `${displayed.page} / ${displayed.total}` : `${progress}%`)
           const href = location.start?.href
           const chapter = toc.find((item) => href && (href === item.href || href.endsWith(item.href) || item.href.endsWith(href)))
@@ -279,7 +277,7 @@ export default function EpubReader({ book, onNotice, onProgress, onHighlightSave
       <span aria-live="polite">{status || (en ? 'EPUB · local reading' : 'EPUB 本地阅读')}</span>
       <div className="reader-toolbar-actions"><button onClick={() => setReaderPreferences((current) => ({ ...current, fontScale: clampFontScale(current.fontScale - 0.05) }))} aria-label={en ? 'Decrease font size' : '减小字号'}>A−</button><button onClick={() => setReaderPreferences((current) => ({ ...current, fontScale: clampFontScale(current.fontScale + 0.05) }))} aria-label={en ? 'Increase font size' : '增大字号'}>A＋</button><button onClick={() => setReaderPreferences((current) => ({ ...current, theme: cycleTheme(current.theme) }))}>{themeLabel}</button>{chapters.length > 0 ? <button onClick={() => setShowContents(!showContents)} aria-expanded={showContents} aria-controls="epub-contents">{showContents ? ui.collapseContents : `${ui.contents} · ${chapters.length}`}</button> : <span className="epub-contents-unavailable" title={en ? 'This EPUB has no usable contents. You can still use page navigation.' : '此 EPUB 未提供可用目录，可继续使用上一页、下一页阅读'}>{ui.contentsUnavailable}</span>}</div>
     </div>
-    <div className="epub-navigation" aria-label={en ? 'EPUB page navigation' : 'EPUB 翻页'}><button aria-label={ui.previousPage} onClick={() => { void renditionRef.current?.prev?.() }} disabled={!renditionRef.current || readingProgress <= 0}>{ui.previousPage}</button><span data-testid="epub-progress">{chapterLabel ? `${chapterLabel} · ` : ''}{pageLabel || (en ? 'Preparing reading view' : '准备阅读')}</span><button aria-label={ui.nextPage} onClick={() => { void renditionRef.current?.next?.() }} disabled={!renditionRef.current || readingProgress >= 100}>{ui.nextPage}</button></div>
+    <div className="epub-navigation" aria-label={en ? 'EPUB page navigation' : 'EPUB 翻页'}><button aria-label={ui.previousPage} onClick={() => { void renditionRef.current?.prev?.() }}>{ui.previousPage}</button><span data-testid="epub-progress">{chapterLabel ? `${chapterLabel} · ` : ''}{pageLabel || (en ? 'Preparing reading view' : '准备阅读')}</span><button aria-label={ui.nextPage} onClick={() => { void renditionRef.current?.next?.() }}>{ui.nextPage}</button></div>
     {pendingSelection && <section className="epub-selection-bar" aria-label={ui.selectedTextActions}>
       <span title={pendingSelection.text}>{pendingSelection.text}</span>
       <button className="translate-button" onClick={() => { void translatePendingSelection() }}>{translating ? (en ? 'Translating…' : '翻译中…') : ui.translation}</button>

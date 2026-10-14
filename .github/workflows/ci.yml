@@ -66,12 +66,15 @@ jobs:
           VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
         run: npm run validate:env -- --staging --deployment
       # Configure VERCEL_TOKEN, VERCEL_ORG_ID and VERCEL_PROJECT_ID in the staging environment.
-      - uses: amondnet/vercel-action@v25
+      - id: deploy
+        uses: amondnet/vercel-action@v25
         with:
           vercel-token: ${{ secrets.VERCEL_TOKEN }}
           vercel-args: '--yes'
           scope: ${{ secrets.VERCEL_ORG_ID }}
           project-id: ${{ secrets.VERCEL_PROJECT_ID }}
+      - name: Verify preview health and security headers
+        run: npm run verify:deployment -- '${{ steps.deploy.outputs.preview-url }}'
 
   production:
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
@@ -101,3 +104,5 @@ jobs:
           vercel-args: '--prod --yes'
           scope: ${{ secrets.VERCEL_ORG_ID }}
           project-id: ${{ secrets.VERCEL_PROJECT_ID }}
+      - name: Verify production health and security headers
+        run: npm run verify:deployment -- '${{ steps.deploy.outputs.preview-url }}'

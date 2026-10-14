@@ -44,6 +44,7 @@ export default function PdfReader({ book, onNotice, onProgress, targetLanguage =
   const textLayerRef = useRef<HTMLDivElement>(null)
   const ocrTextRef = useRef<HTMLDivElement>(null)
   const progressWriteRef = useRef(Promise.resolve())
+  const renderQueueRef = useRef(Promise.resolve())
   const [document, setDocument] = useState<PdfDocument>()
   const documentRef = useRef<PdfDocument | undefined>(undefined)
   const [page, setPage] = useState(Number(book.location?.replace('pdf:', '')) || 1)
@@ -154,7 +155,11 @@ export default function PdfReader({ book, onNotice, onProgress, targetLanguage =
   useEffect(() => {
     if (!document || !canvasRef.current) return
     let active = true
-    void document.getPage(page).then(async (pdfPage) => {
+    // pdf.js cannot render two pages into one canvas concurrently. Queue the
+    // work so a quick keyboard jump (for example Home/End) never turns a
+    // harmless race into a false "page failed" message.
+    renderQueueRef.current = renderQueueRef.current.catch(() => undefined).then(async () => {
+      const pdfPage = await document.getPage(page)
       if (!active || !canvasRef.current) return
       const viewport = pdfPage.getViewport({ scale: readerPreferences.pdfZoom })
       const canvas = canvasRef.current
@@ -192,7 +197,13 @@ export default function PdfReader({ book, onNotice, onProgress, targetLanguage =
       // editor should retain its native keyboard behavior instead of turning a
       // user interaction into an unexpected page change.
       if (isReaderShortcutTarget(event.target)) return
-      if (event.key === 'ArrowLeft' || event.key === 'PageUp') {
+      if (event.key === 'Home') {
+        event.preventDefault()
+        void moveToPage(1)
+      } else if (event.key === 'End') {
+        event.preventDefault()
+        void moveToPage(document?.numPages ?? page)
+      } else if (event.key === 'ArrowLeft' || event.key === 'PageUp') {
         event.preventDefault()
         void moveToPage(page - 1)
       }

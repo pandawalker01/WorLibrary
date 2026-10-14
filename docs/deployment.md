@@ -58,6 +58,14 @@ npm run test:production
 
 该命令只验证本地构建契约和网关逻辑，不代表真实 Supabase/RLS 或供应商凭据已连通。
 
+部署完成后，CI 会使用 Vercel action 输出的预览/生产 URL 执行 `npm run verify:deployment`。该检查要求 HTTPS、`/api/health` 返回带回显 `x-request-id` 和 `cache-control: no-store` 的安全 JSON，并要求首页带 CSP、HSTS、反 MIME 嗅探、反 iframe 与 Referrer Policy。也可在发布人员本机手动运行：
+
+```sh
+npm run verify:deployment -- https://app.example.com
+```
+
+它只读取公开响应头与健康响应，不发送认证信息、书籍内容或密钥；失败时应保留终端中的 request id 并按 `docs/runbook.md` 排查，而不是跳过检查。
+
 ### 可机读发布质量门禁
 
 发布或 CI 可执行单一命令：
@@ -98,7 +106,7 @@ CI 还会检查登录/匿名试用契约、IndexedDB 与远端同步合并、翻
 
 ## 域名与安全头
 
-将域名 DNS 指向托管平台并开启 HTTPS 强制跳转。`public/_headers` 为支持 `_headers` 的托管平台提供 CSP、禁止 iframe、严格 Referrer Policy 和 Permissions Policy；其他平台须在其响应头设置中复制同等策略。若接入 API 网关，将其 HTTPS origin 加入 `connect-src`，不要放宽为 `*`。
+将域名 DNS 指向托管平台并开启 HTTPS 强制跳转。`public/_headers` 为支持 `_headers` 的托管平台提供 CSP、禁止 iframe、严格 Referrer Policy 和 Permissions Policy；`vercel.json` 为 Vercel 的页面与 API 路由应用同等安全头及 HSTS。其他平台须在其响应头设置中复制同等策略。若接入 API 网关，将其 HTTPS origin 加入 `connect-src`，不要放宽为 `*`。
 
 上线前验证：
 

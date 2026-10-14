@@ -11,6 +11,8 @@
     "test:env": "node --test scripts/validate-env.test.mjs",
     "test:gateway": "node --test server/ai-gateway.test.mjs",
     "test:quality": "node --test scripts/quality-gate.test.mjs",
+    "test:deployment": "node --test scripts/verify-deployment.test.mjs",
+    "verify:deployment": "node scripts/verify-deployment.mjs",
     "test:bundle": "node scripts/bundle-budget.mjs",
     "quality": "node scripts/quality-gate.mjs",
     "test:production": "npm run validate:env -- --production && npm run typecheck && npm run build && npm run test:gateway",
