@@ -47,6 +47,14 @@ export function worldLanguageName(code: string, locale: string): string {
 }
 
 type OpenLibraryDoc = { key?: string; title?: string; author_name?: string[]; first_publish_year?: number; language?: string[]; edition_count?: number; cover_i?: number }
+type GoogleBooksDoc = {
+  id?: string
+  volumeInfo?: { title?: string; authors?: string[]; publishedDate?: string; language?: string; imageLinks?: { thumbnail?: string }; infoLink?: string }
+  accessInfo?: { viewability?: string; webReaderLink?: string }
+}
+
+const GOOGLE_LANGUAGE_TO_ISO_639_3: Record<string, string> = { en: 'eng', zh: 'chi', ja: 'jpn', ko: 'kor', fr: 'fra', de: 'deu', es: 'spa', it: 'ita', pt: 'por', ru: 'rus', ar: 'ara', hi: 'hin', nl: 'nld', pl: 'pol', tr: 'tur', uk: 'ukr', vi: 'vie', id: 'ind', sv: 'swe', no: 'nor', da: 'dan', fi: 'fin', cs: 'ces', el: 'ell', he: 'heb', th: 'tha' }
+const ISO_639_3_TO_GOOGLE_LANGUAGE = Object.fromEntries(Object.entries(GOOGLE_LANGUAGE_TO_ISO_639_3).map(([twoLetter, threeLetter]) => [threeLetter, twoLetter])) as Record<string, string>
 
 function sourceRequestSignal(parent?: AbortSignal) {
   const controller = new AbortController()
@@ -89,9 +97,50 @@ const openLibrarySource: WorldCatalogSource = {
   },
 }
 
+function googleBookAccess(doc: GoogleBooksDoc, sourceUrl: string): WorldBookAccess {
+  const viewability = doc.accessInfo?.viewability
+  if (viewability === 'FULL_PUBLIC_DOMAIN') return { mode: 'public_domain', url: doc.accessInfo?.webReaderLink ?? sourceUrl, rightsNotice: 'Google Books reports this volume as public domain.' }
+  if (viewability === 'ALL_PAGES' || viewability === 'PARTIAL') return { mode: 'preview', url: doc.accessInfo?.webReaderLink ?? sourceUrl }
+  return { mode: 'catalog_only', url: sourceUrl }
+}
+
+function normalizeGoogleBook(doc: GoogleBooksDoc): WorldBook | undefined {
+  const sourceRecordId = doc.id
+  const title = doc.volumeInfo?.title
+  if (!sourceRecordId || !title) return undefined
+  const sourceUrl = doc.volumeInfo?.infoLink ?? `https://books.google.com/books?id=${encodeURIComponent(sourceRecordId)}`
+  const published = doc.volumeInfo?.publishedDate
+  const year = published && /^\d{4}/.test(published) ? Number(published.slice(0, 4)) : undefined
+  return {
+    id: `google-books:${sourceRecordId}`, sourceId: 'google-books', sourceRecordId, title,
+    author: doc.volumeInfo?.authors?.[0] ?? '', year, languages: doc.volumeInfo?.language ? [doc.volumeInfo.language] : [],
+    coverUrl: doc.volumeInfo?.imageLinks?.thumbnail?.replace(/^http:/, 'https:'), sourceUrl, sourceName: 'Google Books',
+    access: googleBookAccess(doc, sourceUrl),
+  }
+}
+
+const googleBooksSource: WorldCatalogSource = {
+  id: 'google-books', name: 'Google Books',
+  async search(query, options, signal) {
+    // Google Books uses BCP 47 / ISO 639-1 here. Avoid silently ignoring an
+    // unsupported language filter: Open Library remains the global fallback.
+    const googleLanguage = options.language ? ISO_639_3_TO_GOOGLE_LANGUAGE[options.language] : undefined
+    if (options.language && !googleLanguage) return []
+    const languageQuery = googleLanguage ? `&langRestrict=${encodeURIComponent(googleLanguage)}` : ''
+    const request = sourceRequestSignal(signal)
+    try {
+      const response = await fetch(`https://www.googleapis.com/books/v1/volumes?q=${encodeURIComponent(query)}${languageQuery}&maxResults=20&printType=books`, { signal: request.signal })
+      if (!response.ok) throw new Error('WORLD_LIBRARY_UNAVAILABLE')
+      const payload = await response.json() as { items?: GoogleBooksDoc[] }
+      return (payload.items ?? []).map(normalizeGoogleBook).filter((book): book is WorldBook => Boolean(book)).filter((book) => !options.multiLanguageOnly || book.languages.length > 1)
+    } finally { request.dispose() }
+  },
+}
+
 // Register a source here only after its terms, rate limits, provenance and
 // access mode have been reviewed. There are no hidden or user-specific sources.
-export const WORLD_CATALOG_SOURCES: readonly WorldCatalogSource[] = [openLibrarySource]
+// Both sources are catalog metadata only; opening a result always leaves the app.
+export const WORLD_CATALOG_SOURCES: readonly WorldCatalogSource[] = [openLibrarySource, googleBooksSource]
 
 export async function searchWorldLibrary(query: string, options: WorldLibrarySearchOptions = {}, signal?: AbortSignal): Promise<WorldBook[]> {
   const term = query.trim()

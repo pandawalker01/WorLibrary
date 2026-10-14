@@ -16,13 +16,17 @@ test('P1: a stalled catalog request leaves loading state and can be retried', as
     await new Promise((resolve) => setTimeout(resolve, 9_000))
     await route.fulfill({ json: { docs: [] } }).catch(() => undefined)
   })
+  await page.route('https://www.googleapis.com/books/v1/volumes**', async (route) => {
+    await new Promise((resolve) => setTimeout(resolve, 9_000))
+    await route.fulfill({ json: { items: [] } }).catch(() => undefined)
+  })
 
   await page.goto('/')
   await page.getByRole('tab', { name: '世界书库' }).click()
   await page.getByRole('textbox', { name: '搜索世界书库' }).fill('stalled fixture')
   await page.getByRole('button', { name: '搜索世界书库' }).click()
-  await expect(page.getByRole('alert')).toHaveText('暂时无法连接开放书目，请稍后重试。', { timeout: 10_000 })
-  await expect(page.getByRole('status', { name: '正在检索开放书目…' })).toHaveCount(0)
+  await expect(page.getByRole('alert')).toHaveText('暂时无法连接任何书目来源，请检查网络后重试。', { timeout: 10_000 })
+  await expect(page.getByRole('status', { name: '正在检索书目来源…' })).toHaveCount(0)
   await expect(page.getByRole('button', { name: '搜索世界书库' })).toBeEnabled()
 })
 
@@ -32,6 +36,7 @@ test('P1: world catalog presents a global, readable language picker and carries 
     requestedUrl = route.request().url()
     await route.fulfill({ json: { docs: [{ key: '/works/OLzulFixture', title: 'Zulu fixture', author_name: ['Catalog author'], language: ['zul', 'eng'], edition_count: 2 }] } })
   })
+  await page.route('https://www.googleapis.com/books/v1/volumes**', async (route) => route.fulfill({ json: { items: [] } }))
 
   await page.goto('/')
   await page.getByRole('tab', { name: '世界书库' }).click()
@@ -64,4 +69,27 @@ test('P1: world catalog presents a global, readable language picker and carries 
     sourceId: 'open-library', sourceRecordId: 'OLzulFixture', sourceName: 'Open Library', access: { mode: 'catalog_only', url: 'https://openlibrary.org/works/OLzulFixture' },
   })])
   expect(requestedUrl).toContain('language=zul')
+})
+
+test('P1: Google Books supplies catalog results when Open Library returns none', async ({ page }) => {
+  let googleUrl = ''
+  await page.route('https://openlibrary.org/search.json**', async (route) => route.fulfill({ json: { docs: [] } }))
+  await page.route('https://www.googleapis.com/books/v1/volumes**', async (route) => {
+    googleUrl = route.request().url()
+    await route.fulfill({ json: { items: [{ id: 'googleFixture', volumeInfo: { title: 'Google fixture', authors: ['Catalog author'], language: 'ja', infoLink: 'https://books.google.com/books?id=googleFixture' }, accessInfo: { viewability: 'PARTIAL', webReaderLink: 'https://books.google.com/books?id=googleFixture&jscmd=SearchWithinVolume2' } }] } })
+  })
+
+  await page.goto('/')
+  await page.getByRole('tab', { name: '世界书库' }).click()
+  const picker = page.locator('.world-language-picker')
+  await picker.getByRole('button', { name: /书目语言/ }).click()
+  await picker.getByRole('searchbox', { name: '搜索全球语言' }).fill('日语')
+  await picker.getByRole('option', { name: '日语', exact: true }).click()
+  await page.getByRole('textbox', { name: '搜索世界书库' }).fill('fixture')
+  await page.getByRole('button', { name: '搜索世界书库' }).click()
+  const result = page.locator('[data-source-id="google-books"]')
+  await expect(result.getByRole('heading', { name: 'Google fixture' })).toBeVisible()
+  await expect(result.getByText('来源： Google Books')).toBeVisible()
+  await expect(result.getByText('来源提供预览')).toBeVisible()
+  expect(googleUrl).toContain('langRestrict=ja')
 })

@@ -28,6 +28,7 @@
 
 - [x] 将 Open Library 从页面内直连重构为 `WORLD_CATALOG_SOURCES` 适配器注册表。
 - [x] 为每条收藏记录保存来源、来源记录 ID、外链与 `access.mode`；旧 Open Library 收藏自动迁移到 `catalog_only`。
+- [x] 接入 Google Books 公开书目兜底，并将其 `viewability` 显式映射为书目、来源预览或公共领域外部入口。
 - [ ] 接入第二个来源前，完成许可/条款、限流、来源标注、正文访问状态与失败隔离评审。
 - [ ] 只为已验证的公共领域或授权正文来源展示对应入口；书目来源始终仅可跳转至原始来源。
 
