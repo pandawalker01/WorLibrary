@@ -70,7 +70,25 @@ Work（作品）
 
 划线需要保存稳定锚点和恢复信息：EPUB 使用 CFI 与章节标识；PDF 使用页码、文本层坐标与文本；OCR 页面使用文字框坐标。同时保存少量前后文本，便于文件更新或解析变化后恢复定位。
 
-## 5. 云端 API 与 AI 安全
+## 5. 世界书库的数据源与版权边界
+
+世界书库是“发现层”，不是未授权正文的分发层。它使用可插拔的目录适配器：每个适配器把来源返回的记录规范为来源、来源记录 ID、书目元数据、外部链接和可读性状态。当前只启用 Open Library，状态为 `catalog_only`；用户点击后只会跳转至 Open Library 的原始书目页。
+
+```text
+用户搜索
+  └─ WORLD_CATALOG_SOURCES（已审核适配器注册表）
+       └─ CatalogSource.search()
+            └─ WorldBook { sourceId, sourceRecordId, sourceUrl, access }
+                 ├─ catalog_only：仅展示书目与来源外链
+                 ├─ public_domain：未来可由已验证公共领域来源提供正文入口
+                 └─ licensed_full_text / preview / borrow / purchase：未来按来源许可显示相应入口
+```
+
+新增来源前必须完成：书面或公开许可/服务条款核对、API 限流与缓存方案、来源归属展示、正文访问权判定、失败隔离和自动化验收。不能因为作品标题、搜索词或某个来源声称“公共领域”就推断 WorLibrary 有正文分发权。不得接入、代理、镜像未获授权正文库，亦不得通过白名单、隐藏入口或个人权限绕过该边界。
+
+联网收藏仅保存可重新发现该记录所需的元数据，使用 `sourceId:sourceRecordId` 去重；旧 Open Library 收藏在读取时迁移为 `open-library` / `catalog_only`。原始书籍文件始终只来自用户本地导入，或将来经过单独审核的合法正文来源。
+
+## 6. 云端 API 与 AI 安全
 
 浏览器不直接调用 AI 或 OCR 供应商。网关负责隐藏密钥、限制成本和验证请求。
 
