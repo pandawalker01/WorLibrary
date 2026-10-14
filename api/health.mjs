@@ -1,4 +1,4 @@
-import { gateway } from '../server/ai-gateway.mjs'
+import { gateway } from './gateway.mjs'
 
 // Lightweight liveness/readiness endpoint for deployment probes.
 // It intentionally never exposes provider credentials or user data.

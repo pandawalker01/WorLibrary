@@ -31,7 +31,7 @@ npm run qa
 | 全球理解语言 | 可搜索并选择非默认的全球语言，刷新后保持，选择器使用完整语言名且不展示裸 ISO 代码 | `tests/qa/cover-and-interface-language.spec.ts` |
 | 译本关联 | 两本真实导入书籍可以关联到同一 Work | `tests/multiedition.spec.ts` |
 | 双栏对照 | 左右栏分别渲染两本真实书籍；没有关联时不能展示 demo | `tests/multiedition.spec.ts` |
-| 移动端真实阅读 | 390px 视口导入 EPUB/PDF 后书架、翻页与阅读工具条均可见、可点击且无横向溢出 | `tests/qa/mobile-reader.spec.ts` |
+| 移动端真实阅读 | 390px 视口导入 EPUB/PDF 后书架、翻页与阅读工具条均可见、可点击且无横向溢出；PDF 上一页/下一页应在阅读页下方的独立触控条中提供，触控高度至少 44px | `tests/qa/mobile-reader.spec.ts` |
 | PWA 应用壳 | 生产预览提供 standalone Manifest、图标与已激活的 Service Worker；离线状态明确提示，且不改变本地书库边界 | `tests/qa/pwa-shell.spec.ts` |
 | 键盘与辅助技术状态 | 主导航会标记当前页；中英文语言选择会公布选中状态；目录、选区与书籍信息对话框均可用 Escape 关闭；目录、工具栏或 OCR 编辑器获得焦点时，方向键/翻页键不得误翻页，阅读内容区域仍可翻页 | `tests/qa/accessibility.spec.ts` |
 

@@ -1,5 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
+import { createRuntimeGateway } from '../api/gateway.mjs'
+import health from '../api/health.mjs'
 import { createAiGateway } from './ai-gateway.mjs'
 import { createOcrGateway } from './ocr-gateway.mjs'
 
@@ -45,6 +47,36 @@ test('health probe is safe, cache-free, and carries a trace id', async () => {
   assert.equal(payload.status, 'ok')
   assert.equal(payload.providerConfigured, true)
   assert.equal(JSON.stringify(payload).includes('server-only'), false)
+})
+
+test('serverless API runtime passes deployment environment to the shared gateway', async () => {
+  const runtimeGateway = createRuntimeGateway({
+    AI_PROVIDER: 'openai',
+    AI_API_KEY: 'deployment-only-secret',
+    AI_MODEL: 'deployment-model',
+    AI_BASE_URL: 'https://provider.example.test/v1',
+  })
+  const response = await runtimeGateway(new Request('https://app.example.test/api/health', {
+    headers: { 'x-request-id': 'runtime-health-probe' },
+  }))
+  assert.equal(response.status, 200)
+  assert.equal(response.headers.get('content-type'), 'application/json; charset=utf-8')
+  assert.equal(response.headers.get('cache-control'), 'no-store')
+  assert.equal(response.headers.get('x-request-id'), 'runtime-health-probe')
+  const payload = await response.json()
+  assert.equal(payload.providerConfigured, true)
+  assert.equal(JSON.stringify(payload).includes('deployment-only-secret'), false)
+})
+
+test('Vercel health route preserves probe response guarantees', async () => {
+  const response = await health(new Request('https://app.example.test/api/health', {
+    headers: { 'x-request-id': 'api-route-probe' },
+  }))
+  assert.equal(response.status, 200)
+  assert.equal(response.headers.get('content-type'), 'application/json; charset=utf-8')
+  assert.equal(response.headers.get('cache-control'), 'no-store')
+  assert.equal(response.headers.get('x-request-id'), 'api-route-probe')
+  assert.equal((await response.json()).status, 'ok')
 })
 
 test('quota exhaustion returns a stable error code', async () => {

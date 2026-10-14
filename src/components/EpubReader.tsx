@@ -96,6 +96,8 @@ export default function EpubReader({ book, onNotice, onProgress, onHighlightSave
   const [explaining, setExplaining] = useState(false)
   const [pageLabel, setPageLabel] = useState('')
   const [chapterLabel, setChapterLabel] = useState('')
+  const chapterHrefRef = useRef('')
+  const pageAtChapterEndRef = useRef(false)
   const [readerPreferences, setReaderPreferences] = useState<ReaderPreferences>(() => ({ ...loadReaderPreferences(), ...preferences }))
   const [aiFeedback, setAiFeedback] = useState<AiFeedback>()
   const themeLabel = readerPreferences.theme === 'paper' ? ui.paperTheme : readerPreferences.theme === 'sepia' ? ui.sepiaTheme : ui.nightTheme
@@ -164,6 +166,8 @@ export default function EpubReader({ book, onNotice, onProgress, onHighlightSave
           const displayed = location.start?.displayed
           setPageLabel(displayed?.page && displayed?.total ? `${displayed.page} / ${displayed.total}` : `${progress}%`)
           const href = location.start?.href
+          chapterHrefRef.current = href ?? ''
+          pageAtChapterEndRef.current = Boolean(displayed?.page && displayed?.total && displayed.page >= displayed.total)
           const chapter = toc.find((item) => href && (href === item.href || href.endsWith(item.href) || item.href.endsWith(href)))
           setChapterLabel(chapter?.label ?? '')
           void saveReadingProgress(book.id, cfi, progress)
@@ -217,7 +221,7 @@ export default function EpubReader({ book, onNotice, onProgress, onHighlightSave
       if (isReaderShortcutTarget(event.target)) return
       if (event.key === 'ArrowRight') {
         event.preventDefault()
-        void renditionRef.current?.next?.()
+        void goToNextPage()
       } else if (event.key === 'ArrowLeft') {
         event.preventDefault()
         void renditionRef.current?.prev?.()
@@ -225,7 +229,22 @@ export default function EpubReader({ book, onNotice, onProgress, onHighlightSave
     }
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
-  }, [pendingSelection, showContents])
+  }, [chapters, pendingSelection, showContents])
+
+  async function goToNextPage() {
+    const rendition = renditionRef.current
+    if (!rendition?.next) return
+    const chapterBeforeMove = chapterHrefRef.current
+    if (pageAtChapterEndRef.current && chapterBeforeMove) {
+      const currentChapterIndex = chapters.findIndex((chapter) => chapter.href === chapterBeforeMove || chapterBeforeMove.endsWith(chapter.href) || chapter.href.endsWith(chapterBeforeMove))
+      const nextChapter = currentChapterIndex >= 0 ? chapters[currentChapterIndex + 1] : undefined
+      // EPUB.js's horizontal manager can stop at the exact right-hand edge of
+      // a one-page spine item. The chapter list is already normalized from the
+      // nav document or spine, so use it as a deterministic boundary fallback.
+      if (nextChapter) return rendition.display(nextChapter.href)
+    }
+    await rendition.next()
+  }
 
   async function persistSelection() {
     if (!pendingSelection) return
@@ -277,7 +296,7 @@ export default function EpubReader({ book, onNotice, onProgress, onHighlightSave
       <span aria-live="polite">{status || (en ? 'EPUB · local reading' : 'EPUB 本地阅读')}</span>
       <div className="reader-toolbar-actions"><button onClick={() => setReaderPreferences((current) => ({ ...current, fontScale: clampFontScale(current.fontScale - 0.05) }))} aria-label={en ? 'Decrease font size' : '减小字号'}>A−</button><button onClick={() => setReaderPreferences((current) => ({ ...current, fontScale: clampFontScale(current.fontScale + 0.05) }))} aria-label={en ? 'Increase font size' : '增大字号'}>A＋</button><button onClick={() => setReaderPreferences((current) => ({ ...current, theme: cycleTheme(current.theme) }))}>{themeLabel}</button>{chapters.length > 0 ? <button onClick={() => setShowContents(!showContents)} aria-expanded={showContents} aria-controls="epub-contents">{showContents ? ui.collapseContents : `${ui.contents} · ${chapters.length}`}</button> : <span className="epub-contents-unavailable" title={en ? 'This EPUB has no usable contents. You can still use page navigation.' : '此 EPUB 未提供可用目录，可继续使用上一页、下一页阅读'}>{ui.contentsUnavailable}</span>}</div>
     </div>
-    <div className="epub-navigation" aria-label={en ? 'EPUB page navigation' : 'EPUB 翻页'}><button aria-label={ui.previousPage} onClick={() => { void renditionRef.current?.prev?.() }}>{ui.previousPage}</button><span data-testid="epub-progress">{chapterLabel ? `${chapterLabel} · ` : ''}{pageLabel || (en ? 'Preparing reading view' : '准备阅读')}</span><button aria-label={ui.nextPage} onClick={() => { void renditionRef.current?.next?.() }}>{ui.nextPage}</button></div>
+    <div className="epub-navigation" aria-label={en ? 'EPUB page navigation' : 'EPUB 翻页'}><button aria-label={ui.previousPage} onClick={() => { void renditionRef.current?.prev?.() }}>{ui.previousPage}</button><span data-testid="epub-progress">{chapterLabel ? `${chapterLabel} · ` : ''}{pageLabel || (en ? 'Preparing reading view' : '准备阅读')}</span><button aria-label={ui.nextPage} onClick={() => { void goToNextPage() }}>{ui.nextPage}</button></div>
     {pendingSelection && <section className="epub-selection-bar" aria-label={ui.selectedTextActions}>
       <span title={pendingSelection.text}>{pendingSelection.text}</span>
       <button className="translate-button" onClick={() => { void translatePendingSelection() }}>{translating ? (en ? 'Translating…' : '翻译中…') : ui.translation}</button>
