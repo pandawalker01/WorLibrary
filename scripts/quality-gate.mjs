@@ -69,6 +69,7 @@ async function main() {
     ['typecheck', npm, ['run', 'typecheck']],
     ['build', npm, ['run', 'build']],
     ['bundle-budget', npm, ['run', 'test:bundle']],
+    ['cloudflare-worker', npm, ['run', 'test:worker']],
     ['ai-gateway', npm, ['run', 'test:gateway']],
     ['playwright', npx, ['playwright', 'test', '--reporter=json']],
   ]) {

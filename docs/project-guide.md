@@ -12,7 +12,7 @@ WorLibrary 是本地优先的多语言阅读器：用户导入自己拥有的 EP
 
 - EPUB 与 PDF 本地导入、书架持久化、原始文件保存、阅读位置恢复；导入阅读数据时会先验证全部原始文件，缺失或损坏会取消导入而不会留下不可打开的书架记录；阅读器内置的字号、主题与翻译重试文案会跟随界面语言。
 - EPUB 目录、分页、字号与主题；PDF 翻页、键盘翻页（方向键/PageUp/PageDown，以及 Home/End 跳至首末页）、按页 OCR、OCR 本地校正和 OCR 失败重试。窄屏 PDF 阅读器将上一页/下一页收敛为阅读页下方的独立大触控条，避免它被排版、OCR 等工具挤出可见区域；本地文件被清理、损坏或暂时不可读时，EPUB/PDF 阅读器显示可重试的恢复说明而不呈现空白页；阅读器顶部排版面板可统一切换字号与纸张/暖页/夜间主题。
-- 公网 API 通过 `api/gateway.mjs` 在 Vercel 路由边界注入部署运行时环境变量；健康检查、翻译和解释共用同一网关配置，服务端密钥不得以 `VITE_*` 变量暴露给浏览器。健康检查和每一条 AI 成功/失败响应都会发送 `Cache-Control: no-store` 与 `x-request-id`，避免选区文本或错误结果被共享 HTTP 缓存保存。
+- 公网部署目标为 Cloudflare Workers：静态应用壳与 `/api/*` Worker 同域发布；`/api/catalog` 由 Worker 代理已审核的公共书目来源，带来源级超时、短期公共书目缓存和失败回收，避免用户浏览器直接依赖外部目录的网络可达性。健康检查、翻译和解释等包含用户上下文的接口必须发送 `Cache-Control: no-store` 与 `x-request-id`，服务端密钥不得以 `VITE_*` 变量暴露给浏览器。
 - 选中文字后的翻译、解释、保存摘录、颜色和笔记编辑。
 - 手动关联版本、双栏对照及低置信度回退。
 - EPUB 内嵌原始封面提取；在“我的书库”中右键已导入书籍可重新读取封面、上传封面、编辑书名作者或删除；用户上传的自定义封面不会被覆盖。
@@ -21,9 +21,9 @@ WorLibrary 是本地优先的多语言阅读器：用户导入自己拥有的 EP
 - 页面状态通过 URL 查询参数恢复：书库、世界书库、摘录、我的、设置以及已导入书籍的阅读器在刷新、复制链接和浏览器前进后退后回到对应位置；路由不占用认证魔法链接使用的 hash。
 - “我的”本地阅读页：统计本设备中的累计阅读时长、书籍、正在读、已完成与摘录数量；另以本地持久化的近 7 天阅读时长展示阅读轨迹，并记录每本书的本地阅读时长、按最后阅读时间提供最近阅读记录。仅在阅读器所在的浏览器标签页处于前台可见时计时。这些数据不伪装成云端账户数据。右上角账户入口显示会话身份的首字母头像，并通向设置中的账号与同步区。
 - 键盘与辅助技术基础支持：主导航和筛选会暴露当前状态；阅读器目录、选区操作与元数据对话框可用 Escape 关闭；阅读器翻页快捷键只在阅读内容区域生效，目录、工具栏与 OCR 编辑控件保留自身键盘交互；所有交互控件有高对比度可见焦点。
-- 匿名/魔法链接认证、Supabase 同步元数据、AI 额度账本与受控 API 网关。
+- 匿名/魔法链接认证、Supabase 同步基础、AI 额度账本与受控 API 网关。当前可稳定承诺的是本地优先阅读；跨设备同步仍处于实现阶段，不能在未配置 Supabase 且未通过真实跨设备验收时承诺恢复。
 
-书籍文件默认留在本机。同步的是元数据、进度、摘录和相关设置，不是原始书籍文件。
+书籍文件默认留在本机。目标同步范围是元数据、进度、摘录、阅读统计、世界书库收藏和相关设置，不是原始书籍文件；当前云端同步尚未完成该范围，清除站点数据前必须导出本地阅读数据。
 
 ## 2. 分层总览
 
@@ -35,7 +35,7 @@ WorLibrary 是本地优先的多语言阅读器：用户导入自己拥有的 EP
   - 客户端服务：翻译、解释、OCR、认证、同步
 
 服务端
-  - Vercel 风格 API 入口：api/translate.mjs、api/explain.mjs、api/health.mjs
+  - Cloudflare Worker 入口：worker/index.mjs（静态应用壳、目录搜索、健康检查）
   - Node 网关：server/ai-gateway.mjs、server/ocr-gateway.mjs
   - Supabase：认证、远端同步行、额度账本与 SQL migration
   - 外部 AI/OCR 供应商：只接收用户主动选择的短文本或当前页
@@ -61,8 +61,8 @@ WorLibrary 是本地优先的多语言阅读器：用户导入自己拥有的 EP
 | OCR 客户端 | src/lib/ocr.ts、docs/ocr.md | 当前 PDF 页转数据并请求 OCR | 只发送用户主动选定的页；不要上传整本书；校正草稿不可自动发给 AI |
 | 认证与同步 | src/lib/auth.ts、src/lib/remote.ts、src/lib/sync.ts、src/components/AuthPanel.tsx | 匿名/魔法链接会话、远端行同步、队列与冲突处理 | 原始书籍不进入同步；RLS 是服务端最终边界 |
 | 国际化 | src/lib/i18n.ts、src/lib/interface-locale-registry.ts、src/components/ReadingLanguagePicker.tsx 与各组件 | 界面语言和全球 AI 输出语言；界面语言的可用/规划状态、稳定回退与 RTL 方向 | 先读 docs/i18n-extension.md；两种语言配置独立；planned 语言没有完整文案前不得出现在可切换列表 |
-| API 与额度 | api/、server/、supabase/migrations/ | 网关、JWT 校验、额度扣减、健康检查 | 密钥仅在环境变量；额度操作需服务端原子化 |
-| 部署预检 | scripts/validate-env.mjs、scripts/verify-deployment.mjs、.github/workflows/ci.yml、vercel.json | 区分本地优先 staging、完整生产云服务与 Vercel 部署凭据；在 preview/production 部署后验证 HTTPS、健康端点和安全响应头 | 不打印 Secret；staging/production 云端端点必须 HTTPS；AI/OCR 启用时必须同时校验 JWT、CORS 与持久化额度依赖；发布后探针必须回显 request id、禁止缓存健康响应，并验证 CSP/HSTS 等安全头 |
+| API 与额度 | worker/、api/、server/、supabase/migrations/ | Worker 路由、JWT 校验、额度扣减、目录代理、健康检查 | 密钥仅在环境变量；额度操作需服务端原子化 |
+| Cloudflare 部署 | worker/index.mjs、wrangler.jsonc、scripts/verify-deployment.mjs | 同域静态 SPA、`/api/catalog`、健康探针与 Worker 安全头 | 公共书目结果可短期缓存；AI/OCR、认证和错误响应不得共享缓存；生产端点必须 HTTPS |
 | 样式 | src/*.css | 分区布局、阅读器与移动端适配 | 改动后检查桌面与 390px 窄屏用例 |
 | 无障碍与键盘阅读 | src/App.tsx、src/components/EpubReader.tsx、src/components/PdfReader.tsx、src/app.css | 焦点可见性、ARIA 当前/展开状态、Escape 关闭阅读器临时界面 | 同时检查中英文可访问名称，并运行 `tests/qa/accessibility.spec.ts` |
 
@@ -83,7 +83,7 @@ WorLibrary 是本地优先的多语言阅读器：用户导入自己拥有的 EP
 
 本地：书籍二进制、封面、阅读位置、摘录、笔记、作品/版本关系、AI 缓存，以及联网收藏书目的标题/作者/封面 URL/来源链接、来源记录 ID 与可读性状态（localStorage 的 `worlibrary.saved-world-books`）。
 
-远端：认证身份、同步元数据、进度、摘录、设置、设备与额度账本。世界书库在用户提交搜索时向已启用的合规书目来源请求元数据；服务端不得接收整本书。禁止接入、镜像、代理或为任何用户白名单绕过未获授权正文来源；AI 只接收选区与少量上下文，OCR 只接收用户点击识别的当前页。
+远端目标：Supabase 保存认证身份、同步元数据、进度、摘录、设置、设备与额度账本；当前尚未完成阅读统计、世界书库收藏和所有设置的跨设备同步。Cloudflare Worker 只在用户提交搜索时向已启用的合规书目来源请求公共元数据，可短期缓存已归一化的无身份查询；服务端不得接收整本书。禁止接入、镜像、代理或为任何用户白名单绕过未获授权正文来源；AI 只接收选区与少量上下文，OCR 只接收用户点击识别的当前页。
 
 涉及数据库时，新增 migration 只能向前；所有用户数据表必须有 RLS，并以 user_id 等于 auth.uid() 作为所有权边界。额度、订阅和权限只能由服务端更新。
 
@@ -93,7 +93,7 @@ WorLibrary 是本地优先的多语言阅读器：用户导入自己拥有的 EP
 
 本地启动：npm install，然后 npm run dev。通常访问 http://localhost:5173；不要用 file:// 直接打开 index.html，也不要连接遗留的 Vite 端口。
 
-最低验证：npm run typecheck、npm run build，以及与改动范围匹配的 Playwright 用例。部署配置改动还要运行 `npm run test:env`：`npm run validate:env -- --staging --json` 应明确列出被关闭的可选云能力，`npm run validate:env -- --staging --deployment --json` 应只检查 Vercel 凭据是否存在，完整云服务使用 `npm run validate:env -- --production --json`。PWA 变更必须运行 `npx playwright test tests/qa/pwa-shell.spec.ts`，并在生产预览中验证 Service Worker 注册、离线提示与已导入书籍恢复。对跨模块功能，运行 npx playwright test。发布前还需参考 docs/runbook.md。
+最低验证：npm run typecheck、npm run build、npm run test:worker，以及与改动范围匹配的 Playwright 用例。Cloudflare 配置完成后还要运行 `npm run cf:dev` 或 `npm run cf:deploy -- --dry-run`，并验证 `/api/health` 与 `/api/catalog`。PWA 变更必须运行 `npx playwright test tests/qa/pwa-shell.spec.ts`，并在生产预览中验证 Service Worker 注册、离线提示与已导入书籍恢复。对跨模块功能，运行 npx playwright test。发布前还需参考 docs/runbook.md。
 
 提交前必须阅读根目录 AGENTS.md 并更新受影响的文档。文档、测试和实现应进入同一次提交，使新 Agent 可以从仓库状态而非聊天记录恢复上下文。
 

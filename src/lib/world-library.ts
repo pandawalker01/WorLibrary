@@ -35,6 +35,7 @@ const SAVED_WORLD_BOOKS_KEY = 'worlibrary.saved-world-books'
 // outages. Catalog search must return control to the reader instead of leaving
 // the UI in an indefinite loading state.
 export const WORLD_CATALOG_REQUEST_TIMEOUT_MS = 8_000
+const WORLD_CATALOG_API_PATH = '/api/catalog'
 
 // Open Library indexes ISO 639-3 language codes. This intentionally stays
 // global rather than being a short, product-defined language whitelist.
@@ -142,9 +143,36 @@ const googleBooksSource: WorldCatalogSource = {
 // Both sources are catalog metadata only; opening a result always leaves the app.
 export const WORLD_CATALOG_SOURCES: readonly WorldCatalogSource[] = [openLibrarySource, googleBooksSource]
 
+function isCatalogApiResponse(payload: unknown): payload is { books: WorldBook[] } {
+  return Boolean(payload) && typeof payload === 'object' && Array.isArray((payload as { books?: unknown }).books)
+}
+
+async function searchCatalogApi(query: string, options: WorldLibrarySearchOptions, signal?: AbortSignal): Promise<WorldBook[] | undefined> {
+  const request = sourceRequestSignal(signal)
+  try {
+    const params = new URLSearchParams({ q: query })
+    if (options.language) params.set('language', options.language)
+    if (options.multiLanguageOnly) params.set('multiLanguageOnly', 'true')
+    const response = await fetch(`${WORLD_CATALOG_API_PATH}?${params}`, { signal: request.signal, headers: { Accept: 'application/json' } })
+    if (!response.ok) return undefined
+    const payload: unknown = await response.json()
+    return isCatalogApiResponse(payload) ? payload.books : undefined
+  } catch {
+    // Local Vite development and legacy deployments may not expose the Worker
+    // route yet. Fall back to reviewed direct catalog adapters in that case.
+    return undefined
+  } finally { request.dispose() }
+}
+
 export async function searchWorldLibrary(query: string, options: WorldLibrarySearchOptions = {}, signal?: AbortSignal): Promise<WorldBook[]> {
   const term = query.trim()
   if (!term) return []
+  // Cloudflare production serves this same-origin endpoint from the Worker,
+  // so readers do not depend on direct browser access to third-party catalogs.
+  // The explicit fallback keeps local development and existing deployments
+  // usable until their Worker route has been enabled.
+  const proxiedResults = await searchCatalogApi(term, options, signal)
+  if (proxiedResults) return proxiedResults
   const results = await Promise.allSettled(WORLD_CATALOG_SOURCES.map((source) => source.search(term, options, signal)))
   const books = results.flatMap((result) => result.status === 'fulfilled' ? result.value : [])
   if (books.length === 0 && results.some((result) => result.status === 'rejected')) throw new Error('WORLD_LIBRARY_UNAVAILABLE')

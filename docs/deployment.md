@@ -14,8 +14,29 @@
 | 环境 | 用途 | 来源 | 必需检查 |
 | --- | --- | --- | --- |
 | local | 开发与离线阅读验证 | 本地 Vite | `npm run typecheck`、`npm run build` |
-| staging | 每个 PR 的预览环境 | GitHub Actions + Vercel Preview | 冒烟测试、关键流程手测 |
-| production | 对外服务 | `main` 合并后人工批准的 Vercel Production | 发布清单、回滚路径、监控 |
+| staging | 每个 PR 的预览环境 | Cloudflare Workers Preview | 冒烟测试、关键流程手测 |
+| production | 对外服务 | `main` 合并后人工批准的 Cloudflare Workers Production | 发布清单、回滚路径、监控 |
+
+## Cloudflare Workers 部署基线
+
+本项目不是纯静态网站：`dist/` 中的 React/Vite 应用壳、样式和图标是静态资源；同一个 Cloudflare Worker 同时处理 `/api/catalog`、`/api/health` 及后续受控 API。静态资源可由边缘网络缓存；世界书库只缓存短期、无身份的公共书目查询。选区、登录、AI/OCR、同步、错误和健康响应不得被共享缓存。
+
+首次接入需由项目所有者完成：创建 Cloudflare 账号与 Workers 项目、将 GitHub 仓库接入部署，先使用 `*.workers.dev` 验收，再绑定正式域名。不要在聊天、仓库或前端变量中提供或提交 Cloudflare API Token。CI 使用的 Token 应限制到该账号/项目的 Workers 编辑权限；生产部署应使用独立环境与审批。
+
+本地安装依赖后可运行：
+
+```sh
+npm run cf:dev
+```
+
+发布命令为：
+
+```sh
+npm run build
+npm run cf:deploy
+```
+
+在未登录 Cloudflare 或未配置项目名称前，这些命令不会完成真实部署；应先运行本地构建与 Worker 路由契约测试。`wrangler.jsonc` 的 `name` 必须在首次部署前改为账户内唯一的项目名。
 
 生产和 staging 的平台密钥只放在部署平台的环境变量中，不提交 `.env`。AI/OCR 密钥只能由 API 网关使用；浏览器构建产物不得包含供应商密钥。
 
@@ -27,8 +48,8 @@
 # 本地优先的书架预览：云能力可不配，结果会给出明确 warnings。
 npm run validate:env -- --staging --json
 
-# 在 GitHub staging / production environment 内验证 Vercel 部署凭据。
-npm run validate:env -- --staging --deployment --json
+# Cloudflare Worker 路由契约（不需要真实账号或密钥）。
+npm run test:worker
 
 # 完整生产云服务：认证、同步、AI 与 OCR 均必须安全配置。
 npm run validate:env -- --production --json
@@ -38,19 +59,19 @@ npm run validate:env -- --production --json
 
 在 staging 与 production 中，`VITE_SUPABASE_URL`、`SUPABASE_URL`、`AI_BASE_URL` 与 `OCR_BASE_URL` 必须使用 HTTPS；HTTP 仅可用于本地开发。预检会拒绝不安全端点，避免浏览器混合内容、登录/同步不可用或服务端密钥走明文链路。
 
-`--production` 用于公开完整云服务，强制要求浏览器 Supabase 配置、AI/OCR 网关、精确 HTTPS CORS Origin、生产模式、鉴权开关和 URL 格式。它拒绝占位值、`mock` 供应商、通配 CORS 与任何意外使用 `VITE_` 前缀的密钥。`VITE_SUPABASE_ANON_KEY` 可以出现在浏览器构建中；`AI_API_KEY`、`OCR_API_KEY`、`SUPABASE_JWT_SECRET`、Supabase service-role key 和部署平台 token 绝不能出现。`--deployment` 只检查 Vercel 的 `VERCEL_TOKEN`、`VERCEL_ORG_ID`、`VERCEL_PROJECT_ID` 是否存在，不会读取或回显它们。
+`--production` 用于公开完整云服务，强制要求浏览器 Supabase 配置、AI/OCR 网关、精确 HTTPS CORS Origin、生产模式、鉴权开关和 URL 格式。它拒绝占位值、`mock` 供应商、通配 CORS 与任何意外使用 `VITE_` 前缀的密钥。`VITE_SUPABASE_ANON_KEY` 可以出现在浏览器构建中；`AI_API_KEY`、`OCR_API_KEY`、`SUPABASE_JWT_SECRET`、Supabase service-role key 和 Cloudflare API Token 绝不能出现。旧的 `--deployment` 预检只服务于历史 Vercel 流程，不应用于 Cloudflare；Cloudflare 部署凭据由 GitHub Environment Secret 与 Wrangler 在发布时校验。
 
 ### 首次生产配置：最小操作清单
 
 1. 创建 Supabase 项目；在 SQL Editor 或 CLI 依序执行 `supabase/migrations/0001_initial_sync.sql`、`0002_production_hardening.sql`、`0003_ai_usage_ledger.sql`、`0004_ai_usage_quota_release.sql`，再按 `supabase/verify_rls.sql` 用两个真实测试用户验证隔离。
-2. 在前端部署项目（Vercel/Cloudflare 等）配置 `VITE_SUPABASE_URL` 与 `VITE_SUPABASE_ANON_KEY`。它们是浏览器公开配置；不要放 service-role key。
+2. 在 Cloudflare Worker 项目配置 `VITE_SUPABASE_URL` 与 `VITE_SUPABASE_ANON_KEY`。它们是浏览器公开配置；不要放 service-role key。
 3. 在 **AI/OCR 网关的服务端环境** 配置 `AI_*`、`OCR_*`、`SUPABASE_JWT_SECRET`、`SUPABASE_URL`、`SUPABASE_ANON_KEY` 与一个精确的 `ALLOWED_ORIGIN=https://你的域名`；两个 `*_ENV` 均为 `production`，`AI_REQUIRE_AUTH=true`、`OCR_REQUIRE_AUTH=true`。不要把这些 Secret 放入前端部署环境或仓库。
 4. 依次执行 `0003_ai_usage_ledger.sql` 和 `0004_ai_usage_quota_release.sql`。网关会使用已验证用户的 JWT 调用 `consume_ai_quota`，并在供应商失败时调用 `release_ai_quota`；生产环境缺少 `SUPABASE_URL` / `SUPABASE_ANON_KEY` 会在调用供应商前拒绝请求。该账本只记录用户、请求 ID、操作种类与状态，不保存原书、正文、图像或模型输出。
-5. 配置 GitHub `staging` / `production` environments 中的 Vercel 三项部署 Secret，并在 production environment 开启 required reviewers。随后在部署环境运行 `npm run validate:env -- --staging --deployment`；完整云服务再运行 `npm run validate:env -- --production` 与 `npm run test:production`。
+5. 在 GitHub `staging` / `production` environments 中分别配置 `CLOUDFLARE_API_TOKEN` 与 `CLOUDFLARE_ACCOUNT_ID`，并在 production environment 开启 required reviewers。Token 只授予该账号内 Workers 的编辑权限。通过 `workflow_dispatch` 选择环境后才会部署；完整云服务再运行 `npm run validate:env -- --production` 与 `npm run test:production`。
 
 完成第 1–3 步后，网页可以进行登录与同步；完成第 4 步对应的网关适配后，才可安全对外启用真实 AI/OCR。预检通过只说明变量格式正确，不替代真实 RLS、JWT、供应商与跨域连通性验收。
 
-部署平台的健康探针使用 `GET /api/health`（也支持 `GET /health`）。Vercel API 入口会将部署运行时的环境变量传给共享网关，因此健康状态与翻译/解释路由使用同一份生产配置；不要在前端构建变量中放置服务端密钥。响应只包含服务状态、AI provider 名称和是否已配置，不会返回密钥或用户数据；探针应要求 HTTP 200，并设置 10 秒以内的超时。每次请求的 `x-request-id` 会在响应和服务端结构化日志中保留，便于从前端错误追踪到网关日志。健康、翻译与解释的成功和错误响应均会带 `Cache-Control: no-store`：这不是性能缓存开关，而是防止用户划词内容、认证错误或供应商错误经过浏览器与 CDN 的共享 HTTP 缓存。生产构建可用一条命令执行：
+部署平台的健康探针使用 `GET /api/health`（也支持 `GET /health`）。Cloudflare Worker 当前提供健康与世界书库目录路由；AI/OCR 网关迁移完成前不得把它们标记为已由 Worker 托管。不要在前端构建变量中放置服务端密钥。响应只包含服务状态与公开的运行时能力，不会返回密钥或用户数据；探针应要求 HTTP 200，并设置 10 秒以内的超时。每次请求的 `x-request-id` 会在响应和服务端结构化日志中保留，便于从前端错误追踪到网关日志。健康、翻译与解释的成功和错误响应均会带 `Cache-Control: no-store`：这不是性能缓存开关，而是防止用户划词内容、认证错误或供应商错误经过浏览器与 CDN 的共享 HTTP 缓存。
 
 ```sh
 npm run test:production
@@ -58,7 +79,7 @@ npm run test:production
 
 该命令只验证本地构建契约和网关逻辑，不代表真实 Supabase/RLS 或供应商凭据已连通。
 
-部署完成后，CI 会使用 Vercel action 输出的预览/生产 URL 执行 `npm run verify:deployment`。该检查要求 HTTPS、`/api/health` 返回带回显 `x-request-id` 和 `cache-control: no-store` 的安全 JSON，并要求首页带 CSP、HSTS、反 MIME 嗅探、反 iframe 与 Referrer Policy。也可在发布人员本机手动运行：
+部署完成后，发布人员使用 Cloudflare Worker 的 `workers.dev` 或自定义域名执行 `npm run verify:deployment`。该检查要求 HTTPS、`/api/health` 返回带回显 `x-request-id` 和 `cache-control: no-store` 的安全 JSON，并要求首页带 CSP、HSTS、反 MIME 嗅探、反 iframe 与 Referrer Policy。也可在发布人员本机手动运行：
 
 ```sh
 npm run verify:deployment -- https://app.example.com
@@ -100,13 +121,13 @@ npx supabase db push
 
 ## GitHub Actions
 
-`.github/workflows/ci.yml` 对 Pull Request 和 `main` 推送执行类型检查、构建和 Playwright Chromium 冒烟测试。预览发布需要在 GitHub 的 `staging` environment 配置 `VERCEL_TOKEN`、`VERCEL_ORG_ID`、`VERCEL_PROJECT_ID`；生产发布使用 `production` environment，并开启 required reviewers 作为人工确认。
+`.github/workflows/ci.yml` 对 Pull Request 和 `main` 推送执行类型检查、构建、Cloudflare Worker 契约与 Playwright Chromium 冒烟测试。Cloudflare 发布不在每次 push 时自动进行：项目所有者在 GitHub Actions 中通过 `workflow_dispatch` 选择 `staging` 或 `production`，并由对应 Environment 的 `CLOUDFLARE_API_TOKEN`、`CLOUDFLARE_ACCOUNT_ID` 完成发布；production 应开启 required reviewers。
 
-CI 还会检查登录/匿名试用契约、IndexedDB 与远端同步合并、翻译成功/失败与缓存、CORS、双译本低置信度回退，以及 migration 的 RLS 策略。质量 job 使用仅用于契约测试的假值，不连接真实 Supabase、AI 或 OCR 服务；预览和生产 job 都会在部署前以 `--staging --deployment` 显式检查各自 environment 的 Vercel 三个 Secret。缺失时只输出变量名，不输出值。
+CI 还会检查登录/匿名试用契约、IndexedDB 与远端同步合并、翻译成功/失败与缓存、CORS、双译本低置信度回退，以及 migration 的 RLS 策略。质量 job 使用仅用于契约测试的假值，不连接真实 Supabase、AI 或 OCR 服务；Worker 部署由 Wrangler 在实际发布时校验 Cloudflare 凭据，工作流不输出 Token 值。
 
 ## 域名与安全头
 
-将域名 DNS 指向托管平台并开启 HTTPS 强制跳转。`public/_headers` 为支持 `_headers` 的托管平台提供 CSP、禁止 iframe、严格 Referrer Policy 和 Permissions Policy；`vercel.json` 为 Vercel 的页面与 API 路由应用同等安全头及 HSTS。其他平台须在其响应头设置中复制同等策略。若接入 API 网关，将其 HTTPS origin 加入 `connect-src`，不要放宽为 `*`。
+将域名 DNS 指向 Cloudflare Worker 并开启 HTTPS 强制跳转。`worker/index.mjs` 为页面和 API 设定 CSP、禁止 iframe、严格 Referrer Policy 和 Permissions Policy；历史 `vercel.json` 不再是生产发布入口。若接入 API 网关，将其 HTTPS origin 加入 `connect-src`，不要放宽为 `*`。
 
 上线前验证：
 
@@ -125,4 +146,4 @@ curl -sI https://app.example.com/
 4. 合并到 `main`，在 GitHub Actions 的 production environment 点批准。
 5. 发布后执行 `docs/runbook.md` 的冒烟与回滚检查。
 
-如果预览部署失败，先查看 Vercel deployment logs 和 staging secret 校验结果；不要把生产 secret 临时复制到 PR 环境。修复后重新运行同一个 PR 的 workflow，确认旧预览仍可访问再替换。
+如果部署失败，先查看 Cloudflare Worker deployment logs 与对应 Environment 的权限范围；不要把 production Token 临时复制到 staging。修复后重新运行相同环境的手动发布，确认上一版本仍可访问再替换。

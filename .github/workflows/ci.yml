@@ -4,6 +4,13 @@ on:
   pull_request:
   push:
     branches: [main, 'codex/**']
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: Deploy target configured in GitHub Environments
+        required: true
+        type: choice
+        options: [staging, production]
 
 permissions:
   contents: read
@@ -46,43 +53,12 @@ jobs:
           ALLOWED_ORIGIN: https://ci.example.test
         run: npm run quality
 
-  preview:
-    if: github.event_name == 'pull_request'
-    needs: quality
-    runs-on: ubuntu-latest
-    environment: staging
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 20
-          cache: npm
-      - run: npm ci
-      - run: npm run build
-      - name: Validate staging deployment credentials
-        env:
-          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
-          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
-          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
-        run: npm run validate:env -- --staging --deployment
-      # Configure VERCEL_TOKEN, VERCEL_ORG_ID and VERCEL_PROJECT_ID in the staging environment.
-      - id: deploy
-        uses: amondnet/vercel-action@v25
-        with:
-          vercel-token: ${{ secrets.VERCEL_TOKEN }}
-          vercel-args: '--yes'
-          scope: ${{ secrets.VERCEL_ORG_ID }}
-          project-id: ${{ secrets.VERCEL_PROJECT_ID }}
-      - name: Verify preview health and security headers
-        run: npm run verify:deployment -- '${{ steps.deploy.outputs.preview-url }}'
-
-  production:
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+  deploy-cloudflare:
+    if: github.event_name == 'workflow_dispatch'
     needs: quality
     runs-on: ubuntu-latest
     environment:
-      name: production
-      url: ${{ steps.deploy.outputs.url }}
+      name: ${{ inputs.environment }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -91,18 +67,10 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run build
-      - name: Validate production deployment credentials
+      - name: Deploy Worker and static assets
         env:
-          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
-          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
-          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
-        run: npm run validate:env -- --staging --deployment
-      - id: deploy
-        uses: amondnet/vercel-action@v25
-        with:
-          vercel-token: ${{ secrets.VERCEL_TOKEN }}
-          vercel-args: '--prod --yes'
-          scope: ${{ secrets.VERCEL_ORG_ID }}
-          project-id: ${{ secrets.VERCEL_PROJECT_ID }}
-      - name: Verify production health and security headers
-        run: npm run verify:deployment -- '${{ steps.deploy.outputs.preview-url }}'
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: npm run cf:deploy
+      # After the first deployment, configure the stable Worker route or custom
+      # domain in Cloudflare and run `npm run verify:deployment -- <https-url>`.

@@ -4,11 +4,12 @@
 
 - [ ] `npm ci && npm run typecheck && npm run build` 全部通过。
 - [ ] `npm run quality` 生成 `test-results/release-report.json`；只有 `releaseReady: true` 才可发布。`blocked` 需要补齐部署配置，`failed` 需要修复代码或测试。
-- [ ] 在 GitHub 对应 environment 执行 `npm run validate:env -- --staging --deployment --json`；若缺失，仅补 `VERCEL_TOKEN`、`VERCEL_ORG_ID`、`VERCEL_PROJECT_ID` 到该 environment，绝不复制 production Secret 到 staging。
+- [ ] 在 Cloudflare Dashboard 核对 Preview/Production 使用不同的部署环境；CI Token 仅授予该项目所需的 Workers 编辑权限，绝不复制生产 Token 到预览环境或前端变量。
 - [ ] 若本次启用认证/同步、AI 或 OCR，再执行 `npm run validate:env -- --production --json`。`warnings` 表示特意关闭的可选能力；`missing` 或 `invalid` 表示不能启用该能力。记录变量名，不记录或截图变量值。
 - [ ] 确认 staging/production 的 `VITE_SUPABASE_URL`、`SUPABASE_URL`、`AI_BASE_URL` 与 `OCR_BASE_URL` 都是 HTTPS；HTTP 地址只允许本地开发。
 - [ ] Playwright 冒烟覆盖书库搜索、阅读/对照、AI 解释入口和备份控件。
 - [ ] staging 可访问，HTTPS 和安全响应头齐全。
+- [ ] 用 `/api/catalog?q=world%20classics` 验证世界书库能返回来源标识；临时断开任一上游时确认不会永久加载，也不会缓存失败响应。
 - [ ] 部署 action 完成后，`npm run verify:deployment -- https://<当前部署域名>` 通过；它同时验证 `/api/health`、request id 回显、禁止健康响应缓存，以及首页的 CSP/HSTS/反 MIME 嗅探/反 iframe/Referrer Policy。
 - [ ] 在 staging 安装 WorLibrary；首次联网打开后断网刷新，确认应用壳可打开、离线提示可见、此前导入的 EPUB/PDF 仍可打开。
 - [ ] 确认 DevTools/Application 中 Service Worker 的 scope 为 `/`，且 Cache Storage 中没有 API 响应、Supabase 响应或 `.epub` / `.pdf` 文件。
@@ -33,7 +34,7 @@ curl -fsS -D - https://app.example.com/api/health
 
 应返回 HTTP 200、`status: "ok"` 和 `x-request-id`。若健康探针失败，先保留响应头中的 request id，再检查部署日志；不要为了让探针变绿而暴露 API 密钥或放宽 CORS。
 
-自动化检查失败时先区分失败位置：`/api/health` 的状态、`cache-control` 或 request id 异常通常意味着网关/路由配置问题；若 `providerConfigured` 与部署变量不一致，检查 Vercel 的服务端环境是否已为当前 Preview/Production deployment 生效，而不是把密钥改为 `VITE_*` 变量。翻译或解释响应的 `Cache-Control` 不是 `no-store` 时，停止发布并检查共享网关的响应头：选区文本和错误信息不能进入浏览器或 CDN 的共享缓存。首页安全头缺失通常意味着托管平台没有应用 `public/_headers` 的等效规则。HTTPS/HSTS 缺失时不得通过降级为 HTTP 或删除该检查发布。
+自动化检查失败时先区分失败位置：`/api/health` 的状态、`cache-control` 或 request id 异常通常意味着 Worker 路由或部署配置问题；若运行时能力与部署变量不一致，检查 Cloudflare Environment 的 Worker Secret 是否已为当前发布生效，而不是把密钥改为 `VITE_*` 变量。翻译或解释响应的 `Cache-Control` 不是 `no-store` 时，停止发布并检查共享网关的响应头：选区文本和错误信息不能进入浏览器或 CDN 的共享缓存。首页安全头缺失通常意味着 Worker 未应用对应响应头。HTTPS/HSTS 缺失时不得通过降级为 HTTP 或删除该检查发布。
 
 ## 回滚
 
