@@ -9,7 +9,7 @@
 
 ## 运行
 
-这是一个 React + TypeScript + Vite 驱动的前端 Demo。首次安装依赖后运行：
+这是一个 React + TypeScript + Vite 驱动的前端 Demo。请使用 Node.js 24（本项目依赖的 PDF 与 Cloudflare 工具链要求 Node.js 22.13 以上）；首次安装依赖后运行：
 
 ```bash
 npm install
