@@ -32,6 +32,12 @@ type PdfPage = {
   getTextContent: () => Promise<{ items: Array<{ str?: string }> }>
 }
 
+type SelectionAnchor = {
+  left: number
+  top: number
+  placement: 'above' | 'below'
+}
+
 function isReaderShortcutTarget(target: EventTarget | null) {
   if (!(target instanceof HTMLElement)) return false
   return Boolean(target.closest('button, a, input, textarea, select, [contenteditable="true"], [role="button"], [role="textbox"], [role="dialog"], [role="menuitem"]'))
@@ -55,6 +61,7 @@ export default function PdfReader({ book, onNotice, onProgress, targetLanguage =
   const [pageText, setPageText] = useState('')
   const [showText, setShowText] = useState(false)
   const [selectedText, setSelectedText] = useState('')
+  const [selectionAnchor, setSelectionAnchor] = useState<SelectionAnchor>()
   const translationRequestRef = useRef(0)
   const [translation, setTranslation] = useState('')
   const [translating, setTranslating] = useState(false)
@@ -110,6 +117,7 @@ export default function PdfReader({ book, onNotice, onProgress, targetLanguage =
   useEffect(() => {
     translationRequestRef.current += 1
     setSelectedText('')
+    setSelectionAnchor(undefined)
     setTranslation('')
     setAiFeedback(undefined)
     setOcrText('')
@@ -247,6 +255,25 @@ export default function PdfReader({ book, onNotice, onProgress, targetLanguage =
     const selectionNode = selection?.anchorNode ?? null
     const belongsToReadableText = textLayerRef.current?.contains(selectionNode) || ocrTextRef.current?.contains(selectionNode)
     if (text && belongsToReadableText) {
+      const range = selection?.rangeCount ? selection.getRangeAt(0) : undefined
+      const rect = range?.getBoundingClientRect()
+      if (rect && (rect.width || rect.height)) {
+        const popoverWidth = Math.min(390, window.innerWidth - 24)
+        const horizontalPadding = 12
+        const left = Math.max(
+          popoverWidth / 2 + horizontalPadding,
+          Math.min(window.innerWidth - popoverWidth / 2 - horizontalPadding, rect.left + rect.width / 2),
+        )
+        const below = rect.bottom + 12
+        const shouldOpenAbove = below + 240 > window.innerHeight && rect.top > 252
+        setSelectionAnchor({
+          left,
+          top: shouldOpenAbove ? Math.max(12, rect.top - 12) : below,
+          placement: shouldOpenAbove ? 'above' : 'below',
+        })
+      } else {
+        setSelectionAnchor(undefined)
+      }
       setSelectedText(text)
       setTranslation('')
       setAiFeedback(undefined)
@@ -256,6 +283,7 @@ export default function PdfReader({ book, onNotice, onProgress, targetLanguage =
   function dismissSelection() {
     translationRequestRef.current += 1
     setSelectedText('')
+    setSelectionAnchor(undefined)
     setTranslation('')
     setAiFeedback(undefined)
     window.getSelection()?.removeAllRanges()
@@ -326,7 +354,7 @@ export default function PdfReader({ book, onNotice, onProgress, targetLanguage =
     </section>}
     {ocrStatus === 'error' && <div className="pdf-ocr-error" role="status"><span>{en ? 'Recognition did not finish. Check your connection and retry; the whole book is never uploaded.' : '识别未完成。请检查网络或稍后重试；不会上传整本书。'}</span><button onClick={() => { void recognizeCurrentPage() }}>{ui.retryOcr}</button></div>}
     <div className="pdf-reader-frame"><canvas ref={canvasRef} /></div>
-    {selectedText && <section className="reader-translation-popover pdf-translation-popover" data-testid="translation-popover" aria-label={ui.selectedTextActions}>
+    {selectedText && <section className={`reader-translation-popover pdf-translation-popover${selectionAnchor ? ` is-selection-anchored is-${selectionAnchor.placement}` : ''}`} style={selectionAnchor ? { left: selectionAnchor.left, top: selectionAnchor.top } : undefined} data-testid="translation-popover" aria-label={ui.selectedTextActions}>
       <div className="reader-translation-popover-heading"><span>{ui.translation}</span><button className="reader-translation-close" onClick={dismissSelection} aria-label={ui.closeSelection}>×</button></div>
       <p className="reader-translation-source" title={selectedText}>{selectedText}</p>
       {translating ? <p className="reader-translation-loading" aria-live="polite">{ui.translationLoading}</p> : translation && <div className="reader-translation-result" data-testid="translation-result" aria-live="polite">{translation}</div>}

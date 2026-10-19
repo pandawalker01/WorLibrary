@@ -48,9 +48,20 @@ test('P0: a fresh reader can import, read, translate, save, restore, and switch 
     node.dispatchEvent(new Event('selectionchange', { bubbles: true }))
   })
   await expect(page.getByTestId('translation-popover')).toBeVisible({ timeout: 5_000 })
+  await expect(page.getByTestId('translation-popover')).toHaveAttribute('style', /--selection-popover-left:/)
+  await expect(page.getByTestId('translation-popover')).toHaveAttribute('style', /--selection-popover-top:/)
+  await expect(page.getByRole('button', { name: '金色' })).toHaveAttribute('aria-pressed', 'false')
+  await expect.poll(() => page.evaluate(() => {
+    const iframe = document.querySelector<HTMLIFrameElement>('.epub-reader-frame iframe')
+    const popover = document.querySelector<HTMLElement>('[data-testid="translation-popover"]')
+    const range = iframe?.contentWindow?.getSelection()?.getRangeAt(0)
+    if (!iframe || !popover || !range) return false
+    return popover.getBoundingClientRect().top >= iframe.getBoundingClientRect().top + range.getBoundingClientRect().bottom
+  })).toBe(true)
   await expect.poll(() => translationTarget).toBe('中文')
   await expect(page.getByTestId('translation-result')).toContainText('端到端测试译文')
   await page.getByRole('button', { name: '玫红' }).click()
+  await expect(page.getByRole('button', { name: '玫红' })).toHaveAttribute('aria-pressed', 'true')
   await page.getByRole('button', { name: '保存摘录' }).click()
   await expect(page.locator('.toast')).toContainText('摘录已保存到本地')
 
