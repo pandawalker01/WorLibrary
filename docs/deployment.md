@@ -79,7 +79,7 @@ npm run test:production
 
 该命令只验证本地构建契约和网关逻辑，不代表真实 Supabase/RLS 或供应商凭据已连通。
 
-部署完成后，发布人员使用 Cloudflare Worker 的 `workers.dev` 或自定义域名执行 `npm run verify:deployment`。该检查要求 HTTPS、`/api/health` 返回带回显 `x-request-id` 和 `cache-control: no-store` 的安全 JSON，并要求首页带 CSP、HSTS、反 MIME 嗅探、反 iframe 与 Referrer Policy。也可在发布人员本机手动运行：
+部署完成后，发布人员使用 Cloudflare Worker 的 `workers.dev` 或自定义域名执行 `npm run verify:deployment`。该检查要求 HTTPS、`/api/health` 返回带回显 `x-request-id` 和 `cache-control: no-store` 的 Worker 健康 JSON；同时会真实请求 `/api/catalog?q=world%20classics&language=eng`，验证世界书库代理能返回来源与书目数组、短期公共缓存头和请求 ID，并要求首页带 CSP、HSTS、反 MIME 嗅探、反 iframe 与 Referrer Policy。GitHub 的手动 Cloudflare 部署会自动提取 Wrangler 输出的 `workers.dev` 地址并执行该验证，因此不依赖发布者本地网络是否能访问该测试域名。也可在发布人员本机手动运行：
 
 ```sh
 npm run verify:deployment -- https://app.example.com

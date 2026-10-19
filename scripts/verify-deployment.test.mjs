@@ -10,8 +10,13 @@ function response(body, { status = 200, headers = {} } = {}) {
 function healthyFetch({ omitHeader } = {}) {
   return async (url, init = {}) => {
     if (new URL(url).pathname === '/api/health') {
-      return response({ status: 'ok', service: 'worlibrary-ai-gateway' }, {
+      return response({ status: 'ok', runtime: 'cloudflare-worker', catalog: 'configured' }, {
         headers: { 'cache-control': 'no-store', 'x-request-id': init.headers['x-request-id'] },
+      })
+    }
+    if (new URL(url).pathname === '/api/catalog') {
+      return response({ books: [{ id: 'open-library:fixture' }], sources: ['open-library', 'google-books'] }, {
+        headers: { 'cache-control': 'public, max-age=60, s-maxage=300', 'x-request-id': init.headers['x-request-id'] },
       })
     }
     const headers = {
@@ -31,6 +36,7 @@ test('deployment verifier accepts a safe health endpoint and app security header
   assert.equal(result.ok, true)
   assert.equal(result.origin, 'https://app.example.test')
   assert.match(result.requestId, /^deploy-probe-/)
+  assert.equal(result.catalogCount, 1)
 })
 
 test('deployment verifier rejects non-HTTPS targets before making a request', async () => {

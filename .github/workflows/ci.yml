@@ -68,9 +68,14 @@ jobs:
       - run: npm ci
       - run: npm run build
       - name: Deploy Worker and static assets
+        id: deploy
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-        run: npm run cf:deploy
-      # After the first deployment, configure the stable Worker route or custom
-      # domain in Cloudflare and run `npm run verify:deployment -- <https-url>`.
+        run: |
+          npm run cf:deploy 2>&1 | tee deployment.log
+          deployment_url="$(grep -Eo 'https://[^[:space:]]+\.workers\.dev' deployment.log | tail -n 1)"
+          test -n "$deployment_url"
+          echo "deployment_url=$deployment_url" >> "$GITHUB_OUTPUT"
+      - name: Verify deployed catalog runtime
+        run: npm run verify:deployment -- "${{ steps.deploy.outputs.deployment_url }}"

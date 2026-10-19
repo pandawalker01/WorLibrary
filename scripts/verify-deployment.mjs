@@ -48,7 +48,9 @@ export async function verifyDeployment(origin, { fetchImpl = fetch, timeoutMs = 
     } catch {
       return failure('Health probe did not return JSON')
     }
-    if (payload?.status !== 'ok' || payload?.service !== 'worlibrary-ai-gateway') {
+    const isWorkerHealth = payload?.status === 'ok' && payload?.runtime === 'cloudflare-worker' && payload?.catalog === 'configured'
+    const isLegacyGatewayHealth = payload?.status === 'ok' && payload?.service === 'worlibrary-ai-gateway'
+    if (!isWorkerHealth && !isLegacyGatewayHealth) {
       return failure('Health probe returned an unexpected status payload')
     }
 
@@ -59,7 +61,27 @@ export async function verifyDeployment(origin, { fetchImpl = fetch, timeoutMs = 
       if (!value) return failure(`Application page is missing ${name}`)
       if (expected && !value.includes(expected)) return failure(`Application page has an invalid ${name}`)
     }
-    return { ok: true, origin: baseUrl.origin, requestId }
+
+    const catalogRequestId = `${requestId}-catalog`
+    const catalogUrl = new URL('/api/catalog?q=world%20classics&language=eng', baseUrl)
+    const catalog = await fetchImpl(catalogUrl, {
+      headers: { 'x-request-id': catalogRequestId },
+      redirect: 'error',
+      signal: controller.signal,
+    })
+    if (!catalog.ok) return failure(`Catalog probe returned HTTP ${catalog.status}`)
+    if (!header(catalog, 'cache-control').startsWith('public,')) return failure('Catalog probe must return a short-lived public cache policy')
+    if (header(catalog, 'x-request-id') !== catalogRequestId) return failure('Catalog probe did not return its x-request-id')
+    let catalogPayload
+    try {
+      catalogPayload = await catalog.json()
+    } catch {
+      return failure('Catalog probe did not return JSON')
+    }
+    if (!Array.isArray(catalogPayload?.books) || !Array.isArray(catalogPayload?.sources) || !catalogPayload.sources.includes('open-library')) {
+      return failure('Catalog probe returned an unexpected payload')
+    }
+    return { ok: true, origin: baseUrl.origin, requestId, catalogCount: catalogPayload.books.length }
   } catch (error) {
     if (error?.name === 'AbortError') return failure(`Deployment probe timed out after ${timeoutMs}ms`)
     return failure(`Deployment probe failed: ${error instanceof Error ? error.message : 'unknown error'}`)
