@@ -62,6 +62,24 @@ AI_TIMEOUT_MS=12000
 
 当前 Worker 的 `AI_RATE_LIMIT` 是单边缘实例、按 Cloudflare 提供的客户端 IP 做的短窗口保护，并非账户级额度系统。对外开放付费 AI 前，必须在 Cloudflare 配置 WAF/Rate Limiting 规则，并接入认证与持久化额度账本；在此之前仅可用于受控内测，不能把公开 URL 当作无限制翻译 API。
 
+### 本地完整翻译验收
+
+不要用 `npm run dev` 验证真实翻译：它只启动 Vite，不能提供 Worker 的 `/api/translate` 路由。请在仓库根目录创建本机专用的 `.dev.vars` 文件；它已被 Git 忽略，绝不能提交或截图。文件内容示例为：
+
+```text
+AI_API_KEY=<your provider key>
+AI_MODEL=<your approved model>
+```
+
+`AI_PROVIDER` 和 `AI_BASE_URL` 可不填，会使用 Worker 的 OpenAI 默认值。随后依序运行：
+
+```sh
+npm run build
+npm run cf:dev
+```
+
+Wrangler 会读取 `.dev.vars` 并启动本地 Worker 与 `dist/` 静态应用壳；终端会显示本地 URL（通常为 `http://localhost:8787`）。在该地址导入测试 EPUB/PDF、选中少量无版权文字并点击翻译，即可验收完整本地链路。停止开发服务器后，本地配置仍只保留在 `.dev.vars`，不会上传 Cloudflare 或 GitHub。
+
 ### 环境变量契约
 
 复制 `.env.example` 到部署平台的环境变量面板（不要提交 `.env`）。预检只读取当前进程环境，不联网、不打印变量值或密钥；可用 JSON 输出让 CI/QA 精确识别缺失项：
