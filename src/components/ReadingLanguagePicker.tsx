@@ -12,6 +12,7 @@ type ReadingLanguagePickerProps = {
   emptyLabel?: string
   disabled?: boolean
   className?: string
+  compact?: boolean
 }
 
 type LanguageOption = {
@@ -23,10 +24,16 @@ type LanguageOption = {
 }
 
 const legacyValues: Record<string, string> = {
-  '中文': 'Chinese (Simplified)',
+  '中文': 'Chinese',
   English: 'English',
   '日本語': 'Japanese',
   'Français': 'French',
+}
+
+export function displayReadingLanguage(value: string, locale: string): string {
+  const normalizedValue = legacyValues[value] ?? value
+  const code = WORLD_LANGUAGE_CODES.find((candidate) => languageName(candidate, 'en') === normalizedValue)
+  return code ? languageName(code, locale) ?? normalizedValue : normalizedValue
 }
 
 function isReadableLanguageName(value: string | undefined, code: string): value is string {
@@ -64,6 +71,7 @@ export default function ReadingLanguagePicker({
   emptyLabel = searchPlaceholder,
   disabled = false,
   className = '',
+  compact = false,
 }: ReadingLanguagePickerProps) {
   const generatedId = useId()
   const rootRef = useRef<HTMLDivElement>(null)
@@ -138,17 +146,18 @@ export default function ReadingLanguagePicker({
   }
 
   return <div className={`reading-language-picker ${className}`.trim()} ref={rootRef}>
-    <span className="reading-language-picker__label" id={`${generatedId}-label`}>{label}</span>
+    {!compact && <span className="reading-language-picker__label" id={`${generatedId}-label`}>{label}</span>}
     <button
       type="button"
       className="reading-language-picker__trigger"
-      aria-labelledby={`${generatedId}-label ${generatedId}-value`}
+      aria-label={`${label}：${selected?.label ?? displayReadingLanguage(value, locale)}`}
       aria-haspopup="listbox"
       aria-expanded={open}
       aria-controls={`${generatedId}-listbox`}
       disabled={disabled}
       onClick={() => open ? closePicker() : setOpen(true)}
     >
+      {compact && <span className="reading-language-picker__compact-label">{label}：</span>}
       <span id={`${generatedId}-value`}>{selected?.label ?? legacyValues[value] ?? value}</span>
       <span aria-hidden="true" className="reading-language-picker__chevron">⌄</span>
     </button>

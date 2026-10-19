@@ -67,3 +67,20 @@ test('interface language picker exposes the global roadmap without enabling inco
   await page.reload()
   await expect(page.getByRole('heading', { name: 'Reading & interface languages' })).toBeVisible()
 })
+
+test('topbar opens the reading-language picker in place and localizes its selection label', async ({ page }) => {
+  await page.goto('/')
+  const topbarPicker = page.locator('.topbar .header-reading-language-picker')
+  await topbarPicker.getByRole('button', { name: /理解语言：中文/ }).click()
+  await expect(topbarPicker.getByRole('searchbox', { name: '搜索全球理解语言' })).toBeVisible()
+  await topbarPicker.getByRole('searchbox', { name: '搜索全球理解语言' }).fill('日语')
+  await topbarPicker.getByRole('option', { name: /日语/ }).click()
+  await expect(topbarPicker.getByRole('button', { name: /理解语言：日语/ })).toBeVisible()
+  await expect(page).not.toHaveURL(/view=settings/)
+
+  await page.getByRole('button', { name: '设置' }).click()
+  await page.locator('.interface-language-picker').getByRole('button', { name: /选择界面语言/ }).click()
+  await page.locator('.interface-language-picker').getByRole('option', { name: /English/ }).click()
+  await page.getByRole('navigation').getByRole('button', { name: 'Library', exact: true }).click()
+  await expect(topbarPicker.getByRole('button', { name: /Reading language：Japanese/ })).toBeVisible()
+})

@@ -18,7 +18,7 @@ import { copy, interpolate, loadReadingLanguage, loadUiLocale, saveReadingLangua
 import { clampFontScale, loadReaderPreferences, type ReaderPreferences } from './lib/reader'
 import { loadSavedWorldBooks, saveWorldBook, searchWorldLibrary, worldBookIdentity, type WorldBook } from './lib/world-library'
 import WorldLanguagePicker from './components/WorldLanguagePicker'
-import ReadingLanguagePicker from './components/ReadingLanguagePicker'
+import ReadingLanguagePicker, { displayReadingLanguage } from './components/ReadingLanguagePicker'
 import InterfaceLanguagePicker from './components/InterfaceLanguagePicker'
 import { interfaceLocaleDirection, presentInterfaceLocales } from './lib/interface-locale-registry'
 
@@ -351,7 +351,7 @@ function App() {
 
   function changeReadingLanguage(nextLanguage: ReadingLanguage) {
     setLanguage(nextLanguage)
-    toast(`${ui.readingLanguageSaved}${nextLanguage}`)
+    toast(`${ui.readingLanguageSaved}${displayReadingLanguage(nextLanguage, uiLocale)}`)
   }
 
   function importBooks() { fileInput.current?.click() }
@@ -486,7 +486,7 @@ function App() {
         <header className="topbar">
           <p className="eyebrow">PERSONAL WORLD LIBRARY / 001</p>
           <div className="top-actions">
-            <button className="text-button" onClick={() => setView('settings')}>{ui.readingLanguage}：<strong>{language}</strong>⌄</button>
+            <ReadingLanguagePicker value={language} onChange={changeReadingLanguage} locale={uiLocale} label={ui.readingLanguage} searchLabel={ui.searchReadingLanguage} searchPlaceholder={ui.searchReadingLanguagePlaceholder} className="header-reading-language-picker" compact />
             <button className="round-button" onClick={importBooks} aria-label={ui.importBook}>＋</button>
             <button className="account-button" onClick={() => setView('settings')} aria-label={`${ui.account}: ${account.label}`} title={ui.account}><span aria-hidden="true">{account.initials}</span><strong>{account.label}</strong></button>
           </div>

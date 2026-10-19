@@ -80,5 +80,5 @@ test('P0: a fresh reader can import, read, translate, save, restore, and switch 
   await interfaceLanguagePicker.getByRole('button', { name: /Choose an interface language.*English/ }).click()
   await interfaceLanguagePicker.getByRole('option', { name: /中文（中国）/ }).click()
   await expect(page.locator('.nav-item', { hasText: '书库' })).toBeVisible()
-  await expect(page.getByRole('button', { name: /理解语言：中文/ })).toBeVisible()
+  await expect(page.locator('.topbar .header-reading-language-picker').getByRole('button', { name: /理解语言：中文/ })).toBeVisible()
 })

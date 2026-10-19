@@ -18,7 +18,7 @@
 | src/lib/i18n.ts | UiLocale、UI_LOCALES、copy 文案语言包与读写函数的唯一来源 |
 | src/components/ReadingLanguagePicker.tsx | 以完整名称显示、搜索和选择全球 AI 理解语言；对外保存稳定英文语言名称，不展示裸 ISO 代码 |
 | src/lib/interface-locale-registry.ts | 全球界面语言的可用/规划元数据、回退解析与 RTL 方向；不承载用户可见译文 |
-| src/App.tsx | 读取 uiLocale，将 copy[uiLocale] 注入我的书库、世界书库（含来源/版权边界提示）、我的页（含近 7 天轨迹和每本书阅读时长）、设置、导航与 PWA 更新提示；提供设置入口 |
+| src/App.tsx | 读取 uiLocale，将 copy[uiLocale] 注入我的书库、世界书库（含来源/版权边界提示）、我的页（含近 7 天轨迹和每本书阅读时长）、设置、导航与 PWA 更新提示；顶栏理解语言弹窗与设置页复用同一全球语言选择器 |
 | src/components/EpubReader.tsx | EPUB 阅读器可见文案、阅读主题标签与划词操作 |
 | src/components/PdfReader.tsx | PDF 阅读器、翻页、OCR、阅读主题标签与划词操作 |
 | src/components/HighlightsView.tsx | 摘录筛选、编辑、删除等可见文案 |
@@ -67,5 +67,6 @@
 - 失败提示、空状态、确认框、Toast 与 PWA 更新提示也必须本地化；世界书库的来源名称、联网收藏、本地导入、语言筛选、多语种/版本计数、主题推荐与版权边界提示同样属于必须双语维护的可见文案。全球书目语言名称不在语言包中逐项复制：通过 `worldLanguageName(code, uiLocale)` 调用浏览器 `Intl.DisplayNames` 生成。选择器会尝试英文名称回退；若仍不能得到可读名称，则隐藏该项，绝不向用户展示 ISO 代码。
 - 世界书库新增来源或访问状态时，来源显示、书目/预览/公共领域状态和失败提示必须同时加入 `i18n.ts` 的中英文语言包；来源自身的名称可保持其官方名称。不能以“公共领域”状态暗示 WorLibrary 托管或下载了正文。
 - 交互状态文案也必须双语维护：例如“已选中”、目录展开/收起、选区关闭、自动翻译中的浮层、OCR 结果与重试。EPUB 自动译文浮层应锚定在选区下方；翻译本身不能自动创建颜色标注，颜色按钮必须明确表示当前选择并使用 `aria-pressed`。状态按钮应同步提供 `aria-pressed`、`aria-expanded` 或 `aria-current`，而不是只用颜色表示状态。划词后的自动译文必须始终使用独立保存的 AI 理解语言，不能因界面语言变化而改变目标语言。
+- 顶栏理解语言入口必须直接打开可搜索的选择器而不改变当前路由或跳转设置；它显示的语言名与选项名称都使用当前界面语言的 `Intl.DisplayNames` 本地化。存储值仍为稳定的英文名称，以保障既有 AI 请求与用户设置兼容。
 - 失败提示、空状态、确认框和 Toast 也必须本地化。
 - 日期、数字和复数规则较复杂时，优先引入成熟的 Intl 或 FormatJS 方案，不要手写多语言分支。
