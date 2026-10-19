@@ -121,7 +121,7 @@ npx supabase db push
 
 ## GitHub Actions
 
-`.github/workflows/ci.yml` 对 Pull Request 和 `main` 推送执行类型检查、构建、Cloudflare Worker 契约与 Playwright Chromium 冒烟测试。CI 与发布 job 固定使用 Node.js 24；本项目的 PDF 与 Cloudflare 依赖已不支持 Node.js 20，不能为了消除提示降级运行时。Cloudflare 发布不在每次 push 时自动进行：项目所有者在 GitHub Actions 中通过 `workflow_dispatch` 选择 `staging` 或 `production`，并由对应 Environment 的 `CLOUDFLARE_API_TOKEN`、`CLOUDFLARE_ACCOUNT_ID` 完成发布；production 应开启 required reviewers。
+`.github/workflows/ci.yml` 对 Pull Request 和 `main` 推送执行类型检查、构建、Cloudflare Worker 契约与 Playwright Chromium 冒烟测试。CI 与发布 job 固定使用 Node.js 24；本项目的 PDF 与 Cloudflare 依赖已不支持 Node.js 20，不能为了消除提示降级运行时。提交的 `package-lock.json` 必须解析到公开可访问的 npm registry，不能写入个人或组织内部镜像域名，否则 GitHub Runner 会在 `npm ci` 阶段失败。Cloudflare 发布不在每次 push 时自动进行：项目所有者在 GitHub Actions 中通过 `workflow_dispatch` 选择 `staging` 或 `production`，并由对应 Environment 的 `CLOUDFLARE_API_TOKEN`、`CLOUDFLARE_ACCOUNT_ID` 完成发布；production 应开启 required reviewers。
 
 CI 还会检查登录/匿名试用契约、IndexedDB 与远端同步合并、翻译成功/失败与缓存、CORS、双译本低置信度回退，以及 migration 的 RLS 策略。质量 job 使用仅用于契约测试的假值，不连接真实 Supabase、AI 或 OCR 服务；Worker 部署由 Wrangler 在实际发布时校验 Cloudflare 凭据，工作流不输出 Token 值。
 
