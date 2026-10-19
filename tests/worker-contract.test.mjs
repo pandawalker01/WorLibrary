@@ -89,3 +89,71 @@ test('Cloudflare worker rejects invalid catalog requests without contacting upst
     assert.deepEqual(assets.requests, ['/settings', '/index.html'])
   })
 })
+
+test('Cloudflare translation routes call a configured provider without exposing secrets or caching reader text', async () => {
+  const assets = createAssets()
+  const calls = []
+  await withFetchStub(async (url, init) => {
+    calls.push({ url: String(url), init })
+    return Response.json({ choices: [{ message: { content: '你好，世界' } }] })
+  }, async () => {
+    const response = await worker.fetch(new Request('https://app.example.test/api/translate', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'cf-connecting-ip': '203.0.113.18', 'x-request-id': 'translation-contract' },
+      body: JSON.stringify({ text: 'Hello, world', sourceLanguage: 'English', targetLanguage: '中文', context: 'Greeting' }),
+    }), {
+      ASSETS: assets,
+      AI_PROVIDER: 'openai',
+      AI_API_KEY: 'secret-worker-key',
+      AI_MODEL: 'gpt-4o-mini',
+    })
+    assert.equal(response.status, 200)
+    assert.equal(response.headers.get('cache-control'), 'no-store')
+    assert.equal(response.headers.get('x-request-id'), 'translation-contract')
+    const responseBody = await response.text()
+    assert.deepEqual(JSON.parse(responseBody), { translation: '你好，世界', provider: 'openai', model: 'gpt-4o-mini', cached: false })
+    assert.equal(calls.length, 1)
+    assert.equal(calls[0].url, 'https://api.openai.com/v1/chat/completions')
+    assert.equal(calls[0].init.headers.Authorization, 'Bearer secret-worker-key')
+    assert.doesNotMatch(responseBody, /secret-worker-key/)
+  })
+})
+
+test('Cloudflare translation protects the provider with input validation, configuration checks and a per-client rate guard', async () => {
+  const assets = createAssets()
+  const unconfiguredHealth = await worker.fetch(new Request('https://app.example.test/api/health'), { ASSETS: assets })
+  assert.deepEqual((await unconfiguredHealth.json()).translation, { configured: false })
+  const configuredHealth = await worker.fetch(new Request('https://app.example.test/api/health'), { ASSETS: assets, AI_API_KEY: 'key', AI_MODEL: 'model' })
+  assert.deepEqual((await configuredHealth.json()).translation, { configured: true })
+  const status = await worker.fetch(new Request('https://app.example.test/api/translation-status', { headers: { 'x-request-id': 'translation-status-contract' } }), { ASSETS: assets, AI_API_KEY: 'key', AI_MODEL: 'model' })
+  assert.equal(status.status, 200)
+  assert.equal(status.headers.get('cache-control'), 'no-store')
+  assert.equal(status.headers.get('x-request-id'), 'translation-status-contract')
+  assert.deepEqual(await status.json(), { status: 'ok', service: 'worlibrary-translation', configured: true, authRequired: false })
+  const missingConfiguration = await worker.fetch(new Request('https://app.example.test/api/translate', {
+    method: 'POST',
+    body: JSON.stringify({ text: 'Hello' }),
+  }), { ASSETS: assets })
+  assert.equal(missingConfiguration.status, 503)
+  assert.deepEqual(await missingConfiguration.json(), { error: { code: 'provider_unavailable', message: 'AI 服务暂时不可用，请稍后再试。', retryable: true } })
+
+  let calls = 0
+  await withFetchStub(async () => {
+    calls += 1
+    return Response.json({ choices: [{ message: { content: 'Bonjour' } }] })
+  }, async () => {
+    const env = { ASSETS: assets, AI_API_KEY: 'key', AI_MODEL: 'model', AI_RATE_LIMIT: '1' }
+    const request = (text) => new Request('https://app.example.test/api/translate', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'cf-connecting-ip': '203.0.113.19' },
+      body: JSON.stringify({ text, targetLanguage: 'Français' }),
+    })
+    const first = await worker.fetch(request('Hello'), env)
+    assert.equal(first.status, 200)
+    const limited = await worker.fetch(request('Hello again'), env)
+    assert.equal(limited.status, 429)
+    assert.equal(limited.headers.get('retry-after'), '60')
+    assert.equal((await limited.json()).error.code, 'rate_limited')
+    assert.equal(calls, 1)
+  })
+})

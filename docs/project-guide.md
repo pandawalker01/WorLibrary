@@ -12,7 +12,7 @@ WorLibrary 是本地优先的多语言阅读器：用户导入自己拥有的 EP
 
 - EPUB 与 PDF 本地导入、书架持久化、原始文件保存、阅读位置恢复；导入阅读数据时会先验证全部原始文件，缺失或损坏会取消导入而不会留下不可打开的书架记录；阅读器内置的字号、主题与翻译重试文案会跟随界面语言。
 - EPUB 目录、分页、字号与主题；PDF 翻页、键盘翻页（方向键/PageUp/PageDown，以及 Home/End 跳至首末页）、按页 OCR、OCR 本地校正和 OCR 失败重试。窄屏 PDF 阅读器将上一页/下一页收敛为阅读页下方的独立大触控条，避免它被排版、OCR 等工具挤出可见区域；本地文件被清理、损坏或暂时不可读时，EPUB/PDF 阅读器显示可重试的恢复说明而不呈现空白页；阅读器顶部排版面板可统一切换字号与纸张/暖页/夜间主题。
-- 公网部署目标为 Cloudflare Workers：静态应用壳与 `/api/*` Worker 同域发布；`/api/catalog` 由 Worker 代理已审核的公共书目来源，带来源级超时、短期公共书目缓存和失败回收，避免用户浏览器直接依赖外部目录的网络可达性。健康检查、翻译和解释等包含用户上下文的接口必须发送 `Cache-Control: no-store` 与 `x-request-id`，服务端密钥不得以 `VITE_*` 变量暴露给浏览器。
+- 公网部署目标为 Cloudflare Workers：静态应用壳与 `/api/*` Worker 同域发布；`/api/catalog` 由 Worker 代理已审核的公共书目来源，带来源级超时、短期公共书目缓存和失败回收，避免用户浏览器直接依赖外部目录的网络可达性。`/api/translate` 与 `/api/explain` 使用 Worker Secret 中的 OpenAI-compatible 配置，仅发送用户主动选中的短文本；它们与健康检查都发送 `Cache-Control: no-store` 和 `x-request-id`。`/api/translation-status` 只能报告是否完成配置，绝不返回密钥、模型或供应商地址。服务端密钥不得以 `VITE_*` 变量暴露给浏览器。
 - 选中文字后的翻译、解释、保存摘录、颜色和笔记编辑。
 - 手动关联版本、双栏对照及低置信度回退。
 - EPUB 内嵌原始封面提取；在“我的书库”中右键已导入书籍可重新读取封面、上传封面、编辑书名作者或删除；用户上传的自定义封面不会被覆盖。
@@ -62,7 +62,7 @@ WorLibrary 是本地优先的多语言阅读器：用户导入自己拥有的 EP
 | 认证与同步 | src/lib/auth.ts、src/lib/remote.ts、src/lib/sync.ts、src/components/AuthPanel.tsx | 匿名/魔法链接会话、远端行同步、队列与冲突处理 | 原始书籍不进入同步；RLS 是服务端最终边界 |
 | 国际化 | src/lib/i18n.ts、src/lib/interface-locale-registry.ts、src/components/ReadingLanguagePicker.tsx 与各组件 | 界面语言和全球 AI 输出语言；界面语言的可用/规划状态、稳定回退与 RTL 方向 | 先读 docs/i18n-extension.md；两种语言配置独立；planned 语言没有完整文案前不得出现在可切换列表 |
 | API 与额度 | worker/、api/、server/、supabase/migrations/ | Worker 路由、JWT 校验、额度扣减、目录代理、健康检查 | 密钥仅在环境变量；额度操作需服务端原子化 |
-| Cloudflare 部署 | worker/index.mjs、wrangler.jsonc、scripts/verify-deployment.mjs、.github/workflows/ci.yml | 同域静态 SPA、`/api/catalog`、健康探针、真实目录发布验证与 Worker 安全头 | 手动部署必须从 Wrangler 输出提取地址，并由 GitHub Runner 验证健康和真实目录查询；公共书目结果可短期缓存；AI/OCR、认证和错误响应不得共享缓存；生产端点必须 HTTPS |
+| Cloudflare 部署 | worker/index.mjs、wrangler.jsonc、scripts/verify-deployment.mjs、.github/workflows/ci.yml | 同域静态 SPA、`/api/catalog`、`/api/translate`、`/api/explain`、健康/翻译就绪探针、真实目录发布验证与 Worker 安全头 | 手动部署必须从 Wrangler 输出提取地址，并由 GitHub Runner 验证健康、翻译配置状态和真实目录查询；公共书目结果可短期缓存；AI/OCR、认证和错误响应不得共享缓存；生产端点必须 HTTPS。当前 Worker 的边缘限流是每 isolate 的基础防护，公开启用付费 AI 前还必须接入全局限流/WAF 与账户额度边界 |
 | 样式 | src/*.css | 分区布局、阅读器与移动端适配 | 改动后检查桌面与 390px 窄屏用例 |
 | 无障碍与键盘阅读 | src/App.tsx、src/components/EpubReader.tsx、src/components/PdfReader.tsx、src/app.css | 焦点可见性、ARIA 当前/展开状态、Escape 关闭阅读器临时界面 | 同时检查中英文可访问名称，并运行 `tests/qa/accessibility.spec.ts` |
 

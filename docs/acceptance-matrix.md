@@ -27,6 +27,7 @@ npm run qa
 | PDF OCR 本地校正 | 用户可编辑识别文字并确认；后续翻译请求与保存摘录使用确认后的文字，不会使用未确认草稿 | `tests/qa/pdf-reader.spec.ts` |
 | 阅读位置恢复 | PDF 切换到第二页后，刷新及回到书库重新打开都恢复到第二页 | `tests/qa/reader-position.spec.ts` |
 | 划词翻译与失败反馈 | 真实 EPUB 选区出现翻译入口；网关超时、限流、不可用和额度耗尽均给出可理解提示，且仅可重试的错误显示重试 | `tests/qa/import-open.spec.ts`、`tests/qa/ai-feedback.spec.ts` |
+| Worker 翻译部署边界 | `/api/translate`、`/api/explain` 仅用 Worker Secret 调用供应商；选区成功/失败均为 `no-store` 并回显 request id；`/api/translation-status` 只报告配置状态且绝不泄露密钥/模型/供应商细节 | `tests/worker-contract.test.mjs`、`scripts/verify-deployment.test.mjs` |
 | 生产鉴权与用量账本 | 已验证 JWT 在没有持久化额度适配器时必须于供应商调用前拒绝；适配器以请求 ID 去重、额度耗尽不调用供应商，账本和可观察日志都不得包含划词正文、访问令牌或供应商密钥 | `server/usage-ledger.quality.test.mjs` |
 | 界面语言与理解语言分离 | 中/英文界面切换在刷新后保持；切换界面语言绝不修改理解语言，也不会改变翻译请求的 `targetLanguage` | `tests/qa/cover-and-interface-language.spec.ts` |
 | 全球理解语言 | 可搜索并选择非默认的全球语言，刷新后保持，选择器使用完整语言名且不展示裸 ISO 代码 | `tests/qa/cover-and-interface-language.spec.ts` |

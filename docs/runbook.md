@@ -11,6 +11,8 @@
 - [ ] Playwright 冒烟覆盖书库搜索、阅读/对照、AI 解释入口和备份控件。
 - [ ] staging 可访问，HTTPS 和安全响应头齐全。
 - [ ] 用 `/api/catalog?q=world%20classics` 验证世界书库能返回来源标识；临时断开任一上游时确认不会永久加载，也不会缓存失败响应。手动 Cloudflare 部署会从 GitHub Runner 自动执行同一条真实目录探针；其失败代表 Worker 或上游链路问题，而不是发布者本地 DNS 问题。
+- [ ] 用 `GET /api/translation-status` 确认返回 `configured: true`、`Cache-Control: no-store` 和请求 ID；该探针不发送选区文本、不调用模型。若为 `false`，先在 Cloudflare Worker Secret 中补齐 `AI_API_KEY` 并重新部署，绝不将它改为 `VITE_AI_API_KEY`。
+- [ ] 仅在受控内测环境使用无版权短句，完成一次 EPUB/PDF 划词翻译与解释；确认成功和错误响应都不被缓存。公开启用前在 Cloudflare 配置全局 WAF/Rate Limiting，并完成认证与持久化额度账本验收；Worker 的本地边缘限流不足以承担公开付费 API 的成本防护。
 - [ ] 部署 action 完成后，`npm run verify:deployment -- https://<当前部署域名>` 通过；它同时验证 `/api/health`、`/api/catalog`、request id 回显、对应的缓存策略，以及首页的 CSP/HSTS/反 MIME 嗅探/反 iframe/Referrer Policy。
 - [ ] 在 staging 安装 WorLibrary；首次联网打开后断网刷新，确认应用壳可打开、离线提示可见、此前导入的 EPUB/PDF 仍可打开。
 - [ ] 确认 DevTools/Application 中 Service Worker 的 scope 为 `/`，且 Cache Storage 中没有 API 响应、Supabase 响应或 `.epub` / `.pdf` 文件。
@@ -35,7 +37,7 @@ curl -fsS -D - https://app.example.com/api/health
 
 应返回 HTTP 200、`status: "ok"` 和 `x-request-id`。若健康探针失败，先保留响应头中的 request id，再检查部署日志；不要为了让探针变绿而暴露 API 密钥或放宽 CORS。
 
-自动化检查失败时先区分失败位置：`/api/health` 的状态、`cache-control` 或 request id 异常通常意味着 Worker 路由或部署配置问题；若运行时能力与部署变量不一致，检查 Cloudflare Environment 的 Worker Secret 是否已为当前发布生效，而不是把密钥改为 `VITE_*` 变量。翻译或解释响应的 `Cache-Control` 不是 `no-store` 时，停止发布并检查共享网关的响应头：选区文本和错误信息不能进入浏览器或 CDN 的共享缓存。首页安全头缺失通常意味着 Worker 未应用对应响应头。HTTPS/HSTS 缺失时不得通过降级为 HTTP 或删除该检查发布。
+自动化检查失败时先区分失败位置：`/api/health` 或 `/api/translation-status` 的状态、`cache-control` 或 request id 异常通常意味着 Worker 路由或部署配置问题；若翻译状态是 `configured: false`，检查 Cloudflare Environment 的 `AI_API_KEY` Secret 与 `AI_MODEL` Variable 是否已为当前发布生效，而不是把密钥改为 `VITE_*` 变量。翻译或解释响应的 `Cache-Control` 不是 `no-store` 时，停止发布并检查共享网关的响应头：选区文本和错误信息不能进入浏览器或 CDN 的共享缓存。首页安全头缺失通常意味着 Worker 未应用对应响应头。HTTPS/HSTS 缺失时不得通过降级为 HTTP 或删除该检查发布。
 
 ## 回滚
 

@@ -19,7 +19,7 @@
 
 ## Cloudflare Workers 部署基线
 
-本项目不是纯静态网站：`dist/` 中的 React/Vite 应用壳、样式和图标是静态资源；同一个 Cloudflare Worker 同时处理 `/api/catalog`、`/api/health` 及后续受控 API。静态资源可由边缘网络缓存；世界书库只缓存短期、无身份的公共书目查询。选区、登录、AI/OCR、同步、错误和健康响应不得被共享缓存。
+本项目不是纯静态网站：`dist/` 中的 React/Vite 应用壳、样式和图标是静态资源；同一个 Cloudflare Worker 同时处理 `/api/catalog`、`/api/health`、`/api/translate`、`/api/explain` 与 `/api/translation-status`。静态资源可由边缘网络缓存；世界书库只缓存短期、无身份的公共书目查询。选区、登录、AI/OCR、同步、错误和健康响应不得被共享缓存。
 
 首次接入需由项目所有者完成：创建 Cloudflare 账号与 Workers 项目、将 GitHub 仓库接入部署，先使用 `*.workers.dev` 验收，再绑定正式域名。不要在聊天、仓库或前端变量中提供或提交 Cloudflare API Token。CI 使用的 Token 应限制到该账号/项目的 Workers 编辑权限；生产部署应使用独立环境与审批。
 
@@ -39,6 +39,28 @@ npm run cf:deploy
 在未登录 Cloudflare 或未配置项目名称前，这些命令不会完成真实部署；应先运行本地构建与 Worker 路由契约测试。`wrangler.jsonc` 的 `name` 必须在首次部署前改为账户内唯一的项目名。
 
 生产和 staging 的平台密钥只放在部署平台的环境变量中，不提交 `.env`。AI/OCR 密钥只能由 API 网关使用；浏览器构建产物不得包含供应商密钥。
+
+### Cloudflare 划词翻译配置
+
+Worker 已实现真实的 OpenAI-compatible 翻译和解释路由。将以下值在 Cloudflare Dashboard 的 **Workers & Pages → worlibrary → Settings → Variables and Secrets** 中添加为 **Secret**（不要添加为 `VITE_*` 变量，也不要提交到 GitHub）：
+
+```text
+AI_API_KEY=<provider API key>
+```
+
+以下不是密钥，可按需作为普通 Worker variable 添加：
+
+```text
+AI_PROVIDER=openai
+AI_BASE_URL=https://api.openai.com/v1
+AI_MODEL=<your approved model>
+AI_RATE_LIMIT=10
+AI_TIMEOUT_MS=12000
+```
+
+设置后重新运行 GitHub Actions 的 `CI` 工作流并选择 `staging` 或 `production`，使新 Secret 生效。部署验证会访问不消耗模型额度的 `GET /api/translation-status`；它只会返回 `configured: true/false`，不会发送书籍文本或暴露配置值。真实验收必须由项目所有者使用无版权测试片段在阅读器中完成。
+
+当前 Worker 的 `AI_RATE_LIMIT` 是单边缘实例、按 Cloudflare 提供的客户端 IP 做的短窗口保护，并非账户级额度系统。对外开放付费 AI 前，必须在 Cloudflare 配置 WAF/Rate Limiting 规则，并接入认证与持久化额度账本；在此之前仅可用于受控内测，不能把公开 URL 当作无限制翻译 API。
 
 ### 环境变量契约
 
@@ -79,7 +101,7 @@ npm run test:production
 
 该命令只验证本地构建契约和网关逻辑，不代表真实 Supabase/RLS 或供应商凭据已连通。
 
-部署完成后，发布人员使用 Cloudflare Worker 的 `workers.dev` 或自定义域名执行 `npm run verify:deployment`。该检查要求 HTTPS、`/api/health` 返回带回显 `x-request-id` 和 `cache-control: no-store` 的 Worker 健康 JSON；同时会真实请求 `/api/catalog?q=world%20classics&language=eng`，验证世界书库代理能返回来源与书目数组、短期公共缓存头和请求 ID，并要求首页带 CSP、HSTS、反 MIME 嗅探、反 iframe 与 Referrer Policy。GitHub 的手动 Cloudflare 部署会自动提取 Wrangler 输出的 `workers.dev` 地址并执行该验证，因此不依赖发布者本地网络是否能访问该测试域名。也可在发布人员本机手动运行：
+部署完成后，发布人员使用 Cloudflare Worker 的 `workers.dev` 或自定义域名执行 `npm run verify:deployment`。该检查要求 HTTPS、`/api/health` 返回带回显 `x-request-id` 和 `cache-control: no-store` 的 Worker 健康 JSON；还会读取不消耗 AI 用量的 `/api/translation-status`，确认其私有缓存策略、请求 ID 回显和无敏感字段；同时会真实请求 `/api/catalog?q=world%20classics&language=eng`，验证世界书库代理能返回来源与书目数组、短期公共缓存头和请求 ID，并要求首页带 CSP、HSTS、反 MIME 嗅探、反 iframe 与 Referrer Policy。GitHub 的手动 Cloudflare 部署会自动提取 Wrangler 输出的 `workers.dev` 地址并执行该验证，因此不依赖发布者本地网络是否能访问该测试域名。也可在发布人员本机手动运行：
 
 ```sh
 npm run verify:deployment -- https://app.example.com

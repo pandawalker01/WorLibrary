@@ -16,6 +16,16 @@ function failure(message) {
   return { ok: false, message }
 }
 
+function isSafeTranslationStatus(payload) {
+  if (!payload || typeof payload !== 'object') return false
+  if (payload.status !== 'ok' || payload.service !== 'worlibrary-translation') return false
+  if (typeof payload.configured !== 'boolean' || typeof payload.authRequired !== 'boolean') return false
+  // This endpoint exists solely to make a deployment's translation capability
+  // observable without ever sending reader text or exercising a provider. Its
+  // shape must never become a path for exposing credentials or model details.
+  return !Object.keys(payload).some((key) => /(api.?key|secret|token|model|credential|password)/i.test(key))
+}
+
 export async function verifyDeployment(origin, { fetchImpl = fetch, timeoutMs = 10_000 } = {}) {
   let baseUrl
   try {
@@ -54,6 +64,24 @@ export async function verifyDeployment(origin, { fetchImpl = fetch, timeoutMs = 
       return failure('Health probe returned an unexpected status payload')
     }
 
+    const translationRequestId = `${requestId}-translation-status`
+    const translationStatusUrl = new URL('/api/translation-status', baseUrl)
+    const translationStatus = await fetchImpl(translationStatusUrl, {
+      headers: { 'x-request-id': translationRequestId },
+      redirect: 'error',
+      signal: controller.signal,
+    })
+    if (!translationStatus.ok) return failure(`Translation status probe returned HTTP ${translationStatus.status}`)
+    if (header(translationStatus, 'cache-control') !== 'no-store') return failure('Translation status probe must return cache-control: no-store')
+    if (header(translationStatus, 'x-request-id') !== translationRequestId) return failure('Translation status probe did not return its x-request-id')
+    let translationPayload
+    try {
+      translationPayload = await translationStatus.json()
+    } catch {
+      return failure('Translation status probe did not return JSON')
+    }
+    if (!isSafeTranslationStatus(translationPayload)) return failure('Translation status probe returned an unsafe or unexpected payload')
+
     const page = await fetchImpl(baseUrl, { redirect: 'error', signal: controller.signal })
     if (!page.ok) return failure(`Application page returned HTTP ${page.status}`)
     for (const [name, expected] of Object.entries(REQUIRED_SECURITY_HEADERS)) {
@@ -81,7 +109,13 @@ export async function verifyDeployment(origin, { fetchImpl = fetch, timeoutMs = 
     if (!Array.isArray(catalogPayload?.books) || !Array.isArray(catalogPayload?.sources) || !catalogPayload.sources.includes('open-library')) {
       return failure('Catalog probe returned an unexpected payload')
     }
-    return { ok: true, origin: baseUrl.origin, requestId, catalogCount: catalogPayload.books.length }
+    return {
+      ok: true,
+      origin: baseUrl.origin,
+      requestId,
+      catalogCount: catalogPayload.books.length,
+      translationConfigured: translationPayload.configured,
+    }
   } catch (error) {
     if (error?.name === 'AbortError') return failure(`Deployment probe timed out after ${timeoutMs}ms`)
     return failure(`Deployment probe failed: ${error instanceof Error ? error.message : 'unknown error'}`)

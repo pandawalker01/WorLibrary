@@ -7,11 +7,18 @@ function response(body, { status = 200, headers = {} } = {}) {
   return new Response(JSON.stringify(body), { status, headers })
 }
 
-function healthyFetch({ omitHeader } = {}) {
+function healthyFetch({ omitHeader, translationStatus, translationHeaders } = {}) {
   return async (url, init = {}) => {
     if (new URL(url).pathname === '/api/health') {
       return response({ status: 'ok', runtime: 'cloudflare-worker', catalog: 'configured' }, {
         headers: { 'cache-control': 'no-store', 'x-request-id': init.headers['x-request-id'] },
+      })
+    }
+    if (new URL(url).pathname === '/api/translation-status') {
+      return response(translationStatus || {
+        status: 'ok', service: 'worlibrary-translation', configured: true, authRequired: true, rateLimit: 'configured',
+      }, {
+        headers: { 'cache-control': 'no-store', 'x-request-id': init.headers['x-request-id'], ...translationHeaders },
       })
     }
     if (new URL(url).pathname === '/api/catalog') {
@@ -37,6 +44,29 @@ test('deployment verifier accepts a safe health endpoint and app security header
   assert.equal(result.origin, 'https://app.example.test')
   assert.match(result.requestId, /^deploy-probe-/)
   assert.equal(result.catalogCount, 1)
+  assert.equal(result.translationConfigured, true)
+})
+
+test('deployment verifier permits an intentionally unconfigured translation provider without consuming an AI request', async () => {
+  const result = await verifyDeployment('https://app.example.test', {
+    fetchImpl: healthyFetch({ translationStatus: { status: 'ok', service: 'worlibrary-translation', configured: false, authRequired: true, rateLimit: 'configured' } }),
+  })
+  assert.equal(result.ok, true)
+  assert.equal(result.translationConfigured, false)
+})
+
+test('deployment verifier rejects a translation status payload that could reveal a secret', async () => {
+  const result = await verifyDeployment('https://app.example.test', {
+    fetchImpl: healthyFetch({ translationStatus: { status: 'ok', service: 'worlibrary-translation', configured: true, authRequired: true, apiKey: 'must-not-leak' } }),
+  })
+  assert.deepEqual(result, { ok: false, message: 'Translation status probe returned an unsafe or unexpected payload' })
+})
+
+test('deployment verifier requires the translation status response to be private', async () => {
+  const result = await verifyDeployment('https://app.example.test', {
+    fetchImpl: healthyFetch({ translationHeaders: { 'cache-control': 'public, max-age=60' } }),
+  })
+  assert.deepEqual(result, { ok: false, message: 'Translation status probe must return cache-control: no-store' })
 })
 
 test('deployment verifier rejects non-HTTPS targets before making a request', async () => {
