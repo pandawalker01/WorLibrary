@@ -76,7 +76,10 @@ function applyReaderPreferences(rendition: Rendition | undefined, preferences: R
 
 function highlightStyles(color: Highlight['color']): Record<string, string> {
   const fill = color === 'rose' ? '#bf6d76' : color === 'blue' ? '#6886a7' : '#e6b160'
-  return { fill, 'fill-opacity': '0.35' }
+  // epub.js stores these as DOM dataset keys before applying them. Dashed
+  // names (such as fill-opacity) throw in browsers and can abort the entire
+  // selection callback, including the automatic translation request.
+  return { fill, fillOpacity: '0.35' }
 }
 
 export default function EpubReader({ book, onNotice, onProgress, onHighlightSaved, targetLanguage = '中文', uiLocale = 'zh-CN', preferences, onPreferencesChange }: EpubReaderProps) {
@@ -90,6 +93,7 @@ export default function EpubReader({ book, onNotice, onProgress, onHighlightSave
   const [chapters, setChapters] = useState<Array<{ label: string; href: string }>>([])
   const [showContents, setShowContents] = useState(false)
   const [pendingSelection, setPendingSelection] = useState<{ text: string; cfi: string }>()
+  const translationRequestRef = useRef(0)
   const [selectionColor, setSelectionColor] = useState<Highlight['color']>('gold')
   const selectionColorRef = useRef<Highlight['color']>('gold')
   const [translation, setTranslation] = useState('')
@@ -180,11 +184,13 @@ export default function EpubReader({ book, onNotice, onProgress, onHighlightSave
         rendition.on('selected', (cfi: string, contents: { window?: Window }) => {
           const text = contents?.window?.getSelection()?.toString().trim() ?? ''
           if (!text) return
-          setPendingSelection({ text, cfi })
           setTranslation('')
           setExplanation('')
-          rendition?.annotations?.highlight(cfi, highlightStyles(selectionColorRef.current))
           setAiFeedback(undefined)
+          setPendingSelection({ text, cfi })
+          // A malformed EPUB CFI must not prevent the useful parts of a text
+          // selection (translation and saving an excerpt) from continuing.
+          try { rendition?.annotations?.highlight(cfi, highlightStyles(selectionColorRef.current)) } catch { /* selection remains usable without a transient highlight */ }
         })
         await rendition.display(book.location)
         const savedHighlights = await listHighlights(book.id)
@@ -213,7 +219,7 @@ export default function EpubReader({ book, onNotice, onProgress, onHighlightSave
       if (event.key === 'Escape') {
         if (pendingSelection) {
           event.preventDefault()
-          setPendingSelection(undefined)
+          dismissSelection()
         } else if (showContents) {
           event.preventDefault()
           setShowContents(false)
@@ -236,6 +242,13 @@ export default function EpubReader({ book, onNotice, onProgress, onHighlightSave
     return () => window.removeEventListener('keydown', onKeyDown)
   }, [chapters, pendingSelection, showContents])
 
+  // Start only after React commits the selected text. This makes the EPUB
+  // iframe callback and the visible popup one transaction, while a newer
+  // selection naturally supersedes an earlier in-flight response.
+  useEffect(() => {
+    if (pendingSelection) void translateText(pendingSelection.text)
+  }, [pendingSelection?.cfi, pendingSelection?.text, targetLanguage])
+
   async function goToNextPage() {
     const rendition = renditionRef.current
     if (!rendition?.next) return
@@ -256,31 +269,45 @@ export default function EpubReader({ book, onNotice, onProgress, onHighlightSave
     try {
       const highlight = await saveHighlight({ bookId: book.id, text: pendingSelection.text, location: pendingSelection.cfi, color: selectionColor })
       onHighlightSaved?.(highlight)
-      setPendingSelection(undefined)
+      dismissSelection()
       onNotice('摘录已保存到本地')
     } catch (error) {
       onNotice(error instanceof Error ? error.message : '摘录保存失败，请稍后重试')
     }
   }
 
-  async function translatePendingSelection() {
-    if (!pendingSelection || translating) return
+  function dismissSelection() {
+    translationRequestRef.current += 1
+    setPendingSelection(undefined)
+    setTranslation('')
+    setExplanation('')
+    setAiFeedback(undefined)
+  }
+
+  async function translateText(text: string) {
+    const request = ++translationRequestRef.current
     setTranslating(true)
     setAiFeedback(undefined)
     try {
-      const result = await translateSelection(pendingSelection.text, targetLanguage)
-      setTranslation(result.translation)
+      const result = await translateSelection(text, targetLanguage)
+      if (request === translationRequestRef.current) setTranslation(result.translation)
     } catch (error) {
       const feedback = aiFeedbackFor(error)
-      setAiFeedback(feedback)
-      onNotice(feedback.title)
+      if (request === translationRequestRef.current) {
+        setAiFeedback(feedback)
+        onNotice(feedback.title)
+      }
     } finally {
-      setTranslating(false)
+      if (request === translationRequestRef.current) setTranslating(false)
     }
   }
 
+  function retryTranslation() {
+    if (pendingSelection) void translateText(pendingSelection.text)
+  }
+
   async function explainPendingSelection() {
-    if (!pendingSelection || translating || explaining) return
+    if (!pendingSelection || explaining) return
     setExplaining(true)
     setAiFeedback(undefined)
     try {
@@ -307,17 +334,15 @@ export default function EpubReader({ book, onNotice, onProgress, onHighlightSave
       <button onClick={() => setOpenAttempt((current) => current + 1)}>{ui.retryOpenBook}</button>
     </section>}
     <div className="epub-navigation" aria-label={en ? 'EPUB page navigation' : 'EPUB 翻页'}><button aria-label={ui.previousPage} onClick={() => { void renditionRef.current?.prev?.() }}>{ui.previousPage}</button><span data-testid="epub-progress">{chapterLabel ? `${chapterLabel} · ` : ''}{pageLabel || (en ? 'Preparing reading view' : '准备阅读')}</span><button aria-label={ui.nextPage} onClick={() => { void goToNextPage() }}>{ui.nextPage}</button></div>
-    {pendingSelection && <section className="epub-selection-bar" aria-label={ui.selectedTextActions}>
-      <span title={pendingSelection.text}>{pendingSelection.text}</span>
-      <button className="translate-button" onClick={() => { void translatePendingSelection() }}>{translating ? (en ? 'Translating…' : '翻译中…') : ui.translation}</button>
-      <button className="translate-button" onClick={() => { void explainPendingSelection() }}>{explaining ? (en ? 'Explaining…' : '解释中…') : ui.explanation}</button>
-      <div className="selection-colors" aria-label={ui.highlightColors}><button className={`gold ${selectionColor === 'gold' ? 'active' : ''}`} aria-label={ui.gold} aria-pressed={selectionColor === 'gold'} onClick={() => setSelectionColor('gold')} /><button className={`rose ${selectionColor === 'rose' ? 'active' : ''}`} aria-label={ui.rose} aria-pressed={selectionColor === 'rose'} onClick={() => setSelectionColor('rose')} /><button className={`blue ${selectionColor === 'blue' ? 'active' : ''}`} aria-label={ui.blue} aria-pressed={selectionColor === 'blue'} onClick={() => setSelectionColor('blue')} /></div>
-      <button onClick={() => { void persistSelection() }}>{ui.saveHighlight}</button>
-      <button className="ghost" onClick={() => setPendingSelection(undefined)} aria-label={ui.closeSelection}>{ui.cancel}</button>
-    </section>}
-    {translation && <div className="epub-translation-result" data-testid="translation-result" aria-live="polite"><span>{ui.translation}</span>{translation}{explanation && <><span>{ui.explanation}</span>{explanation}</>}</div>}
-    {aiFeedback && <div className="ai-request-feedback" role="status"><strong>{aiFeedback.title}</strong><span>{aiFeedback.detail}</span>{aiFeedback.retryable && pendingSelection && <button onClick={() => { void translatePendingSelection() }}>{ui.retryTranslation}</button>}</div>}
     {showContents && <nav id="epub-contents" className="epub-contents" aria-label={en ? 'Table of contents' : '章节目录'}>{chapters.map((chapter) => <button key={chapter.href} onClick={() => { void renditionRef.current?.display(chapter.href); setShowContents(false) }}>{chapter.label}</button>)}</nav>}
     <div className="epub-reader-frame" ref={mountRef} />
+    {pendingSelection && <section className="reader-translation-popover epub-translation-popover" data-testid="translation-popover" aria-label={ui.selectedTextActions}>
+      <div className="reader-translation-popover-heading"><span>{ui.translation}</span><button className="reader-translation-close" onClick={dismissSelection} aria-label={ui.closeSelection}>×</button></div>
+      <p className="reader-translation-source" title={pendingSelection.text}>{pendingSelection.text}</p>
+      {translating ? <p className="reader-translation-loading" aria-live="polite">{ui.translationLoading}</p> : translation && <div className="reader-translation-result" data-testid="translation-result" aria-live="polite">{translation}</div>}
+      {explanation && <div className="reader-explanation-result"><span>{ui.explanation}</span>{explanation}</div>}
+      {aiFeedback && <div className="ai-request-feedback" role="status"><strong>{aiFeedback.title}</strong><span>{aiFeedback.detail}</span>{aiFeedback.retryable && <button onClick={retryTranslation}>{ui.retryTranslation}</button>}</div>}
+      <div className="reader-translation-actions"><button onClick={() => { void explainPendingSelection() }} disabled={explaining}>{explaining ? ui.explanationLoading : ui.explanation}</button><div className="selection-colors" aria-label={ui.highlightColors}><button className={`gold ${selectionColor === 'gold' ? 'active' : ''}`} aria-label={ui.gold} aria-pressed={selectionColor === 'gold'} onClick={() => setSelectionColor('gold')} /><button className={`rose ${selectionColor === 'rose' ? 'active' : ''}`} aria-label={ui.rose} aria-pressed={selectionColor === 'rose'} onClick={() => setSelectionColor('rose')} /><button className={`blue ${selectionColor === 'blue' ? 'active' : ''}`} aria-label={ui.blue} aria-pressed={selectionColor === 'blue'} onClick={() => setSelectionColor('blue')} /></div><button onClick={() => { void persistSelection() }}>{ui.saveHighlight}</button></div>
+    </section>}
   </div>
 }

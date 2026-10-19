@@ -26,7 +26,7 @@ async function openFixtureWithSelection(page: Page) {
     selection.addRange(range)
     node.dispatchEvent(new Event('selectionchange', { bubbles: true }))
   })
-  await expect(page.getByRole('button', { name: '翻译' })).toBeVisible({ timeout: 5_000 })
+  await expect(page.getByTestId('translation-popover')).toBeVisible({ timeout: 5_000 })
 }
 
 test.describe('AI request feedback', () => {
@@ -55,7 +55,6 @@ test.describe('AI request feedback', () => {
       })
 
       await openFixtureWithSelection(page)
-      await page.getByRole('button', { name: '翻译' }).click()
       const feedback = page.locator('.ai-request-feedback')
       await expect(feedback).toContainText(scenario.title)
       await expect(feedback).toContainText(scenario.detail)
@@ -76,7 +75,6 @@ test.describe('AI request feedback', () => {
     })
 
     await openFixtureWithSelection(page)
-    await page.getByRole('button', { name: '翻译' }).click()
     const feedback = page.locator('.ai-request-feedback')
     await expect(feedback).toContainText('今日额度已用完')
     await expect(feedback).toContainText('请明天再试，或联系管理员调整试用额度。')

@@ -55,6 +55,7 @@ export default function PdfReader({ book, onNotice, onProgress, targetLanguage =
   const [pageText, setPageText] = useState('')
   const [showText, setShowText] = useState(false)
   const [selectedText, setSelectedText] = useState('')
+  const translationRequestRef = useRef(0)
   const [translation, setTranslation] = useState('')
   const [translating, setTranslating] = useState(false)
   const [ocrStatus, setOcrStatus] = useState<'idle' | 'uploading' | 'recognizing' | 'error'>('idle')
@@ -107,6 +108,7 @@ export default function PdfReader({ book, onNotice, onProgress, targetLanguage =
   // when navigation succeeds so text from a former page can never be saved or
   // translated as though it belonged to the new location.
   useEffect(() => {
+    translationRequestRef.current += 1
     setSelectedText('')
     setTranslation('')
     setAiFeedback(undefined)
@@ -190,8 +192,7 @@ export default function PdfReader({ book, onNotice, onProgress, targetLanguage =
       if (event.key === 'Escape') {
         if (selectedText) {
           event.preventDefault()
-          setSelectedText('')
-          window.getSelection()?.removeAllRanges()
+          dismissSelection()
         } else if (showText) {
           event.preventDefault()
           setShowText(false)
@@ -221,6 +222,13 @@ export default function PdfReader({ book, onNotice, onProgress, targetLanguage =
     return () => window.removeEventListener('keydown', onKeyDown)
   }, [moveToPage, page, selectedText, showText])
 
+  // Defer the request until the selected text has committed. This keeps the
+  // popup and request lifecycle in sync for both the PDF text layer and OCR
+  // result, and lets a later selection invalidate an earlier response.
+  useEffect(() => {
+    if (selectedText) void translateText(selectedText)
+  }, [selectedText, targetLanguage])
+
   async function saveText(text: string) {
     if (!text) {
       onNotice('这一页没有可提取的文本')
@@ -238,23 +246,41 @@ export default function PdfReader({ book, onNotice, onProgress, targetLanguage =
     const text = selection?.toString().trim() ?? ''
     const selectionNode = selection?.anchorNode ?? null
     const belongsToReadableText = textLayerRef.current?.contains(selectionNode) || ocrTextRef.current?.contains(selectionNode)
-    if (text && belongsToReadableText) setSelectedText(text)
+    if (text && belongsToReadableText) {
+      setSelectedText(text)
+      setTranslation('')
+      setAiFeedback(undefined)
+    }
   }
 
-  async function translateSelectedText() {
-    if (!selectedText || translating) return
+  function dismissSelection() {
+    translationRequestRef.current += 1
+    setSelectedText('')
+    setTranslation('')
+    setAiFeedback(undefined)
+    window.getSelection()?.removeAllRanges()
+  }
+
+  async function translateText(text: string) {
+    const request = ++translationRequestRef.current
     setTranslating(true)
     setAiFeedback(undefined)
     try {
-      const result = await translateSelection(selectedText, targetLanguage)
-      setTranslation(result.translation)
+      const result = await translateSelection(text, targetLanguage)
+      if (request === translationRequestRef.current) setTranslation(result.translation)
     } catch (error) {
       const feedback = aiFeedbackFor(error)
-      setAiFeedback(feedback)
-      onNotice(feedback.title)
+      if (request === translationRequestRef.current) {
+        setAiFeedback(feedback)
+        onNotice(feedback.title)
+      }
     } finally {
-      setTranslating(false)
+      if (request === translationRequestRef.current) setTranslating(false)
     }
+  }
+
+  function retryTranslation() {
+    if (selectedText) void translateText(selectedText)
   }
 
   async function recognizeCurrentPage() {
@@ -291,8 +317,6 @@ export default function PdfReader({ book, onNotice, onProgress, targetLanguage =
       <button onClick={() => setOpenAttempt((current) => current + 1)}>{ui.retryOpenBook}</button>
     </section>}
     {showText && <div id="pdf-page-text" ref={textLayerRef} className="pdf-text-layer" tabIndex={0} aria-label={ui.pdfPageText} onMouseUp={captureSelection} onKeyUp={captureSelection}>{pageText}</div>}
-    {selectedText && <section className="pdf-selection-bar" aria-label={ui.selectedTextActions}><span title={selectedText}>{selectedText}</span><button onClick={() => { void translateSelectedText() }}>{translating ? (en ? 'Translating…' : '翻译中…') : ui.translation}</button><button className="ghost" onClick={() => { setSelectedText(''); window.getSelection()?.removeAllRanges() }} aria-label={ui.closeSelection}>{ui.cancel}</button></section>}
-    {translation && <div className="pdf-translation-result"><span>{ui.translation}</span>{translation}</div>}
     {ocrText && <section className="pdf-text-layer pdf-ocr-result" aria-label={ui.ocrPageText}>
       <div className="pdf-ocr-result-heading" role="status"><strong>{ui.ocrResults}</strong><span>{ui.ocrResultsCopy}</span></div>
       <label className="pdf-ocr-correction-label" htmlFor="pdf-ocr-correction">{ui.ocrCorrectionLabel}</label>
@@ -300,9 +324,15 @@ export default function PdfReader({ book, onNotice, onProgress, targetLanguage =
       <div className="pdf-ocr-correction-actions"><span id="pdf-ocr-correction-help">{ocrDraft.trim() === ocrText ? ui.ocrCorrectionReady : ui.ocrCorrectionPending}</span><button disabled={!ocrDraft.trim() || ocrDraft.trim() === ocrText} onClick={confirmOcrCorrection}>{ui.confirmOcrCorrection}</button></div>
       <div ref={ocrTextRef} className="pdf-ocr-selectable-text" tabIndex={0} onMouseUp={captureSelection} onKeyUp={captureSelection}>{ocrText}</div>
     </section>}
-    {aiFeedback && <div className="ai-request-feedback" role="status"><strong>{aiFeedback.title}</strong><span>{aiFeedback.detail}</span>{aiFeedback.retryable && selectedText && <button onClick={() => { void translateSelectedText() }}>{ui.retryTranslation}</button>}</div>}
     {ocrStatus === 'error' && <div className="pdf-ocr-error" role="status"><span>{en ? 'Recognition did not finish. Check your connection and retry; the whole book is never uploaded.' : '识别未完成。请检查网络或稍后重试；不会上传整本书。'}</span><button onClick={() => { void recognizeCurrentPage() }}>{ui.retryOcr}</button></div>}
     <div className="pdf-reader-frame"><canvas ref={canvasRef} /></div>
+    {selectedText && <section className="reader-translation-popover pdf-translation-popover" data-testid="translation-popover" aria-label={ui.selectedTextActions}>
+      <div className="reader-translation-popover-heading"><span>{ui.translation}</span><button className="reader-translation-close" onClick={dismissSelection} aria-label={ui.closeSelection}>×</button></div>
+      <p className="reader-translation-source" title={selectedText}>{selectedText}</p>
+      {translating ? <p className="reader-translation-loading" aria-live="polite">{ui.translationLoading}</p> : translation && <div className="reader-translation-result" data-testid="translation-result" aria-live="polite">{translation}</div>}
+      {aiFeedback && <div className="ai-request-feedback" role="status"><strong>{aiFeedback.title}</strong><span>{aiFeedback.detail}</span>{aiFeedback.retryable && <button onClick={retryTranslation}>{ui.retryTranslation}</button>}</div>}
+      <div className="reader-translation-actions"><button onClick={() => { void saveText(selectedText) }}>{ui.saveHighlight}</button></div>
+    </section>}
     <nav className="pdf-page-navigation" aria-label={en ? 'PDF page navigation' : 'PDF 翻页'}>
       <button disabled={!document || page <= 1} onClick={() => { void moveToPage(page - 1) }}>{ui.previousPage}</button>
       <span aria-live="polite">{en ? `Page ${page} of ${document?.numPages ?? '…'}` : `第 ${page} / ${document?.numPages ?? '…'} 页`}</span>
