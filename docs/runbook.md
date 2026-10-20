@@ -23,6 +23,8 @@
 - [ ] 确认最近一次数据库备份时间、恢复负责人和回滚版本。
 - [ ] migration 文件名连续且只向前执行；RLS policy 检查通过。
 - [ ] 登录匿名试用/魔法链接、首次同步和翻译成功/失败均有可追踪 request id。
+- [ ] 若本次首次发布平台自有/获授权内容，已执行 `0006_platform_content_operations.sql`，并由受控后台（不是浏览器）完成许可、来源、SHA-256、私有 R2 对象、地区策略和发布审计的完整接入清单；详见 `docs/deployment.md` 的“首个合规内容来源接入清单”。
+- [ ] 验证普通 anon/authenticated 会话无法读取 `content_assets.object_key`、许可证据、来源审核记录或运营审计，也不能写入平台目录、资产、访问策略和权益；只有 service-role 可执行受控发布、下架与许可撤销 RPC。
 
 ## 发布后检查
 
@@ -39,6 +41,8 @@ curl -fsS -D - https://app.example.com/api/health
 应返回 HTTP 200、`status: "ok"` 和 `x-request-id`。若健康探针失败，先保留响应头中的 request id，再检查部署日志；不要为了让探针变绿而暴露 API 密钥或放宽 CORS。
 
 自动化检查失败时先区分失败位置：`/api/health` 或 `/api/translation-status` 的状态、`cache-control` 或 request id 异常通常意味着 Worker 路由或部署配置问题；若翻译状态是 `configured: false`，检查 Cloudflare Environment 的 `AI_API_KEY` Secret 与 `AI_MODEL` Variable 是否已为当前发布生效，而不是把密钥改为 `VITE_*` 变量。翻译或解释响应的 `Cache-Control` 不是 `no-store` 时，停止发布并检查共享网关的响应头：选区文本和错误信息不能进入浏览器或 CDN 的共享缓存。首页安全头缺失通常意味着 Worker 未应用对应响应头。HTTPS/HSTS 缺失时不得通过降级为 HTTP 或删除该检查发布。
+
+平台内容异常（许可到期、地区误开、权利人通知或哈希不一致）属于内容安全事件：先停止对应交付，不要通过临时公开 R2、扩大 CORS、修改浏览器缓存或删除审计记录来“修复”。对单版本使用受控服务端 `withdraw_platform_catalog_edition`；对整份许可使用 `revoke_platform_content_license`，两者都应记录操作者和原因。随后保存 request id、许可/来源记录 ID 与审计时间，核对目录不再展示、访问策略已收回，再按许可证条款处理私有对象。正文、对象键、签名 URL、合同证据和完整权利人通知不得贴入工单、聊天或 Sentry。
 
 ## 回滚
 

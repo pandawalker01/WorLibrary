@@ -51,8 +51,9 @@ npm run qa
 | 本地书籍管理入口 | 已导入书籍在“我的书库”右键菜单提供封面刷新、上传封面、编辑信息和删除；设置页与书库页面均不展示独立的管理区 | `tests/smoke.spec.ts` |
 | 世界书库 | 用户主动搜索开放书目后能看到明确来源；可通过可搜索、键盘可访问的全球语言选择器筛选（按当前界面语言显示完整名称，绝不显示裸 ISO 代码）、优先筛选拥有多语言记录的作品，并展示来源提供的语言/版本计数；收藏条目会出现在“我的书库”并标为联网收藏；主题推荐应标明其策展性质；不得把条目伪装成可下载的未授权正文 | `tests/smoke.spec.ts` |
 | 世界书库数据源边界 | Mock Open Library 与 Google Books 搜索后检查结果标有正确来源和访问状态；加入我的书库后，收藏保存 `sourceId`、`sourceRecordId`、外链与 `access.mode`；旧收藏仍能恢复；上游请求超时后必须退出加载态并允许再次搜索 | `tests/qa/world-language-discovery.spec.ts`；每新增适配器必须补相同来源/访问权验收。不得出现下载、导入正文或把书目页表示为可阅读全文的入口；来源失败不泄露或替换为未审核来源 |
-| 平台内容与书架权限边界 | 本地导入、平台版本与外部目录收藏必须在数据模型中分离；用户书架可显示“可离线阅读、在线阅读、限量预览、来源阅读、仅书目记录”等真实状态，不得伪造下载或应用内正文入口；平台私有对象键和用户权益不得被浏览器读取或写入 | `tests/platform-catalog-migration.spec.ts`、`tests/qa/world-language-discovery.spec.ts` |
-| 平台阅读访问策略 | `/api/reader/access` 只输出允许的访问策略；受限版本缺少会话、授权服务或授权时失败关闭，且响应绝不包含正文、对象键、签名 URL 或令牌 | `tests/worker-contract.test.mjs` |
+| 平台内容与书架权限边界 | 本地导入、平台版本与外部目录收藏必须在数据模型中分离；用户书架可显示“可离线阅读、在线阅读、限量预览、来源阅读、仅书目记录”等真实状态。已收藏的平台版本可进入 WorLibrary 平台阅读页；尚未配置交付时必须清晰失败，不能跳转第三方、伪造正文或下载入口；平台私有对象键和用户权益不得被浏览器读取或写入 | `tests/platform-catalog-migration.spec.ts`、`tests/qa/world-language-discovery.spec.ts` |
+| 平台阅读访问与私有交付 | `/api/reader/access` 只输出访问策略；受限版本缺少会话、授权服务或授权时失败关闭，且响应绝不包含正文、对象键、签名 URL 或令牌。`/api/reader/content` 必须在每次 GET/HEAD 重新验证授权，只服务 stream/preview 的私有 R2 EPUB/PDF，正确处理单段 Range、`private, no-store` 与 416，且无下载交付 | `tests/worker-contract.test.mjs` |
+| 平台内容运营控制 | 许可、来源审核、SHA-256、私有对象、地区策略和发布审计必须关联；浏览器不能读写许可/来源/审计/资产或目录与权益管理数据；仅 service-role 可受控发布、下架或撤销许可 | `tests/platform-content-operations-migration.spec.ts` |
 
 ## 竞品基线
 

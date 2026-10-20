@@ -17,7 +17,7 @@ WorLibrary 是本地优先的多语言阅读器：用户导入自己拥有的 EP
 - 手动关联版本、双栏对照及低置信度回退。
 - EPUB 内嵌原始封面提取；在“我的书库”中右键已导入书籍可重新读取封面、上传封面、编辑书名作者或删除；用户上传的自定义封面不会被覆盖。
 - 双书库入口：“我的书库”清楚区分本地导入与联网收藏；“世界书库”仅在用户主动搜索时查询合规目录适配器。当前启用 Open Library 与 Google Books：Open Library 始终标为“仅书目记录”；Google Books 严格采用其 API 返回的书目页与预览/公共领域可见性状态，按钮只会打开原始来源。两源都无法直接读取时，搜索在来源级超时后给出可重试错误，不永久停在加载状态。书目语言筛选提供覆盖全球主要书目语言的 ISO 639-3 列表，并用浏览器 `Intl.DisplayNames` 按当前界面语言显示名称；通过可搜索、键盘可操作的选择器显示完整名称，无法命名的代码不展示，也不直接暴露裸代码。也可优先查看拥有多语言记录的作品，并展示其语言/版本计数。世界书库不复用本地书库的大型营销标题，优先给搜索与发现留出空间。收藏后保存来源、来源记录 ID 与可读性状态。推荐区采用透明的主题策展，点击后才执行检索，不伪装成缺乏统计口径的全网排行榜。它不下载、保存或分发未获授权的正文，能否阅读全文以原始来源的版权与访问规则为准。
-- 平台书籍访问策略：`GET /api/reader/access?editionId=` 将“加入我的书库”与“可否阅读/下载”分开，稳定输出 `download`、`stream`、`external_reader`、`preview` 或 `catalog_only`。当前它只返回合规访问决策，绝不传输正文、对象存储键、文件 URL、签名 URL、阅读令牌或任何环境变量；`stream` / `download` 的真实版权交付仍未实现。受限版本需由 HTTPS 授权服务验证既有会话，缺失授权、策略或配置时必须失败关闭，不能为测试或白名单绕过未授权第三方正文。
+- 平台书籍访问与交付：`GET /api/reader/access?editionId=` 将“加入我的书库”与“可否阅读/下载”分开，稳定输出 `download`、`stream`、`external_reader`、`preview` 或 `catalog_only`。只有私有 R2 绑定、对象和允许格式均齐备时才报告 `delivery.available: true`；`GET` / `HEAD` `/api/reader/content?editionId=` 才会在每次请求重新验证受限会话后，以单段 Range 读取 EPUB/PDF。两接口均绝不传输对象键、文件 URL、签名 URL、阅读令牌或环境变量；不提供下载交付。书库中已收藏的平台版本会进入 WorLibrary 的平台阅读页，交付未配置时明确失败关闭；真正将受保护 EPUB/PDF 接入渲染器仍是后续工作，不能把“可交付”误称为已展示正文。不能为测试或白名单绕过未授权第三方正文。
 - 简体中文与英文界面；`src/lib/interface-locale-registry.ts` 已建立全球界面语言的可用/规划状态、稳定回退与 RTL 能力，避免未完成翻译包被误开放。设置页的全球语言选择器应同时展示可切换的已支持语言与不可切换的计划语言路线图，且以本地化名称显示、绝不暴露裸代码；AI 理解/翻译目标通过另一套可搜索的全球语言选择器选择，保存稳定的语言名称。顶栏的“理解语言”是同一选择器的紧凑入口，会在当前位置弹出，不会跳转设置页；当前语言名会随界面语言本地化。
 - 页面状态通过 URL 查询参数恢复：书库、世界书库、摘录、我的、设置以及已导入书籍的阅读器在刷新、复制链接和浏览器前进后退后回到对应位置；路由不占用认证魔法链接使用的 hash。
 - “我的”本地阅读页：统计本设备中的累计阅读时长、书籍、正在读、已完成与摘录数量；另以本地持久化的近 7 天阅读时长展示阅读轨迹，并记录每本书的本地阅读时长、按最后阅读时间提供最近阅读记录。仅在阅读器所在的浏览器标签页处于前台可见时计时。这些数据不伪装成云端账户数据。右上角账户入口显示会话身份的首字母头像，并通向设置中的账号与同步区。
@@ -62,7 +62,7 @@ WorLibrary 是本地优先的多语言阅读器：用户导入自己拥有的 EP
 | OCR 客户端 | src/lib/ocr.ts、docs/ocr.md | 当前 PDF 页转数据并请求 OCR | 只发送用户主动选定的页；不要上传整本书；校正草稿不可自动发给 AI |
 | 认证与同步 | src/lib/auth.ts、src/lib/remote.ts、src/lib/sync.ts、src/components/AuthPanel.tsx | 匿名/魔法链接会话、远端行同步、队列与冲突处理 | 原始书籍不进入同步；RLS 是服务端最终边界 |
 | 国际化 | src/lib/i18n.ts、src/lib/interface-locale-registry.ts、src/components/ReadingLanguagePicker.tsx 与各组件 | 界面语言和全球 AI 输出语言；界面语言的可用/规划状态、稳定回退与 RTL 方向 | 先读 docs/i18n-extension.md；两种语言配置独立；planned 语言没有完整文案前不得出现在可切换列表 |
-| API 与额度 | worker/、api/、server/、supabase/migrations/ | Worker 路由、平台版本访问策略、JWT 校验、额度扣减、目录代理、健康检查 | 密钥仅在环境变量；`/api/reader/access` 只返回策略，不得返回正文或对象存储位置；额度操作需服务端原子化 |
+| API 与额度 | worker/、api/、server/、supabase/migrations/ | Worker 路由、平台版本访问策略、受保护正文 Range 交付、JWT 校验、额度扣减、目录代理、健康检查 | 密钥仅在环境变量；`/api/reader/access` 只返回策略，`/api/reader/content` 每次复验后才从私有 R2 读取允许的 EPUB/PDF；两者不得返回正文定位信息或对象存储位置；额度操作需服务端原子化 |
 | Cloudflare 部署 | worker/index.mjs、wrangler.jsonc、scripts/verify-deployment.mjs、.github/workflows/ci.yml | 同域静态 SPA、`/api/catalog`、`/api/translate`、`/api/explain`、健康/翻译就绪探针、真实目录发布验证与 Worker 安全头 | 手动部署必须从 Wrangler 输出提取地址，并由 GitHub Runner 验证健康、翻译配置状态和真实目录查询；公共书目结果可短期缓存；AI/OCR、认证和错误响应不得共享缓存；生产端点必须 HTTPS。当前 Worker 的边缘限流是每 isolate 的基础防护，公开启用付费 AI 前还必须接入全局限流/WAF 与账户额度边界 |
 | 样式 | src/*.css | 分区布局、阅读器与移动端适配 | 改动后检查桌面与 390px 窄屏用例 |
 | 无障碍与键盘阅读 | src/App.tsx、src/components/EpubReader.tsx、src/components/PdfReader.tsx、src/app.css | 焦点可见性、ARIA 当前/展开状态、Escape 关闭阅读器临时界面 | 同时检查中英文可访问名称，并运行 `tests/qa/accessibility.spec.ts` |
@@ -84,7 +84,7 @@ WorLibrary 是本地优先的多语言阅读器：用户导入自己拥有的 EP
 
 本地：书籍二进制、封面、阅读位置、摘录、笔记、作品/版本关系、AI 缓存，以及联网收藏书目的标题/作者/封面 URL/来源链接、来源记录 ID 与可读性状态（localStorage 的 `worlibrary.saved-world-books`）。
 
-远端目标：Supabase 保存认证身份、同步元数据、进度、摘录、设置、设备与额度账本；当前尚未完成阅读统计、世界书库收藏和所有设置的跨设备同步。Cloudflare Worker 只在用户提交搜索时向已启用的合规书目来源请求公共元数据，可短期缓存已归一化的无身份查询；服务端不得接收整本书。平台版本目前只通过 `/api/reader/access` 获得访问策略，策略由 `PLATFORM_CONTENT_ACCESS_JSON` 声明；受限策略再由 `READER_AUTHORIZATION_URL` 验证会话。两者都不能向客户端泄露正文、私有对象键、签名 URL、授权 token 或授权服务响应中的用户数据。禁止接入、镜像、代理或为任何用户白名单绕过未获授权正文来源；AI 只接收选区与少量上下文，OCR 只接收用户点击识别的当前页。
+远端目标：Supabase 保存认证身份、同步元数据、进度、摘录、设置、设备与额度账本；当前尚未完成阅读统计、世界书库收藏和所有设置的跨设备同步。Cloudflare Worker 只在用户提交搜索时向已启用的合规书目来源请求公共元数据，可短期缓存已归一化的无身份查询；服务端不得接收用户本地导入的整本书。平台版本由 Worker Secret `PLATFORM_CONTENT_ACCESS_JSON` 声明策略；受限策略再由 `READER_AUTHORIZATION_URL` 验证会话。只有受控、私有的 `PLATFORM_CONTENT` R2 绑定可被 `/api/reader/content` 读取，且每次请求重新验证后只流式返回允许格式的正文字节，不返回对象键、签名 URL、授权 token 或授权服务响应中的用户数据。`content_licenses`、`content_source_records`、`content_assets` 和审计日志只由服务端运营流程管理，浏览器无读写权。禁止接入、镜像、代理或为任何用户白名单绕过未获授权正文来源；AI 只接收选区与少量上下文，OCR 只接收用户点击识别的当前页。
 
 涉及数据库时，新增 migration 只能向前；所有用户数据表必须有 RLS，并以 user_id 等于 auth.uid() 作为所有权边界。额度、订阅和权限只能由服务端更新。
 

@@ -8,6 +8,8 @@ const MAX_AI_CONTEXT_LENGTH = 1_500
 const MAX_AI_LANGUAGE_LENGTH = 64
 const MAX_PLATFORM_EDITION_ID_LENGTH = 160
 const PLATFORM_ACCESS_MODES = new Set(['download', 'stream', 'external_reader', 'preview', 'catalog_only'])
+const PLATFORM_DELIVERY_MODES = new Set(['stream', 'preview'])
+const PLATFORM_CONTENT_TYPES = new Set(['application/epub+zip', 'application/pdf'])
 // Catalog metadata is public, but search terms are still short-lived cache
 // entries. Health and user/AI routes keep the stricter no-store policy.
 const CATALOG_CACHE_CONTROL = 'public, max-age=60, s-maxage=300, stale-while-revalidate=60'
@@ -369,12 +371,18 @@ function platformAccessCatalog(env) {
       const editionId = entry.editionId.trim()
       if (!editionId || editionId.length > MAX_PLATFORM_EDITION_ID_LENGTH || !PLATFORM_ACCESS_MODES.has(entry.accessMode) || records.has(editionId)) return { error: 'ACCESS_POLICY_INVALID' }
       if (entry.accessMode === 'external_reader' && (typeof entry.externalReaderUrl !== 'string' || !/^https:\/\//i.test(entry.externalReaderUrl))) return { error: 'ACCESS_POLICY_INVALID' }
+      const r2ObjectKey = typeof entry.r2ObjectKey === 'string' ? entry.r2ObjectKey.trim() : undefined
+      const contentType = typeof entry.contentType === 'string' ? entry.contentType.trim().toLowerCase() : undefined
+      if (r2ObjectKey && (!PLATFORM_DELIVERY_MODES.has(entry.accessMode) || r2ObjectKey.length > 1_024 || r2ObjectKey.startsWith('/') || r2ObjectKey.includes('..'))) return { error: 'ACCESS_POLICY_INVALID' }
+      if (contentType && (!r2ObjectKey || !PLATFORM_CONTENT_TYPES.has(contentType))) return { error: 'ACCESS_POLICY_INVALID' }
       records.set(editionId, {
         editionId,
         accessMode: entry.accessMode,
         requiresAuthorization: entry.requiresAuthorization !== false,
         rightsNotice: typeof entry.rightsNotice === 'string' ? entry.rightsNotice.slice(0, 500) : undefined,
         externalReaderUrl: entry.accessMode === 'external_reader' ? entry.externalReaderUrl : undefined,
+        r2ObjectKey,
+        contentType,
       })
     }
     return { records }
@@ -425,18 +433,105 @@ async function readerAccess(request, env, id) {
     if (authorization.error) return readerAccessError(authorization.error, authorization.status, id)
   }
   // This policy endpoint intentionally does not return book bytes, object-store
-  // keys, signed download URLs, or reader session tokens. A later delivery
-  // route must verify the same entitlement before streaming an authorized asset.
+  // keys, signed download URLs, or reader session tokens. The content route
+  // repeats the same entitlement verification before reading an authorized asset.
+  const canDeliverInApp = PLATFORM_DELIVERY_MODES.has(record.accessMode)
+    && Boolean(record.r2ObjectKey && record.contentType && configuredContentBucket(env))
   return json({
     editionId: record.editionId,
     access_mode: record.accessMode,
     rights_notice: record.rightsNotice,
     delivery: {
-      available: false,
-      reason: 'content_delivery_not_implemented',
+      available: canDeliverInApp,
+      ...(canDeliverInApp ? { mode: 'in_app_stream' } : { reason: 'content_delivery_unavailable' }),
     },
     ...(record.externalReaderUrl ? { external_reader_url: record.externalReaderUrl } : {}),
   }, 200, id)
+}
+
+function readerContentError(code, status, id, extraHeaders = {}) {
+  const messages = {
+    CONTENT_DELIVERY_UNAVAILABLE: 'This edition is not configured for in-app delivery.',
+    CONTENT_NOT_FOUND: 'The requested edition content is unavailable.',
+    RANGE_NOT_SATISFIABLE: 'The requested content range is invalid.',
+  }
+  return new Response(JSON.stringify({ error: { code, message: messages[code] || 'Reader content is unavailable.', retryable: status >= 500 } }), {
+    status,
+    headers: { ...API_HEADERS, ...extraHeaders, 'x-request-id': id },
+  })
+}
+
+function parseSingleRange(value, size) {
+  if (!value) return undefined
+  const match = /^bytes=(\d*)-(\d*)$/i.exec(value.trim())
+  if (!match || size <= 0) return { error: true }
+  const [, rawStart, rawEnd] = match
+  if (!rawStart && !rawEnd) return { error: true }
+  let start
+  let end
+  if (rawStart) {
+    start = Number(rawStart)
+    end = rawEnd ? Number(rawEnd) : size - 1
+  } else {
+    const suffixLength = Number(rawEnd)
+    if (!Number.isSafeInteger(suffixLength) || suffixLength <= 0) return { error: true }
+    start = Math.max(size - suffixLength, 0)
+    end = size - 1
+  }
+  if (!Number.isSafeInteger(start) || !Number.isSafeInteger(end) || start < 0 || end < start || start >= size) return { error: true }
+  return { start, end: Math.min(end, size - 1) }
+}
+
+function configuredContentBucket(env) {
+  return env.PLATFORM_CONTENT && typeof env.PLATFORM_CONTENT.get === 'function' ? env.PLATFORM_CONTENT : undefined
+}
+
+async function readerContent(request, env, id) {
+  if (request.method !== 'GET' && request.method !== 'HEAD') return methodNotAllowed(id)
+  const editionId = (new URL(request.url).searchParams.get('editionId') || '').trim()
+  if (!editionId || editionId.length > MAX_PLATFORM_EDITION_ID_LENGTH) return readerAccessError('INVALID_EDITION_ID', 400, id)
+  const catalog = platformAccessCatalog(env)
+  if (catalog.error) return readerAccessError(catalog.error, 503, id)
+  const record = catalog.records.get(editionId)
+  if (!record) return readerAccessError('EDITION_NOT_FOUND', 404, id)
+  if (!PLATFORM_DELIVERY_MODES.has(record.accessMode) || !record.r2ObjectKey || !record.contentType) return readerContentError('CONTENT_DELIVERY_UNAVAILABLE', 503, id)
+  if (record.requiresAuthorization) {
+    const authorization = await authorizeReaderAccess(request, configuredAuthorizationUrl(env), record, id)
+    if (authorization.error) return readerAccessError(authorization.error, authorization.status, id)
+  }
+  const bucket = configuredContentBucket(env)
+  if (!bucket) return readerContentError('CONTENT_DELIVERY_UNAVAILABLE', 503, id)
+  let head
+  try {
+    head = await bucket.head?.(record.r2ObjectKey)
+  } catch {
+    return readerContentError('CONTENT_DELIVERY_UNAVAILABLE', 503, id)
+  }
+  if (!head || !Number.isSafeInteger(head.size) || head.size < 1) return readerContentError('CONTENT_NOT_FOUND', 404, id)
+  const range = parseSingleRange(request.headers.get('range'), head.size)
+  if (range?.error) return readerContentError('RANGE_NOT_SATISFIABLE', 416, id, { 'Content-Range': `bytes */${head.size}` })
+  let object
+  try {
+    object = request.method === 'HEAD'
+      ? head
+      : await bucket.get(record.r2ObjectKey, range ? { range: { offset: range.start, length: range.end - range.start + 1 } } : undefined)
+  } catch {
+    return readerContentError('CONTENT_DELIVERY_UNAVAILABLE', 503, id)
+  }
+  if (!object) return readerContentError('CONTENT_NOT_FOUND', 404, id)
+  const responseRange = range || { start: 0, end: head.size - 1 }
+  const partial = Boolean(range)
+  const headers = new Headers({
+    'Accept-Ranges': 'bytes',
+    'Cache-Control': 'private, no-store',
+    'Content-Length': String(responseRange.end - responseRange.start + 1),
+    'Content-Type': record.contentType,
+    'Referrer-Policy': 'no-referrer',
+    'X-Content-Type-Options': 'nosniff',
+    'x-request-id': id,
+  })
+  if (partial) headers.set('Content-Range', `bytes ${responseRange.start}-${responseRange.end}/${head.size}`)
+  return new Response(request.method === 'HEAD' ? null : object.body, { status: partial ? 206 : 200, headers })
 }
 
 function htmlNavigation(request) {
@@ -462,6 +557,7 @@ export default {
     if (url.pathname === '/api/health' || url.pathname === '/health') return health(request, env, id)
     if (url.pathname === '/api/catalog') return catalog(request, id)
     if (url.pathname === '/api/reader/access') return readerAccess(request, env, id)
+    if (url.pathname === '/api/reader/content') return readerContent(request, env, id)
     if (url.pathname === '/api/translation-status') return translationStatus(request, env, id)
     if (url.pathname === '/api/translate') return ai(request, env, id, 'translate')
     if (url.pathname === '/api/explain') return ai(request, env, id, 'explain')

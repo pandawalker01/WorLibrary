@@ -33,6 +33,27 @@ test('P0: personal library makes platform access states explicit and never offer
   await expect(page.getByText('收藏保存的是书目信息与来源链接，不等于下载或获得应用内正文。未授权正文不会下载、存储或分发。')).toHaveCount(0)
 })
 
+test('P0: platform online title opens the in-app reader and fails closed before content delivery exists', async ({ page }) => {
+  await page.addInitScript(() => localStorage.setItem('worlibrary.saved-world-books', JSON.stringify([{
+    id: 'platform-fixture', sourceId: 'platform', sourceRecordId: 'platform-fixture', platformEditionId: 'platform-fixture', title: 'Platform fixture', author: 'Rights holder', languages: ['eng'], sourceUrl: 'https://example.test/platform-fixture', sourceName: 'WorLibrary platform', access: { mode: 'licensed_full_text', url: 'https://example.test/platform-fixture' },
+  }])))
+  let accessRequests = 0
+  await page.route('**/api/reader/access?editionId=platform-fixture', async (route) => {
+    accessRequests += 1
+    await route.fulfill({ contentType: 'application/json', body: JSON.stringify({ editionId: 'platform-fixture', access_mode: 'stream', delivery: { available: false, reason: 'content_delivery_not_implemented' } }) })
+  })
+
+  await page.goto('/')
+  await page.getByRole('button', { name: '在 WorLibrary 中阅读' }).click()
+  await expect(page.getByRole('heading', { name: 'Platform fixture' })).toBeVisible()
+  await expect(page.getByText('平台内容尚未配置，不能打开')).toBeVisible()
+  await expect(page).toHaveURL(/view=reader/)
+  await expect(page).toHaveURL(/platformEdition=platform-fixture/)
+  expect(accessRequests).toBe(1)
+  await expect(page.locator('.epub-reader-frame, .pdf-reader-frame')).toHaveCount(0)
+  await expect(page.getByRole('button', { name: /下载/ })).toHaveCount(0)
+})
+
 test('P1: a stalled catalog request leaves loading state and can be retried', async ({ page }) => {
   await page.route('https://openlibrary.org/search.json**', async (route) => {
     await new Promise((resolve) => setTimeout(resolve, 9_000))

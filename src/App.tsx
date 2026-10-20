@@ -21,16 +21,17 @@ import WorldLanguagePicker from './components/WorldLanguagePicker'
 import ReadingLanguagePicker, { displayReadingLanguage } from './components/ReadingLanguagePicker'
 import InterfaceLanguagePicker from './components/InterfaceLanguagePicker'
 import { interfaceLocaleDirection, presentInterfaceLocales } from './lib/interface-locale-registry'
+import PlatformReader from './components/PlatformReader'
 
 type View = 'library' | 'reader' | 'highlights' | 'profile' | 'settings'
 type DisplayBook = Pick<StoredBook, 'id' | 'title' | 'author' | 'language' | 'progress' | 'cover'> & Partial<Pick<StoredBook, 'fileName' | 'fileType' | 'storage' | 'createdAt' | 'lastReadAt' | 'location' | 'workId' | 'coverImage'>>
-type AppRoute = { view: View; libraryMode: 'mine' | 'world'; bookId?: string }
+type AppRoute = { view: View; libraryMode: 'mine' | 'world'; bookId?: string; platformEditionId?: string }
 
 function readAppRoute(): AppRoute {
   const params = new URLSearchParams(window.location.search)
   const candidate = params.get('view')
   const view: View = candidate === 'reader' || candidate === 'highlights' || candidate === 'profile' || candidate === 'settings' ? candidate : 'library'
-  return { view, libraryMode: params.get('scope') === 'world' ? 'world' : 'mine', bookId: params.get('book') ?? undefined }
+  return { view, libraryMode: params.get('scope') === 'world' ? 'world' : 'mine', bookId: params.get('book') ?? undefined, platformEditionId: params.get('platformEdition') ?? undefined }
 }
 
 function writeAppRoute(route: AppRoute): void {
@@ -40,6 +41,8 @@ function writeAppRoute(route: AppRoute): void {
   else url.searchParams.delete('scope')
   if (route.view === 'reader' && route.bookId) url.searchParams.set('book', route.bookId)
   else url.searchParams.delete('book')
+  if (route.view === 'reader' && route.platformEditionId) url.searchParams.set('platformEdition', route.platformEditionId)
+  else url.searchParams.delete('platformEdition')
   window.history.pushState({}, '', url)
 }
 
@@ -165,6 +168,7 @@ function App() {
   const [bookReadingHistory, setBookReadingHistory] = useState<ReadingHistory>(loadBookReadingHistory)
   const [libraryMode, setLibraryMode] = useState<'mine' | 'world'>(initialRoute.libraryMode)
   const [routedBookId, setRoutedBookId] = useState<string | undefined>(initialRoute.bookId)
+  const [routedPlatformEditionId, setRoutedPlatformEditionId] = useState<string | undefined>(initialRoute.platformEditionId)
   const [worldQuery, setWorldQuery] = useState('')
   const [worldResults, setWorldResults] = useState<WorldBook[]>([])
   const [worldStatus, setWorldStatus] = useState<'idle' | 'loading' | 'error'>('idle')
@@ -202,28 +206,41 @@ function App() {
       setView(route.view)
       setLibraryMode(route.libraryMode)
       setRoutedBookId(route.bookId)
+      setRoutedPlatformEditionId(route.platformEditionId)
     }
     window.addEventListener('popstate', restoreRoute)
     return () => window.removeEventListener('popstate', restoreRoute)
   }, [])
 
   useEffect(() => {
-    if (!booksLoaded || view !== 'reader' || !routedBookId) return
+    if (!booksLoaded || view !== 'reader' || !routedBookId || routedPlatformEditionId) return
     const routedBook = books.find((book) => book.id === routedBookId && book.storage && book.fileName)
     if (routedBook) { setSelectedBook(routedBook); return }
     setView('library')
     setRoutedBookId(undefined)
     toast('找不到这本本地书籍，请返回书库重新导入')
-  }, [books, booksLoaded, routedBookId, view])
+  }, [books, booksLoaded, routedBookId, routedPlatformEditionId, view])
+
+  const selectedPlatformBook = routedPlatformEditionId
+    ? savedWorldBooks.find((book) => book.platformEditionId === routedPlatformEditionId)
+    : undefined
+
+  useEffect(() => {
+    if (!booksLoaded || view !== 'reader' || !routedPlatformEditionId) return
+    if (selectedPlatformBook) return
+    setView('library')
+    setRoutedPlatformEditionId(undefined)
+    toast(uiLocale === 'en' ? 'This platform edition is not in your library.' : '找不到这本平台书籍，请返回书库重新加入。')
+  }, [booksLoaded, routedPlatformEditionId, selectedPlatformBook, uiLocale, view])
 
   useEffect(() => {
     const currentRoute = readAppRoute()
     // A reader URL can arrive before IndexedDB has restored its book list. Do
     // not replace it with the default sample book while that restoration runs.
-    if (view === 'reader' && currentRoute.bookId && currentRoute.bookId !== selectedBook.id) return
-    const nextRoute: AppRoute = { view, libraryMode, bookId: view === 'reader' ? selectedBook.id : undefined }
-    if (currentRoute.view !== nextRoute.view || currentRoute.libraryMode !== nextRoute.libraryMode || currentRoute.bookId !== nextRoute.bookId) writeAppRoute(nextRoute)
-  }, [libraryMode, selectedBook.id, view])
+    if (view === 'reader' && currentRoute.bookId && currentRoute.bookId !== selectedBook.id && !routedPlatformEditionId) return
+    const nextRoute: AppRoute = { view, libraryMode, bookId: view === 'reader' && !routedPlatformEditionId ? selectedBook.id : undefined, platformEditionId: view === 'reader' ? routedPlatformEditionId : undefined }
+    if (currentRoute.view !== nextRoute.view || currentRoute.libraryMode !== nextRoute.libraryMode || currentRoute.bookId !== nextRoute.bookId || currentRoute.platformEditionId !== nextRoute.platformEditionId) writeAppRoute(nextRoute)
+  }, [libraryMode, routedPlatformEditionId, selectedBook.id, view])
 
   useEffect(() => { void getSession().then((next) => { setSession(next); if (next) void syncNow() }) }, [syncNow])
   useEffect(() => {
@@ -340,6 +357,12 @@ function App() {
   }
 
   function openWorldBook(book: WorldBook) {
+    if (book.sourceId === 'platform' && book.platformEditionId) {
+      setRoutedPlatformEditionId(book.platformEditionId)
+      setRoutedBookId(undefined)
+      setView('reader')
+      return
+    }
     window.open(book.access.url || book.sourceUrl, '_blank', 'noopener,noreferrer')
   }
 
@@ -348,7 +371,7 @@ function App() {
       // This is still source-hosted reading. Until WorLibrary has a verified
       // entitlement and a licensed delivery path, no result can open as an
       // in-app reader or offer a file download.
-      case 'licensed_full_text': return { label: ui.onlineReadable, action: ui.readOnlineAtSource }
+      case 'licensed_full_text': return { label: ui.onlineReadable, action: book.sourceId === 'platform' && book.platformEditionId ? ui.readInWorLibrary : ui.readOnlineAtSource }
       case 'preview': return { label: ui.previewAccess, action: ui.previewAtSource }
       case 'catalog_only': return { label: ui.catalogRecordOnly, action: ui.viewAtSource }
       default: return { label: ui.sourceReading, action: ui.openAtSource }
@@ -542,7 +565,7 @@ function App() {
           <p className="profile-footnote">{completedBooks.length > 0 ? `${ui.booksCompleted}：${completedBooks.length}` : ui.profileLocalOnly}</p>
         </section>}
 
-        {view === 'reader' && <section className="reader-view">
+        {view === 'reader' && (selectedPlatformBook ? <PlatformReader editionId={selectedPlatformBook.platformEditionId!} title={selectedPlatformBook.title} author={selectedPlatformBook.author} uiLocale={uiLocale} accessToken={session?.accessToken} onBack={() => { setRoutedPlatformEditionId(undefined); setView('library') }} /> : <section className="reader-view">
           <div className="reader-header"><button className="back-button" onClick={() => { setReaderLayoutOpen(false); setView('library') }}>← <span>{ui.backToLibrary}</span></button><div className="reader-title"><strong>{selectedBook.title}</strong><small>{selectedBook.author}{selectedBook.fileName ? ` · ${ui.localReading}` : ''}</small></div><div className="reader-tools"><button onClick={importBooks}>{ui.importBook}</button><button onClick={() => { if (!selectedRelatedEdition) { toast(uiLocale === 'en' ? 'Import and link another edition before comparing.' : '请先导入并关联另一个译本，再进行对照阅读'); return } setCompare(!compare) }}>{compare ? ui.exitCompare : ui.compare}</button><button onClick={() => setView('settings')}>{language.slice(0, 1)}</button><button onClick={() => setReaderLayoutOpen((current) => !current)} aria-expanded={readerLayoutOpen} aria-controls="reader-layout-panel">Aa</button></div></div>
           {readerLayoutOpen && <aside id="reader-layout-panel" className="reader-layout-panel" role="dialog" aria-label={ui.readerLayout}><div><p className="eyebrow">{ui.readerLayout}</p><h2>{ui.readerLayout}</h2></div><div className="reader-layout-row"><span>{ui.fontSize}</span><div><button onClick={() => setReaderPreferences((current) => ({ ...current, fontScale: clampFontScale(current.fontScale - 0.05) }))} aria-label={ui.decreaseFont}>A−</button><strong>{Math.round(readerPreferences.fontScale * 100)}%</strong><button onClick={() => setReaderPreferences((current) => ({ ...current, fontScale: clampFontScale(current.fontScale + 0.05) }))} aria-label={ui.increaseFont}>A＋</button></div></div><div className="reader-layout-row"><span>{ui.readerTheme}</span><div className="reader-theme-choices"><button className={readerPreferences.theme === 'paper' ? 'active' : ''} aria-pressed={readerPreferences.theme === 'paper'} onClick={() => setReaderPreferences((current) => ({ ...current, theme: 'paper' }))}>{ui.paperTheme}</button><button className={readerPreferences.theme === 'sepia' ? 'active' : ''} aria-pressed={readerPreferences.theme === 'sepia'} onClick={() => setReaderPreferences((current) => ({ ...current, theme: 'sepia' }))}>{ui.sepiaTheme}</button><button className={readerPreferences.theme === 'night' ? 'active' : ''} aria-pressed={readerPreferences.theme === 'night'} onClick={() => setReaderPreferences((current) => ({ ...current, theme: 'night' }))}>{ui.nightTheme}</button></div></div></aside>}
           {(() => {
@@ -562,7 +585,7 @@ function App() {
           })()}
           {assistantOpen && <aside className="ai-panel"><div className="panel-top"><span>✦</span><strong>阅读助手</strong><button onClick={() => setAssistantOpen(false)}>×</button></div><p className="ai-label">ENGLISH → {language}</p><blockquote>“But freedom, she would learn, is a word with a thousand meanings, and some of them are cages.”</blockquote><section><h3>翻译</h3><p>但她后来会明白，自由这个词有一千种含义，其中有些，恰恰是牢笼。</p></section><section><h3>通俗解释</h3><p>自由并不总是轻松美好的。有时我们以为自己在选择，却被选择的代价、规则或恐惧困住了。</p></section><small>AI 解释仅供学习参考 · 本地 Demo</small></aside>}
           <div className="reader-bottom"><span>{selectedBook.progress}%</span><div><i style={{ width: `${selectedBook.progress}%` }} /></div><span>{selectedBook.fileName ? ui.savedLocally : '4 / 11'}</span><button onClick={() => toast(uiLocale === 'en' ? 'OCR is available from the PDF reader.' : 'OCR 是下一步真实服务接入点')}>{ui.scanPage}</button></div>
-        </section>}
+        </section>)}
 
         {view === 'settings' && <section className="settings-view"><div className="settings-wrap"><p className="eyebrow">{ui.preferences}</p><h1>{ui.settingsTitle}</h1><section className="language-section" aria-labelledby="ui-language-title"><div className="language-heading"><h2 id="ui-language-title">{ui.uiLanguageTitle}</h2><p>{ui.uiLanguageCopy}</p></div><InterfaceLanguagePicker value={uiLocale} onChange={changeUiLocale} locale={uiLocale} label={ui.interfaceLanguagePickerLabel} searchLabel={ui.searchInterfaceLanguage} searchPlaceholder={ui.searchInterfaceLanguagePlaceholder} availableLabel={ui.interfaceLanguageAvailable} plannedLabel={ui.interfaceLanguagePlanned} plannedCopy={ui.interfaceLanguagePlannedCopy} emptyLabel={ui.interfaceLanguageEmpty} /></section><section className="language-section" aria-labelledby="reading-language-title"><div className="language-heading"><h2 id="reading-language-title">{ui.readingLanguageTitle}</h2><p>{ui.readingLanguageCopy}</p></div><ReadingLanguagePicker value={language} onChange={changeReadingLanguage} locale={uiLocale} label={ui.readingLanguagePickerLabel} searchLabel={ui.searchReadingLanguage} searchPlaceholder={ui.searchReadingLanguagePlaceholder} /></section><div className="settings-note"><span>◎</span><p><strong>{ui.privacyTitle}</strong><br />{ui.privacyCopy}</p></div></div></section>}
       </main>

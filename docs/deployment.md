@@ -19,7 +19,7 @@
 
 ## Cloudflare Workers 部署基线
 
-本项目不是纯静态网站：`dist/` 中的 React/Vite 应用壳、样式和图标是静态资源；同一个 Cloudflare Worker 同时处理 `/api/catalog`、`/api/health`、`/api/translate`、`/api/explain`、`/api/translation-status` 与平台内容访问策略 `/api/reader/access`。静态资源可由边缘网络缓存；世界书库只缓存短期、无身份的公共书目查询。选区、登录、AI/OCR、同步、内容访问策略、错误和健康响应不得被共享缓存。
+本项目不是纯静态网站：`dist/` 中的 React/Vite 应用壳、样式和图标是静态资源；同一个 Cloudflare Worker 同时处理 `/api/catalog`、`/api/health`、`/api/translate`、`/api/explain`、`/api/translation-status`、平台内容访问策略 `/api/reader/access` 和已授权平台正文的 `/api/reader/content`。静态资源可由边缘网络缓存；世界书库只缓存短期、无身份的公共书目查询。选区、登录、AI/OCR、同步、内容访问策略、正文、错误和健康响应不得被共享缓存。
 
 首次接入需由项目所有者完成：创建 Cloudflare 账号与 Workers 项目、将 GitHub 仓库接入部署，先使用 `*.workers.dev` 验收，再绑定正式域名。不要在聊天、仓库或前端变量中提供或提交 Cloudflare API Token。CI 使用的 Token 应限制到该账号/项目的 Workers 编辑权限；生产部署应使用独立环境与审批。
 
@@ -66,9 +66,9 @@ AI_TIMEOUT_MS=12000
 
 ### 平台书籍访问策略契约
 
-`GET /api/reader/access?editionId=<平台版本 ID>` 只回答某个平台版本的**访问策略**，不传输 EPUB/PDF 正文、不返回 R2 对象键、文件 URL、签名下载 URL、阅读令牌或任何 Secret。成功响应包含稳定的 `access_mode`：`download`、`stream`、`external_reader`、`preview` 或 `catalog_only`，以及 `delivery.available: false`。这表示当前仓库尚未实现版权正文交付；前端不得把该响应误当作可下载文件或已可播放的正文流。
+`GET /api/reader/access?editionId=<平台版本 ID>` 只回答某个平台版本的**访问策略**，不传输 EPUB/PDF 正文、不返回 R2 对象键、文件 URL、签名下载 URL、阅读令牌或任何 Secret。成功响应包含稳定的 `access_mode`：`download`、`stream`、`external_reader`、`preview` 或 `catalog_only`。当该版本已经配置私有 R2 对象、格式和绑定时，`delivery.available` 为 `true`，且 `delivery.mode` 为 `in_app_stream`；否则它会明确返回不可交付原因。前端不得把访问策略误当作可下载文件或永久正文 URL。
 
-访问策略由非敏感的 Worker Variable `PLATFORM_CONTENT_ACCESS_JSON` 提供，格式为 JSON 数组，例如：
+访问策略由 Worker Secret `PLATFORM_CONTENT_ACCESS_JSON` 提供，格式为 JSON 数组。含有 `r2ObjectKey` 的条目必须作为 Secret 保存，因为对象键属于内部内容定位信息，绝不能交给浏览器：
 
 ```json
 [
@@ -82,6 +82,8 @@ AI_TIMEOUT_MS=12000
     "editionId": "licensed-stream-example",
     "accessMode": "stream",
     "requiresAuthorization": true,
+    "r2ObjectKey": "licensed/edition.epub",
+    "contentType": "application/epub+zip",
     "rightsNotice": "Licensed for in-app streaming only."
   }
 ]
@@ -89,7 +91,9 @@ AI_TIMEOUT_MS=12000
 
 受限版本要求浏览器携带既有登录会话的 `Authorization` header。Worker 只会把该 header 转交给配置为 HTTPS 的内部授权服务 `READER_AUTHORIZATION_URL`，并向其发送版本 ID 与访问模式；授权服务只能返回 `{ "allowed": true | false }`。若缺少会话、授权服务、策略配置或授权被拒绝，Worker 分别以 `AUTH_REQUIRED`（401）、`AUTHORIZATION_UNAVAILABLE`（503）、`PLATFORM_ACCESS_UNCONFIGURED` / `ACCESS_POLICY_INVALID`（503）与 `ACCESS_DENIED`（403）失败关闭。不要把授权服务 URL、用户身份、会话 token 或内容交付信息回传给浏览器。
 
-此接口是内容权限与书架收藏分离的第一步，不是 DRM，也不构成正文分发能力。将来新增 `stream` 或 `download` 交付路由时，必须在每次请求中重新验证同一授权、使用私有对象存储和短期范围受限会话，并补充审计、地区/版权期限与下架策略；不得代理或镜像第三方未授权正文。
+为启用 WorLibrary 内阅读，需要在 Workers Dashboard 以 **R2 bucket binding** 绑定私有桶，绑定名称固定为 `PLATFORM_CONTENT`；不要使用公开 R2 域名。`GET` / `HEAD` `/api/reader/content?editionId=<平台版本 ID>` 仅为 `stream` 或 `preview` 的已配置平台版本读取该桶，并在**每次请求**重新验证上述授权。它支持单段 `Range: bytes=start-end`，只返回 `application/epub+zip` 或 `application/pdf`，使用 `Cache-Control: private, no-store`，不会返回对象键、签名 URL、令牌或持久下载地址。未配置绑定/对象、错误范围或缺失/失败授权均失败关闭。该路由不支持 `download`，因此不会在第一阶段意外提供完整离线文件。
+
+这不是 DRM：浏览器显示正文仍无法绝对阻止截图或有能力的网络抓取。它的边界是：不提供原始文件下载入口、不把完整文件写入应用的本地书库，并由短生命周期登录会话、每次访问重验授权、地区/版权期限、审计和下架策略共同约束。不得代理或镜像第三方未授权正文。
 
 ### 本地完整翻译验收
 
@@ -132,7 +136,7 @@ npm run validate:env -- --production --json
 
 ### 首次生产配置：最小操作清单
 
-1. 创建 Supabase 项目；在 SQL Editor 或 CLI 依序执行 `supabase/migrations/0001_initial_sync.sql`、`0002_production_hardening.sql`、`0003_ai_usage_ledger.sql`、`0004_ai_usage_quota_release.sql`、`0005_platform_catalog_and_library.sql`，再按 `supabase/verify_rls.sql` 用两个真实测试用户验证隔离。
+1. 创建 Supabase 项目；在 SQL Editor 或 CLI 依序执行 `supabase/migrations/0001_initial_sync.sql`、`0002_production_hardening.sql`、`0003_ai_usage_ledger.sql`、`0004_ai_usage_quota_release.sql`、`0005_platform_catalog_and_library.sql`，再按 `supabase/verify_rls.sql` 用两个真实测试用户验证隔离。只有准备接入平台自有/获授权正文时，才继续执行 `0006_platform_content_operations.sql` 并完成下方“首个合规内容来源接入清单”；不要为试用书目搜索虚构许可或内容资产。
 2. 在 Cloudflare Worker 项目配置 `VITE_SUPABASE_URL` 与 `VITE_SUPABASE_ANON_KEY`。它们是浏览器公开配置；不要放 service-role key。
 3. 在 **AI/OCR 网关的服务端环境** 配置 `AI_*`、`OCR_*`、`SUPABASE_JWT_SECRET`、`SUPABASE_URL`、`SUPABASE_ANON_KEY` 与一个精确的 `ALLOWED_ORIGIN=https://你的域名`；两个 `*_ENV` 均为 `production`，`AI_REQUIRE_AUTH=true`、`OCR_REQUIRE_AUTH=true`。不要把这些 Secret 放入前端部署环境或仓库。
 4. 依次执行 `0003_ai_usage_ledger.sql` 和 `0004_ai_usage_quota_release.sql`。网关会使用已验证用户的 JWT 调用 `consume_ai_quota`，并在供应商失败时调用 `release_ai_quota`；生产环境缺少 `SUPABASE_URL` / `SUPABASE_ANON_KEY` 会在调用供应商前拒绝请求。该账本只记录用户、请求 ID、操作种类与状态，不保存原书、正文、图像或模型输出。
@@ -185,6 +189,21 @@ npx supabase db push
 ```
 
 `supabase/migrations/0001_initial_sync.sql` 创建用户资料、作品、版本、进度、摘录和设置表；`0002_production_hardening.sql` 增加索引、显式 authenticated 权限，并校验版本/进度/摘录只能引用同一用户的数据；`0003_ai_usage_ledger.sql` 创建仅能由受控 RPC 写入的按日 AI/OCR 用量账本；`0004_ai_usage_quota_release.sql` 在供应商失败时释放预扣额度；`0005_platform_catalog_and_library.sql` 将平台目录、私有内容资产、地区访问策略、用户书库项目和服务端管理的权益分离。`content_assets` 的 R2/外部对象键永不授予浏览器读取权限；平台目录仅可读，权益不能由客户端创建或修改。迁移使用 `if not exists` 或 `drop policy if exists`，可安全地在已执行 0001 的项目上继续执行。
+
+`0006_platform_content_operations.sql` 补充内容许可、来源记录和不可由浏览器读取或写入的运营审计日志。平台版本发布必须经受控服务端调用 `publish_platform_catalog_edition`：它要求已核验的来源记录、与来源记录一致的 SHA-256、有效许可及至少一条对应许可的有效地区访问策略。下架与许可撤销同样只可由受控服务端调用 `withdraw_platform_catalog_edition` 或 `revoke_platform_content_license`；撤销会立即收回对应访问策略。函数执行权仅授予 Supabase `service_role`，前端 anon/authenticated 会话没有目录、资产、许可、地区策略或权益的写入权。
+
+### 首个合规内容来源接入清单
+
+此清单仅建立受控的入库记录与私有对象引用，**不**允许在仓库、浏览器、CI 日志或测试中下载、上传或提交第三方正文。
+
+1. 取得并归档可核验的许可或公共领域依据：记录许可方、协议/条款编号、允许的访问模式、有效期、地区范围和下架联系人；证据文件放入受限的私有存储，数据库仅保存不可公开的 `evidence_object_key`。
+2. 建立 `content_licenses` 与 `content_source_records`：来源 URL 必须为 HTTPS，记录上游唯一 ID、获取时间、条款引用及**预期** SHA-256。先保持 `pending`，不得发布目录或交付正文。
+3. 在隔离的运营环境验证来源身份、地域与许可条件，并复算文件 SHA-256；只有人工审核者确认后才将来源标为 `verified`、许可设为 `active`。审核者标识和时间必须留在记录中。
+4. 将经核验的文件放入 Cloudflare R2 私有 bucket；使用随机/不可猜测对象键，阻止 public bucket、静态 URL、浏览器 CORS 直读和缓存。把对象键、媒体类型、字节数、实际 SHA-256、`source_record_id` 与 `license_id` 写入 `content_assets`。对象键、签名 URL 和许可证据永不进入目录 API、客户端日志或 Supabase 浏览器查询。
+5. 对每一个可服务地区和访问模式建立 `access_policies`，将其 `license_id` 指向同一有效许可，并核对起止日期。没有适用地区策略时只可保留 `catalog_only`，不能开启正文交付。
+6. 由受控后台以 service-role 调用 `publish_platform_catalog_edition`，而不是直接从浏览器或 SQL 控制台修改 `published_at`。检查 `platform_content_audit_log` 中的发布记录；失败应修正来源、哈希、许可或地区策略，而不是绕过校验。
+7. 做 staging 验收：匿名/普通 authenticated 客户端不能查询对象键、许可证据、运营审计或创建权益；已撤销地区返回拒绝且不会暴露存储位置。确认 Worker 每次交付前重新做地区、许可有效期与权益判断。
+8. 下架演练：调用 `withdraw_platform_catalog_edition`，验证目录与访问策略立即失效、审计记录含原因和操作者；许可整体失效时调用 `revoke_platform_content_license`。保留审计、工单和最小必要元数据，按许可条款删除或隔离私有对象。
 
 上线前用一个测试账号验证：A 用户不能读取/修改 B 用户的版本、进度或摘录；匿名用户不能访问同步表；删除账号后级联删除其数据。没有真实 Supabase 凭据时，只能完成 SQL 静态检查和本地构建，不能声称 RLS 已在线验证。
 

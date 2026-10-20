@@ -20,6 +20,8 @@ export type WorldBook = {
   sourceUrl: string
   sourceName: string
   access: WorldBookAccess
+  /** Platform-only edition identity. This is a policy lookup key, never a file key or URL. */
+  platformEditionId?: string
 }
 
 export type WorldLibrarySearchOptions = { language?: string; multiLanguageOnly?: boolean }
@@ -195,6 +197,7 @@ function normalizeSavedWorldBook(book: Partial<WorldBook>): WorldBook | undefine
     editionCount: typeof book.editionCount === 'number' ? book.editionCount : undefined, coverUrl: typeof book.coverUrl === 'string' ? book.coverUrl : undefined,
     sourceUrl, sourceName: typeof book.sourceName === 'string' ? book.sourceName : 'Open Library',
     access: book.access?.mode && typeof book.access.url === 'string' ? book.access : { mode: 'catalog_only', url: sourceUrl },
+    platformEditionId: typeof book.platformEditionId === 'string' && book.platformEditionId.trim() ? book.platformEditionId.trim() : undefined,
   }
 }
 

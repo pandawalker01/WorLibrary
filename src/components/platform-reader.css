@@ -1,0 +1,15 @@
+.platform-reader { max-width: 1120px; margin: 0 auto; padding: 34px 0 80px; color: #24445e; }
+.platform-reader__header { display: flex; align-items: flex-start; gap: 24px; padding-bottom: 26px; border-bottom: 1px solid #d8e6f2; }
+.platform-reader__header .back-button { flex: 0 0 auto; }
+.platform-reader__header .eyebrow { margin: 2px 0 8px; color: #4b91c5; }
+.platform-reader__header h1 { margin: 0; color: #193b59; font: 700 clamp(26px, 4vw, 42px) 'Noto Serif SC', serif; }
+.platform-reader__header p:not(.eyebrow) { margin: 8px 0 0; color: #6d879b; }
+.platform-reader__stage { display: grid; place-items: center; min-height: 440px; padding: 34px; border: 1px solid #d8e8f5; border-top: 0; background: linear-gradient(140deg, #fbfdff, #f1f8fd); }
+.platform-reader__stage > [role='status'] { color: #567993; font: 600 15px 'Noto Serif SC', serif; }
+.platform-reader__notice { width: min(100%, 620px); padding: 30px; border-left: 4px solid #328ac9; background: #fff; box-shadow: 0 15px 36px #23476512; }
+.platform-reader__notice.is-error { border-left-color: #b85a4c; }
+.platform-reader__notice h2 { margin: 0 0 12px; color: #1d405e; font: 700 22px 'Noto Serif SC', serif; }
+.platform-reader__notice p { color: #607b90; font: 14px/1.8 'Noto Serif SC', serif; }
+.platform-reader__notice button, .platform-reader__notice a { display: inline-block; margin-top: 12px; border: 1px solid #2e86c9; border-radius: 4px; padding: 10px 14px; background: #2e86c9; color: #fff; font: 600 13px 'Noto Serif SC', serif; text-decoration: none; cursor: pointer; }
+.platform-reader__notice button:hover, .platform-reader__notice a:hover { background: #196fae; }
+@media (max-width: 760px) { .platform-reader { padding-top: 18px; }.platform-reader__header { display: block; }.platform-reader__header .back-button { margin-bottom: 22px; }.platform-reader__stage { min-height: 330px; padding: 18px; }.platform-reader__notice { padding: 22px; } }

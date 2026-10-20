@@ -190,7 +190,7 @@ test('Cloudflare reader access returns only a policy decision after an entitleme
       editionId: 'licensed-stream',
       access_mode: 'stream',
       rights_notice: 'Licensed for account streaming only.',
-      delivery: { available: false, reason: 'content_delivery_not_implemented' },
+      delivery: { available: false, reason: 'content_delivery_unavailable' },
     })
     assert.doesNotMatch(JSON.stringify(payload), /reader-session-token|userId/)
     assert.equal(calls.length, 1)
@@ -233,5 +233,90 @@ test('Cloudflare reader access fails closed for unknown editions, invalid polici
     })
     assert.equal(denied.status, 403)
     assert.equal((await denied.json()).error.code, 'ACCESS_DENIED')
+  })
+})
+
+test('Cloudflare reader content rechecks entitlement and serves private R2 bytes without exposing object metadata', async () => {
+  const assets = createAssets()
+  const bytes = new TextEncoder().encode('private epub fixture bytes')
+  const calls = []
+  const content = {
+    async head(key) {
+      calls.push({ method: 'head', key })
+      return key === 'licensed/edition.epub' ? { size: bytes.byteLength } : null
+    },
+    async get(key, options) {
+      calls.push({ method: 'get', key, options })
+      if (key !== 'licensed/edition.epub') return null
+      const range = options?.range
+      const selected = range ? bytes.slice(range.offset, range.offset + range.length) : bytes
+      return { body: new Response(selected).body }
+    },
+  }
+  const policy = JSON.stringify([{
+    editionId: 'licensed-stream',
+    accessMode: 'stream',
+    r2ObjectKey: 'licensed/edition.epub',
+    contentType: 'application/epub+zip',
+  }])
+
+  const missingSession = await worker.fetch(new Request('https://app.example.test/api/reader/content?editionId=licensed-stream'), {
+    ASSETS: assets,
+    PLATFORM_CONTENT_ACCESS_JSON: policy,
+    PLATFORM_CONTENT: content,
+    READER_AUTHORIZATION_URL: 'https://auth.example.test/reader-access',
+  })
+  assert.equal(missingSession.status, 401)
+  assert.equal((await missingSession.json()).error.code, 'AUTH_REQUIRED')
+  assert.equal(calls.length, 0)
+
+  let authorizationCalls = 0
+  await withFetchStub(async () => {
+    authorizationCalls += 1
+    return Response.json({ allowed: true, userId: 'never return this' })
+  }, async () => {
+    const response = await worker.fetch(new Request('https://app.example.test/api/reader/content?editionId=licensed-stream', {
+      headers: { authorization: 'Bearer reader-session-token', range: 'bytes=8-11', 'x-request-id': 'content-contract' },
+    }), {
+      ASSETS: assets,
+      PLATFORM_CONTENT_ACCESS_JSON: policy,
+      PLATFORM_CONTENT: content,
+      READER_AUTHORIZATION_URL: 'https://auth.example.test/reader-access',
+    })
+    assert.equal(response.status, 206)
+    assert.equal(response.headers.get('content-type'), 'application/epub+zip')
+    assert.equal(response.headers.get('content-range'), `bytes 8-11/${bytes.byteLength}`)
+    assert.equal(response.headers.get('cache-control'), 'private, no-store')
+    assert.equal(response.headers.get('x-request-id'), 'content-contract')
+    assert.equal(await response.text(), 'epub')
+    assert.equal(authorizationCalls, 1)
+    assert.deepEqual(calls, [
+      { method: 'head', key: 'licensed/edition.epub' },
+      { method: 'get', key: 'licensed/edition.epub', options: { range: { offset: 8, length: 4 } } },
+    ])
+  })
+
+  await withFetchStub(async () => Response.json({ allowed: true }), async () => {
+    const invalidRange = await worker.fetch(new Request('https://app.example.test/api/reader/content?editionId=licensed-stream', {
+      headers: { authorization: 'Bearer reader-session-token', range: 'bytes=999-' },
+    }), {
+      ASSETS: assets,
+      PLATFORM_CONTENT_ACCESS_JSON: policy,
+      PLATFORM_CONTENT: content,
+      READER_AUTHORIZATION_URL: 'https://auth.example.test/reader-access',
+    })
+    assert.equal(invalidRange.status, 416)
+    assert.equal(invalidRange.headers.get('content-range'), `bytes */${bytes.byteLength}`)
+    assert.equal((await invalidRange.json()).error.code, 'RANGE_NOT_SATISFIABLE')
+
+    const unavailable = await worker.fetch(new Request('https://app.example.test/api/reader/content?editionId=licensed-stream', {
+      headers: { authorization: 'Bearer reader-session-token' },
+    }), {
+      ASSETS: assets,
+      PLATFORM_CONTENT_ACCESS_JSON: policy,
+      READER_AUTHORIZATION_URL: 'https://auth.example.test/reader-access',
+    })
+    assert.equal(unavailable.status, 503)
+    assert.equal((await unavailable.json()).error.code, 'CONTENT_DELIVERY_UNAVAILABLE')
   })
 })
