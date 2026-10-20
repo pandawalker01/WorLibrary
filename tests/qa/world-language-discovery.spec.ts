@@ -54,6 +54,27 @@ test('P0: platform online title opens the in-app reader and fails closed before 
   await expect(page.getByRole('button', { name: /下载/ })).toHaveCount(0)
 })
 
+test('P0: configured platform PDF is requested through the protected reader endpoint, never as a download', async ({ page }) => {
+  await page.addInitScript(() => localStorage.setItem('worlibrary.saved-world-books', JSON.stringify([{
+    id: 'platform-pdf', sourceId: 'platform', sourceRecordId: 'platform-pdf', platformEditionId: 'platform-pdf', title: 'Protected PDF fixture', author: 'Rights holder', languages: ['eng'], sourceUrl: 'https://example.test/platform-pdf', sourceName: 'WorLibrary platform', access: { mode: 'licensed_full_text', url: 'https://example.test/platform-pdf' },
+  }])))
+  await page.route('**/api/reader/access?editionId=platform-pdf', async (route) => {
+    await route.fulfill({ contentType: 'application/json', body: JSON.stringify({ editionId: 'platform-pdf', access_mode: 'stream', delivery: { available: true, mode: 'in_app_stream', content_type: 'application/pdf' } }) })
+  })
+  let protectedContentRequests = 0
+  await page.route('**/api/reader/content?editionId=platform-pdf', async (route) => {
+    protectedContentRequests += 1
+    await route.fulfill({ contentType: 'application/pdf', body: 'not a real pdf fixture' })
+  })
+
+  await page.goto('/')
+  await page.getByRole('button', { name: '在 WorLibrary 中阅读' }).click()
+  await expect(page.getByText('无法打开受保护 PDF')).toBeVisible()
+  expect(protectedContentRequests).toBe(1)
+  await expect(page.getByRole('button', { name: /下载/ })).toHaveCount(0)
+  await expect(page.locator('.epub-reader-frame, .pdf-reader-frame')).toHaveCount(0)
+})
+
 test('P1: a stalled catalog request leaves loading state and can be retried', async ({ page }) => {
   await page.route('https://openlibrary.org/search.json**', async (route) => {
     await new Promise((resolve) => setTimeout(resolve, 9_000))

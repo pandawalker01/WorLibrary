@@ -66,7 +66,7 @@ AI_TIMEOUT_MS=12000
 
 ### 平台书籍访问策略契约
 
-`GET /api/reader/access?editionId=<平台版本 ID>` 只回答某个平台版本的**访问策略**，不传输 EPUB/PDF 正文、不返回 R2 对象键、文件 URL、签名下载 URL、阅读令牌或任何 Secret。成功响应包含稳定的 `access_mode`：`download`、`stream`、`external_reader`、`preview` 或 `catalog_only`。当该版本已经配置私有 R2 对象、格式和绑定时，`delivery.available` 为 `true`，且 `delivery.mode` 为 `in_app_stream`；否则它会明确返回不可交付原因。前端不得把访问策略误当作可下载文件或永久正文 URL。
+`GET /api/reader/access?editionId=<平台版本 ID>` 只回答某个平台版本的**访问策略**，不传输 EPUB/PDF 正文、不返回 R2 对象键、文件 URL、签名下载 URL、阅读令牌或任何 Secret。成功响应包含稳定的 `access_mode`：`download`、`stream`、`external_reader`、`preview` 或 `catalog_only`。当该版本已经配置私有 R2 对象、格式和绑定时，`delivery.available` 为 `true`，`delivery.mode` 为 `in_app_stream`，并给出可安全渲染的 `delivery.content_type`；否则它会明确返回不可交付原因。前端不得把访问策略误当作可下载文件或永久正文 URL。
 
 访问策略由 Worker Secret `PLATFORM_CONTENT_ACCESS_JSON` 提供，格式为 JSON 数组。含有 `r2ObjectKey` 的条目必须作为 Secret 保存，因为对象键属于内部内容定位信息，绝不能交给浏览器：
 
@@ -92,6 +92,8 @@ AI_TIMEOUT_MS=12000
 受限版本要求浏览器携带既有登录会话的 `Authorization` header。Worker 只会把该 header 转交给配置为 HTTPS 的内部授权服务 `READER_AUTHORIZATION_URL`，并向其发送版本 ID 与访问模式；授权服务只能返回 `{ "allowed": true | false }`。若缺少会话、授权服务、策略配置或授权被拒绝，Worker 分别以 `AUTH_REQUIRED`（401）、`AUTHORIZATION_UNAVAILABLE`（503）、`PLATFORM_ACCESS_UNCONFIGURED` / `ACCESS_POLICY_INVALID`（503）与 `ACCESS_DENIED`（403）失败关闭。不要把授权服务 URL、用户身份、会话 token 或内容交付信息回传给浏览器。
 
 为启用 WorLibrary 内阅读，需要在 Workers Dashboard 以 **R2 bucket binding** 绑定私有桶，绑定名称固定为 `PLATFORM_CONTENT`；不要使用公开 R2 域名。`GET` / `HEAD` `/api/reader/content?editionId=<平台版本 ID>` 仅为 `stream` 或 `preview` 的已配置平台版本读取该桶，并在**每次请求**重新验证上述授权。它支持单段 `Range: bytes=start-end`，只返回 `application/epub+zip` 或 `application/pdf`，使用 `Cache-Control: private, no-store`，不会返回对象键、签名 URL、令牌或持久下载地址。未配置绑定/对象、错误范围或缺失/失败授权均失败关闭。该路由不支持 `download`，因此不会在第一阶段意外提供完整离线文件。
+
+平台阅读器收到允许的媒体类型后，会用带 Authorization 的无缓存请求将正文临时读为内存 ArrayBuffer，再交给 EPUB.js 或 PDF.js；它不创建 File、对象 URL、IndexedDB/OPFS 记录、全文索引或下载入口，卸载时销毁渲染器资源。首次上线必须分别使用一个已授权 EPUB 与 PDF 验收翻页、撤销授权后的失败状态和关闭阅读页后的内存释放；此过程不替代权利审核。
 
 这不是 DRM：浏览器显示正文仍无法绝对阻止截图或有能力的网络抓取。它的边界是：不提供原始文件下载入口、不把完整文件写入应用的本地书库，并由短生命周期登录会话、每次访问重验授权、地区/版权期限、审计和下架策略共同约束。不得代理或镜像第三方未授权正文。
 

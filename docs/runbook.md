@@ -25,6 +25,7 @@
 - [ ] 登录匿名试用/魔法链接、首次同步和翻译成功/失败均有可追踪 request id。
 - [ ] 若本次首次发布平台自有/获授权内容，已执行 `0006_platform_content_operations.sql`，并由受控后台（不是浏览器）完成许可、来源、SHA-256、私有 R2 对象、地区策略和发布审计的完整接入清单；详见 `docs/deployment.md` 的“首个合规内容来源接入清单”。
 - [ ] 验证普通 anon/authenticated 会话无法读取 `content_assets.object_key`、许可证据、来源审核记录或运营审计，也不能写入平台目录、资产、访问策略和权益；只有 service-role 可执行受控发布、下架与许可撤销 RPC。
+- [ ] 若启用了平台正文交付，使用两份获授权的测试 EPUB/PDF 验证平台阅读器可在当前会话中翻页；网络面板只应看到带 Authorization 的无缓存 `/api/reader/content` 请求，不能出现下载、对象 URL、IndexedDB/OPFS 正文记录或可复制的对象键。撤销授权后必须立即失败关闭。
 
 ## 发布后检查
 

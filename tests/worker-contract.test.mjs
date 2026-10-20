@@ -275,6 +275,17 @@ test('Cloudflare reader content rechecks entitlement and serves private R2 bytes
     authorizationCalls += 1
     return Response.json({ allowed: true, userId: 'never return this' })
   }, async () => {
+    const access = await worker.fetch(new Request('https://app.example.test/api/reader/access?editionId=licensed-stream', {
+      headers: { authorization: 'Bearer reader-session-token' },
+    }), {
+      ASSETS: assets,
+      PLATFORM_CONTENT_ACCESS_JSON: policy,
+      PLATFORM_CONTENT: content,
+      READER_AUTHORIZATION_URL: 'https://auth.example.test/reader-access',
+    })
+    assert.equal(access.status, 200)
+    assert.deepEqual((await access.json()).delivery, { available: true, mode: 'in_app_stream', content_type: 'application/epub+zip' })
+
     const response = await worker.fetch(new Request('https://app.example.test/api/reader/content?editionId=licensed-stream', {
       headers: { authorization: 'Bearer reader-session-token', range: 'bytes=8-11', 'x-request-id': 'content-contract' },
     }), {
@@ -289,7 +300,7 @@ test('Cloudflare reader content rechecks entitlement and serves private R2 bytes
     assert.equal(response.headers.get('cache-control'), 'private, no-store')
     assert.equal(response.headers.get('x-request-id'), 'content-contract')
     assert.equal(await response.text(), 'epub')
-    assert.equal(authorizationCalls, 1)
+    assert.equal(authorizationCalls, 2)
     assert.deepEqual(calls, [
       { method: 'head', key: 'licensed/edition.epub' },
       { method: 'get', key: 'licensed/edition.epub', options: { range: { offset: 8, length: 4 } } },

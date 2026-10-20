@@ -443,7 +443,7 @@ async function readerAccess(request, env, id) {
     rights_notice: record.rightsNotice,
     delivery: {
       available: canDeliverInApp,
-      ...(canDeliverInApp ? { mode: 'in_app_stream' } : { reason: 'content_delivery_unavailable' }),
+      ...(canDeliverInApp ? { mode: 'in_app_stream', content_type: record.contentType } : { reason: 'content_delivery_unavailable' }),
     },
     ...(record.externalReaderUrl ? { external_reader_url: record.externalReaderUrl } : {}),
   }, 200, id)

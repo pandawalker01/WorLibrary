@@ -103,10 +103,10 @@ Work（作品）
   → 受限版本交给授权服务验证既有会话
   → Worker /api/reader/content 每次请求再次验证同一权益
   → 私有 R2 仅以允许的 EPUB/PDF Range 响应提供正文字节
-  → 平台阅读器按已接入的安全渲染器显示内容；未接入时明确失败
+  → 平台阅读器按媒体类型以 EPUB.js/PDF.js 在当前会话内存中显示内容
 ```
 
-`/api/reader/access` 仍只交付访问决策，不交付正文；只有策略包含私有对象、允许格式且 Worker 已绑定 `PLATFORM_CONTENT` 时，它才返回 `delivery.available: true`。`/api/reader/content` 是唯一的正文读取路由：仅处理 `stream` / `preview`，每次请求重新验证会话，允许单段 Range，返回 `private, no-store` 的 EPUB/PDF 字节；它不会给浏览器对象键、签名 URL、令牌或下载模式。平台阅读页已经会为已收藏的平台版本请求访问决策，交付未配置时失败关闭；当前尚未把受保护 EPUB/PDF 字节接入可显示正文的渲染器，因此不得把“交付已准备”宣称为“已能阅读”。
+`/api/reader/access` 仍只交付访问决策，不交付正文；只有策略包含私有对象、允许格式且 Worker 已绑定 `PLATFORM_CONTENT` 时，它才返回 `delivery.available: true` 与允许的 `content_type`。`/api/reader/content` 是唯一的正文读取路由：仅处理 `stream` / `preview`，每次请求重新验证会话，允许单段 Range，返回 `private, no-store` 的 EPUB/PDF 字节；它不会给浏览器对象键、签名 URL、令牌或下载模式。平台阅读页会为已收藏的平台版本请求访问决策，再用带会话 Authorization 的无缓存请求把正文读为会话内存 ArrayBuffer，并交给 EPUB.js/PDF.js 渲染和基本翻页；它不创建 File、对象 URL、IndexedDB/OPFS 记录、索引或下载入口，组件卸载时销毁阅读资源。交付未配置、格式不支持或授权失败时必须失败关闭。
 
 正文进入平台前必须通过受控运营链路：`content_licenses` 记录许可与有效期，`content_source_records` 记录来源、审核与预期 SHA-256，`content_assets` 连接私有对象、来源与许可，`access_policies` 带许可和地区，`platform_content_audit_log` 保留发布/撤回记录。只有 service-role RPC 可在验证来源、哈希、许可和地区策略后发布、撤回或撤销；浏览器没有这些表、对象键或审计的读写权。即便不提供下载按钮，浏览器显示内容也不能构成绝对 DRM；产品应如实称为“在线阅读、不提供离线文件”，而不是承诺不可复制。
 

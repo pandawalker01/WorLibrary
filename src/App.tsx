@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState, type ChangeEvent, type FormEvent } from 'react'
+import { lazy, Suspense, useCallback, useEffect, useRef, useState, type ChangeEvent, type FormEvent } from 'react'
 import EpubReader from './components/EpubReader'
 import PdfReader from './components/PdfReader'
 import HighlightsView from './components/HighlightsView'
@@ -21,7 +21,10 @@ import WorldLanguagePicker from './components/WorldLanguagePicker'
 import ReadingLanguagePicker, { displayReadingLanguage } from './components/ReadingLanguagePicker'
 import InterfaceLanguagePicker from './components/InterfaceLanguagePicker'
 import { interfaceLocaleDirection, presentInterfaceLocales } from './lib/interface-locale-registry'
-import PlatformReader from './components/PlatformReader'
+
+// Platform rendering pulls in EPUB.js/PDF.js integration. Keep it out of the
+// personal-library shell until a user explicitly opens an authorised title.
+const PlatformReader = lazy(() => import('./components/PlatformReader'))
 
 type View = 'library' | 'reader' | 'highlights' | 'profile' | 'settings'
 type DisplayBook = Pick<StoredBook, 'id' | 'title' | 'author' | 'language' | 'progress' | 'cover'> & Partial<Pick<StoredBook, 'fileName' | 'fileType' | 'storage' | 'createdAt' | 'lastReadAt' | 'location' | 'workId' | 'coverImage'>>
@@ -565,7 +568,7 @@ function App() {
           <p className="profile-footnote">{completedBooks.length > 0 ? `${ui.booksCompleted}：${completedBooks.length}` : ui.profileLocalOnly}</p>
         </section>}
 
-        {view === 'reader' && (selectedPlatformBook ? <PlatformReader editionId={selectedPlatformBook.platformEditionId!} title={selectedPlatformBook.title} author={selectedPlatformBook.author} uiLocale={uiLocale} accessToken={session?.accessToken} onBack={() => { setRoutedPlatformEditionId(undefined); setView('library') }} /> : <section className="reader-view">
+        {view === 'reader' && (selectedPlatformBook ? <Suspense fallback={<section className="reader-view" role="status">正在打开平台阅读器…</section>}><PlatformReader editionId={selectedPlatformBook.platformEditionId!} title={selectedPlatformBook.title} author={selectedPlatformBook.author} uiLocale={uiLocale} accessToken={session?.accessToken} onBack={() => { setRoutedPlatformEditionId(undefined); setView('library') }} /></Suspense> : <section className="reader-view">
           <div className="reader-header"><button className="back-button" onClick={() => { setReaderLayoutOpen(false); setView('library') }}>← <span>{ui.backToLibrary}</span></button><div className="reader-title"><strong>{selectedBook.title}</strong><small>{selectedBook.author}{selectedBook.fileName ? ` · ${ui.localReading}` : ''}</small></div><div className="reader-tools"><button onClick={importBooks}>{ui.importBook}</button><button onClick={() => { if (!selectedRelatedEdition) { toast(uiLocale === 'en' ? 'Import and link another edition before comparing.' : '请先导入并关联另一个译本，再进行对照阅读'); return } setCompare(!compare) }}>{compare ? ui.exitCompare : ui.compare}</button><button onClick={() => setView('settings')}>{language.slice(0, 1)}</button><button onClick={() => setReaderLayoutOpen((current) => !current)} aria-expanded={readerLayoutOpen} aria-controls="reader-layout-panel">Aa</button></div></div>
           {readerLayoutOpen && <aside id="reader-layout-panel" className="reader-layout-panel" role="dialog" aria-label={ui.readerLayout}><div><p className="eyebrow">{ui.readerLayout}</p><h2>{ui.readerLayout}</h2></div><div className="reader-layout-row"><span>{ui.fontSize}</span><div><button onClick={() => setReaderPreferences((current) => ({ ...current, fontScale: clampFontScale(current.fontScale - 0.05) }))} aria-label={ui.decreaseFont}>A−</button><strong>{Math.round(readerPreferences.fontScale * 100)}%</strong><button onClick={() => setReaderPreferences((current) => ({ ...current, fontScale: clampFontScale(current.fontScale + 0.05) }))} aria-label={ui.increaseFont}>A＋</button></div></div><div className="reader-layout-row"><span>{ui.readerTheme}</span><div className="reader-theme-choices"><button className={readerPreferences.theme === 'paper' ? 'active' : ''} aria-pressed={readerPreferences.theme === 'paper'} onClick={() => setReaderPreferences((current) => ({ ...current, theme: 'paper' }))}>{ui.paperTheme}</button><button className={readerPreferences.theme === 'sepia' ? 'active' : ''} aria-pressed={readerPreferences.theme === 'sepia'} onClick={() => setReaderPreferences((current) => ({ ...current, theme: 'sepia' }))}>{ui.sepiaTheme}</button><button className={readerPreferences.theme === 'night' ? 'active' : ''} aria-pressed={readerPreferences.theme === 'night'} onClick={() => setReaderPreferences((current) => ({ ...current, theme: 'night' }))}>{ui.nightTheme}</button></div></div></aside>}
           {(() => {
