@@ -39,6 +39,12 @@ const labels = {
     previous: '上一页',
     next: '下一页',
     page: '阅读位置',
+    reader: '受保护 EPUB 阅读器',
+    readingSurface: 'EPUB 阅读内容。聚焦后可按左右方向键翻页。',
+    previousAria: '上一页',
+    nextAria: '下一页',
+    retryAria: '重新尝试打开受保护 EPUB',
+    position: '当前位置',
     safety: '正文仅保留在当前阅读会话内存中；关闭页面后即释放，不会写入本地书库。',
   },
   en: {
@@ -49,6 +55,12 @@ const labels = {
     previous: 'Previous page',
     next: 'Next page',
     page: 'Reading position',
+    reader: 'Protected EPUB reader',
+    readingSurface: 'EPUB reading content. When focused, use Left and Right Arrow keys to turn pages.',
+    previousAria: 'Previous page',
+    nextAria: 'Next page',
+    retryAria: 'Try opening the protected EPUB again',
+    position: 'Current reading position',
     safety: 'Book text stays only in this reader session’s memory and is released when you leave; it is not saved to your local library.',
   },
 } as const
@@ -66,6 +78,21 @@ export default function PlatformEpubReader({ editionId, accessToken, uiLocale }:
   const [state, setState] = useState<ReaderState>({ kind: 'loading', message: labels[uiLocale].loading })
   const [pageLabel, setPageLabel] = useState('')
   const ui = labels[uiLocale]
+
+  const turnPage = (direction: 'next' | 'previous') => {
+    if (direction === 'next') void renditionRef.current?.next?.()
+    else void renditionRef.current?.prev?.()
+  }
+
+  const handleReadingSurfaceKeyDown = (event: React.KeyboardEvent<HTMLElement>) => {
+    if (event.key === 'ArrowRight') {
+      event.preventDefault()
+      turnPage('next')
+    } else if (event.key === 'ArrowLeft') {
+      event.preventDefault()
+      turnPage('previous')
+    }
+  }
 
   useEffect(() => {
     let active = true
@@ -119,38 +146,22 @@ export default function PlatformEpubReader({ editionId, accessToken, uiLocale }:
     }
   }, [editionId, accessToken, attempt, ui.loading, ui.opening, ui.failed])
 
-  useEffect(() => {
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.target instanceof HTMLElement && event.target.closest('button, a, input, textarea, select')) return
-      if (event.key === 'ArrowRight') {
-        event.preventDefault()
-        void renditionRef.current?.next?.()
-      }
-      if (event.key === 'ArrowLeft') {
-        event.preventDefault()
-        void renditionRef.current?.prev?.()
-      }
-    }
-    window.addEventListener('keydown', onKeyDown)
-    return () => window.removeEventListener('keydown', onKeyDown)
-  }, [])
-
   if (state.kind === 'error') {
-    return <div className="platform-epub-reader__error" role="alert">
+    return <div className="platform-epub-reader__error" role="alert" aria-live="assertive">
       <h2>{ui.failed}</h2>
       <p>{state.message}</p>
-      <button type="button" onClick={() => setAttempt((current) => current + 1)}>{ui.retry}</button>
+      <button type="button" aria-label={ui.retryAria} onClick={() => setAttempt((current) => current + 1)}>{ui.retry}</button>
     </div>
   }
 
-  return <section className="platform-epub-reader" aria-label="Protected EPUB reader">
+  return <section className="platform-epub-reader" aria-label={ui.reader} onKeyDown={handleReadingSurfaceKeyDown}>
     {state.kind === 'loading' && <p className="platform-epub-reader__loading" role="status">{state.message}</p>}
-    <div ref={mountRef} className="platform-epub-reader__frame" aria-busy={state.kind === 'loading'} />
+    <div ref={mountRef} className="platform-epub-reader__frame" tabIndex={0} aria-label={ui.readingSurface} aria-busy={state.kind === 'loading'} aria-keyshortcuts="ArrowLeft ArrowRight" />
     {state.kind === 'ready' && <>
       <nav className="platform-epub-reader__navigation" aria-label={ui.page}>
-        <button type="button" onClick={() => void renditionRef.current?.prev?.()}>{ui.previous}</button>
-        <span>{pageLabel || '—'}</span>
-        <button type="button" onClick={() => void renditionRef.current?.next?.()}>{ui.next}</button>
+        <button type="button" aria-label={ui.previousAria} onClick={() => turnPage('previous')}>{ui.previous}</button>
+        <span aria-label={ui.position} aria-live="polite">{pageLabel || '—'}</span>
+        <button type="button" aria-label={ui.nextAria} onClick={() => turnPage('next')}>{ui.next}</button>
       </nav>
       <p className="platform-epub-reader__safety">{ui.safety}</p>
     </>}

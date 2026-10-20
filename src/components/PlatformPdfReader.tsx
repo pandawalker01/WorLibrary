@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from 'react'
 import workerSrc from 'pdfjs-dist/build/pdf.worker.min.mjs?url'
 import type { UiLocale } from '../lib/i18n'
 import './platform-pdf-reader.css'
@@ -81,6 +81,8 @@ export async function fetchProtectedPlatformPdf(editionId: string, accessToken?:
 
 export default function PlatformPdfReader({ editionId, accessToken, uiLocale }: PlatformPdfReaderProps) {
   const ui = labels[uiLocale]
+  const readerRef = useRef<HTMLElement>(null)
+  const canvasFrameRef = useRef<HTMLDivElement>(null)
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const documentRef = useRef<PdfDocument | undefined>(undefined)
   const renderSequenceRef = useRef(0)
@@ -88,12 +90,25 @@ export default function PlatformPdfReader({ editionId, accessToken, uiLocale }: 
   const [page, setPage] = useState(1)
   const [state, setState] = useState<ReaderState>({ kind: 'loading', message: ui.loading })
   const [attempt, setAttempt] = useState(0)
+  const [canvasWidth, setCanvasWidth] = useState(0)
+  const [renderError, setRenderError] = useState('')
+
+  useEffect(() => {
+    const frame = canvasFrameRef.current
+    if (!frame) return
+    const updateWidth = () => setCanvasWidth(frame.clientWidth)
+    updateWidth()
+    const observer = new ResizeObserver(updateWidth)
+    observer.observe(frame)
+    return () => observer.disconnect()
+  }, [])
 
   useEffect(() => {
     let active = true
     const controller = new AbortController()
     setDocument(undefined)
     setPage(1)
+    setRenderError('')
     setState({ kind: 'loading', message: ui.loading })
 
     void (async () => {
@@ -134,7 +149,11 @@ export default function PlatformPdfReader({ editionId, accessToken, uiLocale }: 
       try {
         const pdfPage = await document.getPage(page)
         if (!active || renderSequence !== renderSequenceRef.current || !canvasRef.current) return
-        const viewport = pdfPage.getViewport({ scale: 1.45 })
+        const naturalViewport = pdfPage.getViewport({ scale: 1 })
+        // Render to the available reading column instead of producing a
+        // desktop-width canvas that CSS merely shrinks on narrow screens.
+        const scale = Math.min(1.6, Math.max(0.35, (Math.max(1, canvasWidth - 24) / naturalViewport.width)))
+        const viewport = pdfPage.getViewport({ scale })
         const canvas = canvasRef.current
         const context = canvas.getContext('2d')
         if (!context) throw new Error('CANVAS_UNAVAILABLE')
@@ -142,32 +161,29 @@ export default function PlatformPdfReader({ editionId, accessToken, uiLocale }: 
         canvas.height = viewport.height
         await pdfPage.render({ canvasContext: context, viewport }).promise
         if (!active || renderSequence !== renderSequenceRef.current) return
+        setRenderError('')
       } catch {
-        if (active) setState({ kind: 'error', message: ui.renderFailed })
+        if (active) setRenderError(ui.renderFailed)
       }
     })()
     return () => { active = false }
-  }, [document, page, ui.renderFailed])
+  }, [canvasWidth, document, page, ui.renderFailed])
 
   const moveToPage = useCallback((requested: number) => {
     if (!document) return
     setPage(Math.max(1, Math.min(document.numPages, requested)))
   }, [document])
 
-  useEffect(() => {
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (!document || event.defaultPrevented) return
-      if (event.target instanceof HTMLElement && event.target.closest('button, input, select, textarea, [contenteditable="true"]')) return
-      if (event.key === 'ArrowLeft' || event.key === 'PageUp') {
-        event.preventDefault()
-        moveToPage(page - 1)
-      } else if (event.key === 'ArrowRight' || event.key === 'PageDown' || event.key === ' ') {
-        event.preventDefault()
-        moveToPage(page + 1)
-      }
+  const handleReaderKeyDown = useCallback((event: ReactKeyboardEvent<HTMLElement>) => {
+    if (!document || event.defaultPrevented) return
+    if (event.target instanceof HTMLElement && event.target.closest('button, input, select, textarea, [contenteditable="true"]')) return
+    if (event.key === 'ArrowLeft' || event.key === 'PageUp') {
+      event.preventDefault()
+      moveToPage(page - 1)
+    } else if (event.key === 'ArrowRight' || event.key === 'PageDown' || event.key === ' ') {
+      event.preventDefault()
+      moveToPage(page + 1)
     }
-    window.addEventListener('keydown', onKeyDown)
-    return () => window.removeEventListener('keydown', onKeyDown)
   }, [document, moveToPage, page])
 
   if (state.kind === 'error') {
@@ -179,11 +195,13 @@ export default function PlatformPdfReader({ editionId, accessToken, uiLocale }: 
     </section>
   }
 
-  return <section className="platform-pdf-reader" aria-label={document ? ui.status(page, document.numPages) : ui.loading}>
+  return <section ref={readerRef} className="platform-pdf-reader" tabIndex={0} aria-label={document ? ui.status(page, document.numPages) : ui.loading} aria-describedby="platform-pdf-reader-help" onKeyDown={handleReaderKeyDown}>
     <p className="platform-pdf-reader__status" role="status" aria-live="polite">
       {state.kind === 'loading' ? state.message : document ? ui.status(page, document.numPages) : ui.loading}
     </p>
-    <div className="platform-pdf-reader__canvas" aria-busy={!document}><canvas ref={canvasRef} /></div>
+    <p id="platform-pdf-reader-help" className="platform-pdf-reader__help">{uiLocale === 'en' ? 'Use Previous and Next, or focus this reading area and press Left/Right Arrow or Page Up/Page Down.' : '可使用上一页、下一页，或聚焦阅读区域后按左右方向键、Page Up/Page Down 翻页。'}</p>
+    <div ref={canvasFrameRef} className="platform-pdf-reader__canvas" aria-busy={!document}><canvas ref={canvasRef} aria-hidden="true" /></div>
+    {renderError && <p className="platform-pdf-reader__render-error" role="status">{renderError}</p>}
     <nav className="platform-pdf-reader__navigation" aria-label={ui.status(page, document?.numPages ?? 0)}>
       <button disabled={!document || page <= 1} onClick={() => moveToPage(page - 1)}>{ui.previous}</button>
       <span aria-live="polite">{document ? ui.page(page, document.numPages) : '…'}</span>

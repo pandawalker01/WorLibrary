@@ -1,9 +1,11 @@
 .platform-epub-reader { width: min(100%, 980px); color: #514c45; background: #f8f5ed; }
 .platform-epub-reader__loading { margin: 0; padding: 18px 20px; border-bottom: 1px solid #d8d0c2; color: #8f5f28; font: 600 14px 'Noto Serif SC', serif; }
-.platform-epub-reader__frame { min-height: 650px; background: #f8f5ed; }
+.platform-epub-reader__frame { min-height: 650px; background: #f8f5ed; outline: none; }
+.platform-epub-reader__frame:focus-visible { box-shadow: inset 0 0 0 3px #2e86c9; }
 .platform-epub-reader__navigation { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 9px 14px; border-top: 1px solid #d8d0c2; background: #eee8dc; }
 .platform-epub-reader__navigation button { min-width: 76px; border: 1px solid #c8beaf; border-radius: 999px; padding: 7px 11px; background: #fffdf8; color: #514c45; font: 13px 'Noto Serif SC', serif; cursor: pointer; }
 .platform-epub-reader__navigation button:hover { border-color: #9e7044; background: #f8f0e4; }
+.platform-epub-reader__navigation button:focus-visible, .platform-epub-reader__error button:focus-visible { outline: 3px solid #2e86c9; outline-offset: 3px; }
 .platform-epub-reader__navigation span { color: #756d62; font: 11px 'DM Mono', monospace; }
 .platform-epub-reader__safety { margin: 0; padding: 12px 16px; color: #756d62; font: 12px/1.6 'Noto Serif SC', serif; }
 .platform-epub-reader__error { width: min(100%, 620px); box-sizing: border-box; padding: 30px; border-left: 4px solid #b85a4c; background: #fff; box-shadow: 0 15px 36px #23476512; }

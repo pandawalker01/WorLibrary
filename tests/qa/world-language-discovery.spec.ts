@@ -1,5 +1,31 @@
 import { expect, test } from '@playwright/test'
 
+function protectedPdfFixture(pageTexts = ['PLATFORM_PDF_PAGE_ONE', 'PLATFORM_PDF_PAGE_TWO']) {
+  const pageObjectStart = 3
+  const fontObject = pageObjectStart + pageTexts.length
+  const contentObjectStart = fontObject + 1
+  const pageObjects = pageTexts.map((_, index) => `${pageObjectStart + index} 0 R`).join(' ')
+  const objects = [
+    '<< /Type /Catalog /Pages 2 0 R >>',
+    `<< /Type /Pages /Kids [${pageObjects}] /Count ${pageTexts.length} >>`,
+    ...pageTexts.map((_, index) => `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 360 240] /Resources << /Font << /F1 ${fontObject} 0 R >> >> /Contents ${contentObjectStart + index} 0 R >>`),
+    '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>',
+    ...pageTexts.map((text) => {
+      const content = `BT /F1 18 Tf 40 180 Td (${text}) Tj ET`
+      return `<< /Length ${Buffer.byteLength(content)} >>\nstream\n${content}\nendstream`
+    }),
+  ]
+  let output = '%PDF-1.4\n'
+  const offsets = [0]
+  objects.forEach((object, index) => {
+    offsets.push(output.length)
+    output += `${index + 1} 0 obj\n${object}\nendobj\n`
+  })
+  const xref = output.length
+  output += `xref\n0 ${objects.length + 1}\n0000000000 65535 f \n${offsets.slice(1).map((offset) => `${String(offset).padStart(10, '0')} 00000 n `).join('\n')}\ntrailer\n<< /Size ${objects.length + 1} /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF`
+  return Buffer.from(output)
+}
+
 test('P1: legacy Open Library saves remain usable as catalog-only records', async ({ page }) => {
   await page.addInitScript(() => localStorage.setItem('worlibrary.saved-world-books', JSON.stringify([{
     id: 'OLlegacy', title: 'Legacy catalog item', author: 'Catalog author', languages: ['eng'], sourceUrl: 'https://openlibrary.org/works/OLlegacy', sourceName: 'Open Library',
@@ -54,7 +80,25 @@ test('P0: platform online title opens the in-app reader and fails closed before 
   await expect(page.getByRole('button', { name: /下载/ })).toHaveCount(0)
 })
 
-test('P0: configured platform PDF is requested through the protected reader endpoint, never as a download', async ({ page }) => {
+test('P1: visible platform reader time is kept as local metadata and appears in recent reading', async ({ page }) => {
+  await page.addInitScript(() => localStorage.setItem('worlibrary.saved-world-books', JSON.stringify([{
+    id: 'platform-time-fixture', sourceId: 'platform', sourceRecordId: 'platform-time-fixture', platformEditionId: 'platform-time-fixture', title: 'Platform time fixture', author: 'Rights holder', languages: ['eng'], sourceUrl: 'https://example.test/platform-time-fixture', sourceName: 'WorLibrary platform', access: { mode: 'licensed_full_text', url: 'https://example.test/platform-time-fixture' },
+  }])))
+  await page.route('**/api/reader/access?editionId=platform-time-fixture', async (route) => {
+    await route.fulfill({ contentType: 'application/json', body: JSON.stringify({ editionId: 'platform-time-fixture', access_mode: 'stream', delivery: { available: false, reason: 'content_delivery_not_implemented' } }) })
+  })
+
+  await page.goto('/')
+  await page.getByRole('button', { name: '在 WorLibrary 中阅读' }).click()
+  await expect(page.getByText('Platform time fixture', { exact: true })).toBeVisible()
+  await expect.poll(() => page.evaluate(() => JSON.parse(localStorage.getItem('worlibrary.reading-by-book') ?? '{}')['platform:platform-time-fixture'])).toBeGreaterThan(0)
+  await expect.poll(() => page.evaluate(() => JSON.parse(localStorage.getItem('worlibrary.platform-reading-metadata') ?? '{}')['platform:platform-time-fixture'])).toEqual(expect.objectContaining({ editionId: 'platform-time-fixture', title: 'Platform time fixture', author: 'Rights holder' }))
+  await page.getByRole('button', { name: '← 返回书库' }).click()
+  await page.getByRole('navigation', { name: '主导航' }).getByRole('button', { name: '我的', exact: true }).click()
+  await expect(page.getByText('Platform time fixture', { exact: true })).toBeVisible()
+})
+
+test('P0: protected platform PDF stays in-app, is responsive, and paginates without a download action', async ({ page }) => {
   await page.addInitScript(() => localStorage.setItem('worlibrary.saved-world-books', JSON.stringify([{
     id: 'platform-pdf', sourceId: 'platform', sourceRecordId: 'platform-pdf', platformEditionId: 'platform-pdf', title: 'Protected PDF fixture', author: 'Rights holder', languages: ['eng'], sourceUrl: 'https://example.test/platform-pdf', sourceName: 'WorLibrary platform', access: { mode: 'licensed_full_text', url: 'https://example.test/platform-pdf' },
   }])))
@@ -64,12 +108,19 @@ test('P0: configured platform PDF is requested through the protected reader endp
   let protectedContentRequests = 0
   await page.route('**/api/reader/content?editionId=platform-pdf', async (route) => {
     protectedContentRequests += 1
-    await route.fulfill({ contentType: 'application/pdf', body: 'not a real pdf fixture' })
+    await route.fulfill({ contentType: 'application/pdf', body: protectedPdfFixture() })
   })
 
   await page.goto('/')
   await page.getByRole('button', { name: '在 WorLibrary 中阅读' }).click()
-  await expect(page.getByText('无法打开受保护 PDF')).toBeVisible()
+  const protectedReader = page.locator('.platform-pdf-reader')
+  await expect(protectedReader).toBeVisible()
+  await expect(protectedReader.getByText('受保护 PDF · 第 1 / 2 页')).toBeVisible({ timeout: 15_000 })
+  await expect(protectedReader.locator('canvas')).toBeVisible()
+  await expect(protectedReader.getByRole('button', { name: '上一页' })).toBeDisabled()
+  await protectedReader.getByRole('button', { name: '下一页' }).click()
+  await expect(protectedReader.getByText('第 2 / 2 页', { exact: true })).toBeVisible()
+  await expect(protectedReader.getByRole('button', { name: '下一页' })).toBeDisabled()
   expect(protectedContentRequests).toBe(1)
   await expect(page.getByRole('button', { name: /下载/ })).toHaveCount(0)
   await expect(page.locator('.epub-reader-frame, .pdf-reader-frame')).toHaveCount(0)

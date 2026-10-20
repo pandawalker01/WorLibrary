@@ -58,8 +58,10 @@ const sampleBooks: DisplayBook[] = [
 const READING_SECONDS_KEY = 'worlibrary.reading-seconds'
 const READING_HISTORY_KEY = 'worlibrary.reading-history'
 const READING_BY_BOOK_KEY = 'worlibrary.reading-by-book'
+const PLATFORM_READING_METADATA_KEY = 'worlibrary.platform-reading-metadata'
 
 type ReadingHistory = Record<string, number>
+type PlatformReadingMetadata = Record<string, { editionId: string; title: string; author: string; lastReadAt: number }>
 
 function loadReadingSeconds(): number {
   try { return Math.max(0, Number(window.localStorage.getItem(READING_SECONDS_KEY)) || 0) } catch { return 0 }
@@ -101,6 +103,33 @@ function loadBookReadingHistory(): ReadingHistory {
 
 function saveBookReadingHistory(history: ReadingHistory): void {
   try { window.localStorage.setItem(READING_BY_BOOK_KEY, JSON.stringify(history)) } catch { /* Reading must work without storage. */ }
+}
+
+/**
+ * Platform reading history deliberately stores only shelf metadata. Protected
+ * source files, reader locations and delivery URLs must never enter browser
+ * persistence; the stable `platform:<editionId>` duration key is enough for
+ * the local profile to show a reader where their time went.
+ */
+function loadPlatformReadingMetadata(): PlatformReadingMetadata {
+  try {
+    const value = JSON.parse(window.localStorage.getItem(PLATFORM_READING_METADATA_KEY) ?? '{}') as Record<string, unknown>
+    const metadata: PlatformReadingMetadata = {}
+    for (const [key, item] of Object.entries(value)) {
+      if (!key.startsWith('platform:') || !item || typeof item !== 'object') continue
+      const candidate = item as Record<string, unknown>
+      if (typeof candidate.editionId === 'string' && typeof candidate.title === 'string' && typeof candidate.author === 'string' && typeof candidate.lastReadAt === 'number' && Number.isFinite(candidate.lastReadAt)) {
+        metadata[key] = { editionId: candidate.editionId, title: candidate.title, author: candidate.author, lastReadAt: candidate.lastReadAt }
+      }
+    }
+    return metadata
+  } catch {
+    return {}
+  }
+}
+
+function savePlatformReadingMetadata(metadata: PlatformReadingMetadata): void {
+  try { window.localStorage.setItem(PLATFORM_READING_METADATA_KEY, JSON.stringify(metadata)) } catch { /* Reading must work without storage. */ }
 }
 
 function recentReadingDays(history: ReadingHistory, locale: 'zh-CN' | 'en') {
@@ -169,6 +198,7 @@ function App() {
   const [readingSeconds, setReadingSeconds] = useState(loadReadingSeconds)
   const [readingHistory, setReadingHistory] = useState<ReadingHistory>(loadReadingHistory)
   const [bookReadingHistory, setBookReadingHistory] = useState<ReadingHistory>(loadBookReadingHistory)
+  const [platformReadingMetadata, setPlatformReadingMetadata] = useState<PlatformReadingMetadata>(loadPlatformReadingMetadata)
   const [libraryMode, setLibraryMode] = useState<'mine' | 'world'>(initialRoute.libraryMode)
   const [routedBookId, setRoutedBookId] = useState<string | undefined>(initialRoute.bookId)
   const [routedPlatformEditionId, setRoutedPlatformEditionId] = useState<string | undefined>(initialRoute.platformEditionId)
@@ -227,6 +257,9 @@ function App() {
   const selectedPlatformBook = routedPlatformEditionId
     ? savedWorldBooks.find((book) => book.platformEditionId === routedPlatformEditionId)
     : undefined
+  const activeReadingBookKey = selectedPlatformBook?.platformEditionId
+    ? `platform:${selectedPlatformBook.platformEditionId}`
+    : routedPlatformEditionId ? undefined : selectedBook.id
 
   useEffect(() => {
     if (!booksLoaded || view !== 'reader' || !routedPlatformEditionId) return
@@ -264,7 +297,7 @@ function App() {
     return () => window.clearInterval(timer)
   }, [view, scheduleSync])
   useEffect(() => {
-    if (view !== 'reader') return
+    if (view !== 'reader' || !activeReadingBookKey) return
     const timer = window.setInterval(() => {
       if (document.visibilityState !== 'visible') return
       setReadingSeconds((current) => {
@@ -279,13 +312,28 @@ function App() {
         return next
       })
       setBookReadingHistory((current) => {
-        const next = { ...current, [selectedBook.id]: (current[selectedBook.id] ?? 0) + 1 }
+        const next = { ...current, [activeReadingBookKey]: (current[activeReadingBookKey] ?? 0) + 1 }
         saveBookReadingHistory(next)
         return next
       })
+      if (selectedPlatformBook?.platformEditionId) {
+        setPlatformReadingMetadata((current) => {
+          const next = {
+            ...current,
+            [activeReadingBookKey]: {
+              editionId: selectedPlatformBook.platformEditionId!,
+              title: selectedPlatformBook.title,
+              author: selectedPlatformBook.author,
+              lastReadAt: Date.now(),
+            },
+          }
+          savePlatformReadingMetadata(next)
+          return next
+        })
+      }
     }, 1000)
     return () => window.clearInterval(timer)
-  }, [selectedBook.id, view])
+  }, [activeReadingBookKey, selectedPlatformBook, view])
   useEffect(() => { if (view === 'profile') void listHighlights().then((items) => setHighlightCount(items.length)) }, [view])
 
   useEffect(() => {
@@ -502,7 +550,15 @@ function App() {
     .sort((left, right) => sortNewest ? (right.createdAt ?? 0) - (left.createdAt ?? 0) : left.title.localeCompare(right.title))
   const readingBooks = books.filter((book) => book.progress > 0 && book.progress < 100)
   const completedBooks = books.filter((book) => book.progress >= 100)
-  const recentBooks = books.filter((book) => Boolean(book.lastReadAt)).sort((left, right) => (right.lastReadAt ?? 0) - (left.lastReadAt ?? 0)).slice(0, 3)
+  const recentReadingItems = [
+    ...books.filter((book) => Boolean(book.lastReadAt)).map((book) => ({ kind: 'local' as const, id: book.id, title: book.title, author: book.author, progress: book.progress, lastReadAt: book.lastReadAt!, readingKey: book.id })),
+    ...savedWorldBooks.flatMap((book) => {
+      if (!book.platformEditionId) return []
+      const readingKey = `platform:${book.platformEditionId}`
+      const metadata = platformReadingMetadata[readingKey]
+      return metadata ? [{ kind: 'platform' as const, id: book.platformEditionId, title: book.title, author: book.author, lastReadAt: metadata.lastReadAt, readingKey }] : []
+    }),
+  ].sort((left, right) => right.lastReadAt - left.lastReadAt).slice(0, 3)
   const weeklyReading = recentReadingDays(readingHistory, uiLocale)
   const weeklyReadingMax = Math.max(1, ...weeklyReading.map((day) => day.seconds))
 
@@ -564,7 +620,7 @@ function App() {
             <article><span>{ui.readingTime}</span><strong>{formatReadingTime(readingSeconds, uiLocale)}</strong></article><article><span>{ui.booksOwned}</span><strong>{books.length}</strong></article><article><span>{ui.booksInProgress}</span><strong>{readingBooks.length}</strong></article><article><span>{ui.highlightsSaved}</span><strong>{highlightCount}</strong></article>
           </div>
           <section className="profile-weekly" aria-labelledby="profile-weekly-title"><div><p className="eyebrow">{ui.weeklyReading}</p><h2 id="profile-weekly-title">{ui.weeklyReadingTitle}</h2><p>{ui.weeklyReadingCopy}</p></div><div className="reading-bars" aria-label={ui.weeklyReading}>{weeklyReading.map((day) => <div className="reading-bar" key={day.key}><span title={interpolate(ui.dayReading, { day: day.label, time: formatReadingTime(day.seconds, uiLocale) })} style={{ height: `${Math.round((day.seconds / weeklyReadingMax) * 100)}%` }} /><small>{day.label}</small></div>)}</div></section>
-          <section className="profile-recent" aria-labelledby="profile-recent-title"><div><p className="eyebrow">{ui.recentReading}</p><h2 id="profile-recent-title">{ui.recentReading}</h2><p>{ui.recentReadingCopy}</p></div>{recentBooks.length > 0 ? <div className="profile-book-list">{recentBooks.map((book) => <button key={book.id} onClick={() => { setSelectedBook(book); setView('reader') }}><span>{book.title}</span><small>{book.author} · {book.progress}% · {formatLastRead(book.lastReadAt, uiLocale, ui.notReadYet)}</small><em>{interpolate(ui.bookReadingTime, { time: formatReadingTime(bookReadingHistory[book.id] ?? 0, uiLocale) })}</em><i><b style={{ width: `${book.progress}%` }} /></i></button>)}</div> : <div className="profile-empty"><strong>{ui.profileEmpty}</strong><p>{ui.profileEmptyCopy}</p><button onClick={() => setView('library')}>{ui.importMine}</button></div>}</section>
+          <section className="profile-recent" aria-labelledby="profile-recent-title"><div><p className="eyebrow">{ui.recentReading}</p><h2 id="profile-recent-title">{ui.recentReading}</h2><p>{ui.recentReadingCopy}</p></div>{recentReadingItems.length > 0 ? <div className="profile-book-list">{recentReadingItems.map((item) => <button key={`${item.kind}:${item.id}`} onClick={() => { if (item.kind === 'platform') { setRoutedPlatformEditionId(item.id); setRoutedBookId(undefined); setView('reader') } else { const book = books.find((candidate) => candidate.id === item.id); if (book) { setSelectedBook(book); setRoutedBookId(book.id); setRoutedPlatformEditionId(undefined); setView('reader') } } }}><span>{item.title}</span><small>{item.author} · {item.kind === 'local' ? `${item.progress}% · ` : ''}{formatLastRead(item.lastReadAt, uiLocale, ui.notReadYet)}</small><em>{interpolate(ui.bookReadingTime, { time: formatReadingTime(bookReadingHistory[item.readingKey] ?? 0, uiLocale) })}</em>{item.kind === 'local' && <i><b style={{ width: `${item.progress}%` }} /></i>}</button>)}</div> : <div className="profile-empty"><strong>{ui.profileEmpty}</strong><p>{ui.profileEmptyCopy}</p><button onClick={() => setView('library')}>{ui.importMine}</button></div>}</section>
           <p className="profile-footnote">{completedBooks.length > 0 ? `${ui.booksCompleted}：${completedBooks.length}` : ui.profileLocalOnly}</p>
         </section>}
 

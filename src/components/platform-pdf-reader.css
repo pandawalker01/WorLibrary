@@ -1,7 +1,10 @@
-.platform-pdf-reader { width: min(100%, 1040px); margin: 0 auto; color: #24445e; }
+.platform-pdf-reader { width: min(100%, 1040px); margin: 0 auto; color: #24445e; outline: none; }
+.platform-pdf-reader:focus-visible { outline: 3px solid #69afe1; outline-offset: 5px; }
 .platform-pdf-reader__status { min-height: 22px; margin: 0 0 14px; color: #5d7d95; font: 600 13px/1.6 'Noto Serif SC', serif; text-align: center; }
-.platform-pdf-reader__canvas { display: grid; min-height: 300px; place-items: center; overflow: auto; border: 1px solid #d8e6f2; background: #f7fbfe; }
+.platform-pdf-reader__help { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+.platform-pdf-reader__canvas { display: grid; min-height: clamp(260px, 56vw, 720px); place-items: center; overflow: auto; border: 1px solid #d8e6f2; background: #f7fbfe; overscroll-behavior: contain; }
 .platform-pdf-reader__canvas canvas { display: block; max-width: 100%; height: auto; box-shadow: 0 16px 36px #1b40591a; }
+.platform-pdf-reader__render-error { margin: 10px 0 0; color: #9b5449; font: 13px/1.6 'Noto Serif SC', serif; text-align: center; }
 .platform-pdf-reader__navigation { display: flex; align-items: center; justify-content: space-between; gap: 18px; margin-top: 16px; border-top: 1px solid #d8e6f2; padding-top: 16px; color: #496d89; font: 600 13px 'Noto Serif SC', serif; }
 .platform-pdf-reader__navigation button, .platform-pdf-reader__error button { border: 1px solid #2e86c9; border-radius: 4px; padding: 9px 14px; background: #fff; color: #236da6; font: 600 13px 'Noto Serif SC', serif; cursor: pointer; }
 .platform-pdf-reader__navigation button:disabled { cursor: not-allowed; opacity: .42; }
@@ -10,4 +13,4 @@
 .platform-pdf-reader__error h2 { margin: 0 0 12px; font: 700 22px 'Noto Serif SC', serif; }
 .platform-pdf-reader__error p { color: #607b90; font: 14px/1.8 'Noto Serif SC', serif; }
 .platform-pdf-reader__error-code { color: #8d5b53 !important; font: 12px/1.5 'DM Mono', monospace !important; }
-@media (max-width: 560px) { .platform-pdf-reader__canvas { min-height: 220px; }.platform-pdf-reader__navigation { gap: 10px; }.platform-pdf-reader__navigation button { padding: 9px 11px; } }
+@media (max-width: 560px) { .platform-pdf-reader__canvas { min-height: 220px; }.platform-pdf-reader__navigation { gap: 10px; }.platform-pdf-reader__navigation button { min-height: 44px; padding: 9px 11px; } }
