@@ -18,6 +18,14 @@ npm run dev
 
 然后访问终端显示的本地地址（默认是 `http://localhost:5173`）。
 
+需要连同 Cloudflare Worker 验证世界书库或真实翻译时，运行：
+
+```bash
+npm run cf:dev
+```
+
+该命令会先重新构建前端，再在 `http://localhost:8787` 启动 Worker；不要直接运行 `wrangler dev`，否则可能继续服务上一次构建留下的 `dist/` 内容。
+
 生产构建与类型检查：
 
 ```bash

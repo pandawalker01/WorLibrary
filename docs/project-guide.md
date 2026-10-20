@@ -93,7 +93,7 @@ WorLibrary 是本地优先的多语言阅读器：用户导入自己拥有的 EP
 
 本地启动：npm install，然后 npm run dev。通常访问 http://localhost:5173；不要用 file:// 直接打开 index.html，也不要连接遗留的 Vite 端口。
 
-最低验证：npm run typecheck、npm run build、npm run test:worker，以及与改动范围匹配的 Playwright 用例。Cloudflare 配置完成后还要运行 `npm run cf:dev` 或 `npm run cf:deploy -- --dry-run`，并验证 `/api/health` 与 `/api/catalog`。PWA 变更必须运行 `npx playwright test tests/qa/pwa-shell.spec.ts`，并在生产预览中验证 Service Worker 注册、离线提示与已导入书籍恢复。对跨模块功能，运行 npx playwright test。发布前还需参考 docs/runbook.md。
+最低验证：npm run typecheck、npm run build、npm run test:worker，以及与改动范围匹配的 Playwright 用例。Cloudflare 配置完成后还要运行 `npm run cf:dev` 或 `npm run cf:deploy -- --dry-run`，并验证 `/api/health` 与 `/api/catalog`。`cf:dev` 会先构建当前前端再启动 Worker；不要直接运行 `wrangler dev` 以免服务过期的 `dist/`。PWA 变更必须运行 `npx playwright test tests/qa/pwa-shell.spec.ts`，并在生产预览中验证 Service Worker 注册、离线提示与已导入书籍恢复。对跨模块功能，运行 npx playwright test。发布前还需参考 docs/runbook.md。
 
 提交前必须阅读根目录 AGENTS.md 并更新受影响的文档。文档、测试和实现应进入同一次提交，使新 Agent 可以从仓库状态而非聊天记录恢复上下文。
 

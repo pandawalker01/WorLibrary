@@ -29,6 +29,8 @@
 npm run cf:dev
 ```
 
+该脚本会先执行生产构建，确保 Worker 挂载的是当前源码生成的 `dist/`；若改为直接运行 `wrangler dev`，必须先手动执行 `npm run build`。
+
 发布命令为：
 
 ```sh
@@ -78,7 +80,7 @@ npm run build
 npm run cf:dev
 ```
 
-Wrangler 会读取 `.dev.vars` 并启动本地 Worker 与 `dist/` 静态应用壳；终端会显示本地 URL（通常为 `http://localhost:8787`）。在该地址导入测试 EPUB/PDF、选中少量无版权文字并点击翻译，即可验收完整本地链路。停止开发服务器后，本地配置仍只保留在 `.dev.vars`，不会上传 Cloudflare 或 GitHub。
+`npm run cf:dev` 会重新构建 `dist/`，随后 Wrangler 读取 `.dev.vars` 并启动本地 Worker 与当前静态应用壳；终端会显示本地 URL（通常为 `http://localhost:8787`）。在该地址导入测试 EPUB/PDF、选中少量无版权文字并点击翻译，即可验收完整本地链路。停止开发服务器后，本地配置仍只保留在 `.dev.vars`，不会上传 Cloudflare 或 GitHub。
 
 ### 环境变量契约
 
