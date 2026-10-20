@@ -6,6 +6,8 @@ const DEFAULT_AI_RATE_LIMIT = 10
 const MAX_AI_TEXT_LENGTH = 5_000
 const MAX_AI_CONTEXT_LENGTH = 1_500
 const MAX_AI_LANGUAGE_LENGTH = 64
+const MAX_PLATFORM_EDITION_ID_LENGTH = 160
+const PLATFORM_ACCESS_MODES = new Set(['download', 'stream', 'external_reader', 'preview', 'catalog_only'])
 // Catalog metadata is public, but search terms are still short-lived cache
 // entries. Health and user/AI routes keep the stricter no-store policy.
 const CATALOG_CACHE_CONTROL = 'public, max-age=60, s-maxage=300, stale-while-revalidate=60'
@@ -341,6 +343,102 @@ function translationStatus(request, env, id) {
   }, 200, id)
 }
 
+function readerAccessError(code, status, id) {
+  const messages = {
+    INVALID_EDITION_ID: 'The requested edition identifier is invalid.',
+    PLATFORM_ACCESS_UNCONFIGURED: 'Platform reader access is not configured.',
+    ACCESS_POLICY_INVALID: 'The platform access policy is invalid.',
+    EDITION_NOT_FOUND: 'The requested platform edition was not found.',
+    AUTH_REQUIRED: 'Sign in is required to read this edition.',
+    AUTHORIZATION_UNAVAILABLE: 'Reader authorization is temporarily unavailable.',
+    AUTHORIZATION_INVALID: 'Reader authorization returned an invalid decision.',
+    ACCESS_DENIED: 'This account is not entitled to read this edition.',
+  }
+  return json({ error: { code, message: messages[code] || 'Reader access is unavailable.', retryable: status >= 500 } }, status, id)
+}
+
+function platformAccessCatalog(env) {
+  const raw = typeof env.PLATFORM_CONTENT_ACCESS_JSON === 'string' ? env.PLATFORM_CONTENT_ACCESS_JSON.trim() : ''
+  if (!raw) return { error: 'PLATFORM_ACCESS_UNCONFIGURED' }
+  try {
+    const entries = JSON.parse(raw)
+    if (!Array.isArray(entries)) return { error: 'ACCESS_POLICY_INVALID' }
+    const records = new Map()
+    for (const entry of entries) {
+      if (!entry || typeof entry !== 'object' || typeof entry.editionId !== 'string' || typeof entry.accessMode !== 'string') return { error: 'ACCESS_POLICY_INVALID' }
+      const editionId = entry.editionId.trim()
+      if (!editionId || editionId.length > MAX_PLATFORM_EDITION_ID_LENGTH || !PLATFORM_ACCESS_MODES.has(entry.accessMode) || records.has(editionId)) return { error: 'ACCESS_POLICY_INVALID' }
+      if (entry.accessMode === 'external_reader' && (typeof entry.externalReaderUrl !== 'string' || !/^https:\/\//i.test(entry.externalReaderUrl))) return { error: 'ACCESS_POLICY_INVALID' }
+      records.set(editionId, {
+        editionId,
+        accessMode: entry.accessMode,
+        requiresAuthorization: entry.requiresAuthorization !== false,
+        rightsNotice: typeof entry.rightsNotice === 'string' ? entry.rightsNotice.slice(0, 500) : undefined,
+        externalReaderUrl: entry.accessMode === 'external_reader' ? entry.externalReaderUrl : undefined,
+      })
+    }
+    return { records }
+  } catch {
+    return { error: 'ACCESS_POLICY_INVALID' }
+  }
+}
+
+function configuredAuthorizationUrl(env) {
+  const value = typeof env.READER_AUTHORIZATION_URL === 'string' ? env.READER_AUTHORIZATION_URL.trim() : ''
+  return /^https:\/\//i.test(value) ? value : undefined
+}
+
+async function authorizeReaderAccess(request, authorizationUrl, record, id) {
+  const authorization = request.headers.get('authorization')
+  if (!authorization) return { error: 'AUTH_REQUIRED', status: 401 }
+  if (!authorizationUrl) return { error: 'AUTHORIZATION_UNAVAILABLE', status: 503 }
+  try {
+    const response = await fetch(authorizationUrl, {
+      method: 'POST',
+      headers: {
+        Authorization: authorization,
+        'Content-Type': 'application/json',
+        'x-request-id': id,
+      },
+      body: JSON.stringify({ editionId: record.editionId, accessMode: record.accessMode }),
+    })
+    if (response.status === 401 || response.status === 403) return { error: 'ACCESS_DENIED', status: 403 }
+    if (!response.ok) return { error: 'AUTHORIZATION_UNAVAILABLE', status: 503 }
+    const decision = await response.json()
+    if (typeof decision?.allowed !== 'boolean') return { error: 'AUTHORIZATION_INVALID', status: 502 }
+    return decision.allowed ? { allowed: true } : { error: 'ACCESS_DENIED', status: 403 }
+  } catch {
+    return { error: 'AUTHORIZATION_UNAVAILABLE', status: 503 }
+  }
+}
+
+async function readerAccess(request, env, id) {
+  if (request.method !== 'GET') return methodNotAllowed(id)
+  const editionId = (new URL(request.url).searchParams.get('editionId') || '').trim()
+  if (!editionId || editionId.length > MAX_PLATFORM_EDITION_ID_LENGTH) return readerAccessError('INVALID_EDITION_ID', 400, id)
+  const catalog = platformAccessCatalog(env)
+  if (catalog.error) return readerAccessError(catalog.error, 503, id)
+  const record = catalog.records.get(editionId)
+  if (!record) return readerAccessError('EDITION_NOT_FOUND', 404, id)
+  if (record.requiresAuthorization) {
+    const authorization = await authorizeReaderAccess(request, configuredAuthorizationUrl(env), record, id)
+    if (authorization.error) return readerAccessError(authorization.error, authorization.status, id)
+  }
+  // This policy endpoint intentionally does not return book bytes, object-store
+  // keys, signed download URLs, or reader session tokens. A later delivery
+  // route must verify the same entitlement before streaming an authorized asset.
+  return json({
+    editionId: record.editionId,
+    access_mode: record.accessMode,
+    rights_notice: record.rightsNotice,
+    delivery: {
+      available: false,
+      reason: 'content_delivery_not_implemented',
+    },
+    ...(record.externalReaderUrl ? { external_reader_url: record.externalReaderUrl } : {}),
+  }, 200, id)
+}
+
 function htmlNavigation(request) {
   return request.method === 'GET' && request.headers.get('accept')?.includes('text/html')
 }
@@ -363,6 +461,7 @@ export default {
     const id = requestId(request)
     if (url.pathname === '/api/health' || url.pathname === '/health') return health(request, env, id)
     if (url.pathname === '/api/catalog') return catalog(request, id)
+    if (url.pathname === '/api/reader/access') return readerAccess(request, env, id)
     if (url.pathname === '/api/translation-status') return translationStatus(request, env, id)
     if (url.pathname === '/api/translate') return ai(request, env, id, 'translate')
     if (url.pathname === '/api/explain') return ai(request, env, id, 'explain')

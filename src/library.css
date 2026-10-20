@@ -14,6 +14,7 @@
 /* World-library section labels are intentionally secondary to the catalogue. */
 .saved-world-shelf h2 { font-size: 17px; }
 .world-recommendations h3 { font-size: 16px; }
+.world-access-badge { color: #1762a0; font-weight: 700; }
 
 /* A compact contextual menu keeps management attached to the selected book. */
 .book-context-menu { position: fixed; z-index: 30; width: 206px; display: grid; gap: 3px; padding: 8px; border: 1px solid #b8d5eb; border-radius: 6px; background: #fff; box-shadow: 0 16px 38px #2347652b; color: #29435d; }

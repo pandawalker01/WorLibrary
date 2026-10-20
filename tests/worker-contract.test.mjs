@@ -157,3 +157,81 @@ test('Cloudflare translation protects the provider with input validation, config
     assert.equal(calls, 1)
   })
 })
+
+test('Cloudflare reader access returns only a policy decision after an entitlement check', async () => {
+  const assets = createAssets()
+  const policy = JSON.stringify([
+    { editionId: 'public-download', accessMode: 'download', requiresAuthorization: false, rightsNotice: 'Public domain edition.' },
+    { editionId: 'licensed-stream', accessMode: 'stream', rightsNotice: 'Licensed for account streaming only.' },
+    { editionId: 'source-reader', accessMode: 'external_reader', requiresAuthorization: false, externalReaderUrl: 'https://reader.example.test/book/source-reader' },
+  ])
+
+  const unconfigured = await worker.fetch(new Request('https://app.example.test/api/reader/access?editionId=licensed-stream'), { ASSETS: assets })
+  assert.equal(unconfigured.status, 503)
+  assert.equal((await unconfigured.json()).error.code, 'PLATFORM_ACCESS_UNCONFIGURED')
+
+  const noSession = await worker.fetch(new Request('https://app.example.test/api/reader/access?editionId=licensed-stream'), { ASSETS: assets, PLATFORM_CONTENT_ACCESS_JSON: policy, READER_AUTHORIZATION_URL: 'https://auth.example.test/reader-access' })
+  assert.equal(noSession.status, 401)
+  assert.equal((await noSession.json()).error.code, 'AUTH_REQUIRED')
+
+  const calls = []
+  await withFetchStub(async (url, init) => {
+    calls.push({ url: String(url), init })
+    return Response.json({ allowed: true, userId: 'must-not-be-returned' })
+  }, async () => {
+    const allowed = await worker.fetch(new Request('https://app.example.test/api/reader/access?editionId=licensed-stream', {
+      headers: { authorization: 'Bearer reader-session-token', 'x-request-id': 'reader-access-contract' },
+    }), { ASSETS: assets, PLATFORM_CONTENT_ACCESS_JSON: policy, READER_AUTHORIZATION_URL: 'https://auth.example.test/reader-access' })
+    assert.equal(allowed.status, 200)
+    assert.equal(allowed.headers.get('cache-control'), 'no-store')
+    assert.equal(allowed.headers.get('x-request-id'), 'reader-access-contract')
+    const payload = await allowed.json()
+    assert.deepEqual(payload, {
+      editionId: 'licensed-stream',
+      access_mode: 'stream',
+      rights_notice: 'Licensed for account streaming only.',
+      delivery: { available: false, reason: 'content_delivery_not_implemented' },
+    })
+    assert.doesNotMatch(JSON.stringify(payload), /reader-session-token|userId/)
+    assert.equal(calls.length, 1)
+    assert.equal(calls[0].url, 'https://auth.example.test/reader-access')
+    assert.equal(calls[0].init.headers.Authorization, 'Bearer reader-session-token')
+    assert.deepEqual(JSON.parse(calls[0].init.body), { editionId: 'licensed-stream', accessMode: 'stream' })
+  })
+
+  const download = await worker.fetch(new Request('https://app.example.test/api/reader/access?editionId=public-download'), { ASSETS: assets, PLATFORM_CONTENT_ACCESS_JSON: policy })
+  assert.equal(download.status, 200)
+  assert.equal((await download.json()).access_mode, 'download')
+  const external = await worker.fetch(new Request('https://app.example.test/api/reader/access?editionId=source-reader'), { ASSETS: assets, PLATFORM_CONTENT_ACCESS_JSON: policy })
+  assert.equal(external.status, 200)
+  assert.equal((await external.json()).external_reader_url, 'https://reader.example.test/book/source-reader')
+})
+
+test('Cloudflare reader access fails closed for unknown editions, invalid policies, and denied entitlements', async () => {
+  const assets = createAssets()
+  const invalidPolicy = await worker.fetch(new Request('https://app.example.test/api/reader/access?editionId=bad'), {
+    ASSETS: assets,
+    PLATFORM_CONTENT_ACCESS_JSON: JSON.stringify([{ editionId: 'bad', accessMode: 'unrestricted' }]),
+  })
+  assert.equal(invalidPolicy.status, 503)
+  assert.equal((await invalidPolicy.json()).error.code, 'ACCESS_POLICY_INVALID')
+
+  const unknownEdition = await worker.fetch(new Request('https://app.example.test/api/reader/access?editionId=absent'), {
+    ASSETS: assets,
+    PLATFORM_CONTENT_ACCESS_JSON: JSON.stringify([{ editionId: 'present', accessMode: 'preview', requiresAuthorization: false }]),
+  })
+  assert.equal(unknownEdition.status, 404)
+  assert.equal((await unknownEdition.json()).error.code, 'EDITION_NOT_FOUND')
+
+  await withFetchStub(async () => new Response(null, { status: 403 }), async () => {
+    const denied = await worker.fetch(new Request('https://app.example.test/api/reader/access?editionId=restricted', {
+      headers: { authorization: 'Bearer reader-session-token' },
+    }), {
+      ASSETS: assets,
+      PLATFORM_CONTENT_ACCESS_JSON: JSON.stringify([{ editionId: 'restricted', accessMode: 'stream' }]),
+      READER_AUTHORIZATION_URL: 'https://auth.example.test/reader-access',
+    })
+    assert.equal(denied.status, 403)
+    assert.equal((await denied.json()).error.code, 'ACCESS_DENIED')
+  })
+})

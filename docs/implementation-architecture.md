@@ -88,6 +88,25 @@ Work（作品）
 
 联网收藏仅保存可重新发现该记录所需的元数据，使用 `sourceId:sourceRecordId` 去重；旧 Open Library 收藏在读取时迁移为 `open-library` / `catalog_only`。原始书籍文件始终只来自用户本地导入，或将来经过单独审核的合法正文来源。
 
+### 平台书库与应用内阅读的交付边界
+
+平台书籍与用户导入书籍必须使用不同的数据和交付链路。用户导入的二进制继续停留在本机 OPFS / IndexedDB；平台内容使用独立的 `catalog_works`、`catalog_editions`、`content_assets`、`access_policies`、`user_library_items` 与 `user_entitlements`。其中 `content_assets.object_key` 只对服务端可见，不能通过 Supabase 客户端权限或 Worker 策略接口暴露给浏览器。
+
+```text
+用户将条目加入我的书库
+  ├─ local_import：本机 bookId，可离线阅读
+  ├─ platform：平台 editionId，按地区策略与 entitlement 决定 download / stream / preview
+  └─ external_catalog：来源与记录 ID，仅 external_reader / preview / catalog_only
+
+阅读请求
+  → Worker /api/reader/access 读取合规访问策略
+  → 受限版本交给授权服务验证既有会话
+  → 未来内容交付路由再次验证同一权益
+  → 私有 R2 或经审核的流式来源向 WorLibrary 阅读器提供内容
+```
+
+当前 `/api/reader/access` 只交付访问决策，不交付正文；它返回 `delivery.available: false`，因此前端不得把它渲染为可用的应用内阅读或下载按钮。正式加入流式交付前，必须取得正文的书面许可，实施区域/期限下架策略、短期会话、访问审计和范围受限对象读取。即便不提供下载按钮，浏览器显示内容也不能构成绝对 DRM；产品应如实称为“在线阅读、不提供离线文件”，而不是承诺不可复制。
+
 ### 部署时的数据流与保存边界
 
 ```text

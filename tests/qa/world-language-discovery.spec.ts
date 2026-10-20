@@ -8,7 +8,29 @@ test('P1: legacy Open Library saves remain usable as catalog-only records', asyn
   await page.goto('/')
   await expect(page.getByRole('heading', { name: 'Legacy catalog item' })).toBeVisible()
   await expect(page.getByText('来源： Open Library · 仅书目记录')).toBeVisible()
-  await expect(page.getByRole('button', { name: '前往来源阅读' })).toBeVisible()
+  await expect(page.getByRole('button', { name: '查看来源' })).toBeVisible()
+})
+
+test('P0: personal library makes platform access states explicit and never offers a fabricated download', async ({ page }) => {
+  await page.addInitScript(() => localStorage.setItem('worlibrary.saved-world-books', JSON.stringify([
+    { id: 'catalog', sourceId: 'open-library', sourceRecordId: 'catalog', title: 'Catalog only', author: 'A', languages: ['eng'], sourceUrl: 'https://example.test/catalog', sourceName: 'Open Library', access: { mode: 'catalog_only', url: 'https://example.test/catalog' } },
+    { id: 'preview', sourceId: 'google-books', sourceRecordId: 'preview', title: 'Preview only', author: 'B', languages: ['eng'], sourceUrl: 'https://example.test/preview', sourceName: 'Google Books', access: { mode: 'preview', url: 'https://example.test/preview' } },
+    { id: 'licensed', sourceId: 'licensed', sourceRecordId: 'licensed', title: 'Licensed online', author: 'C', languages: ['eng'], sourceUrl: 'https://example.test/licensed', sourceName: 'Licensed source', access: { mode: 'licensed_full_text', url: 'https://example.test/licensed' } },
+    { id: 'external', sourceId: 'external', sourceRecordId: 'external', title: 'Source reading', author: 'D', languages: ['eng'], sourceUrl: 'https://example.test/source', sourceName: 'External source', access: { mode: 'external', url: 'https://example.test/source' } },
+  ])))
+
+  await page.goto('/')
+  const shelf = page.locator('.saved-world-shelf')
+  await expect(shelf.getByText('仅书目记录')).toBeVisible()
+  await expect(shelf.getByRole('button', { name: '查看来源' })).toBeVisible()
+  await expect(shelf.getByText('限量预览')).toBeVisible()
+  await expect(shelf.getByRole('button', { name: '前往预览' })).toBeVisible()
+  await expect(shelf.getByText('可在线阅读')).toBeVisible()
+  await expect(shelf.getByRole('button', { name: '前往在线阅读' })).toBeVisible()
+  await expect(shelf.getByText('来源阅读', { exact: true })).toBeVisible()
+  await expect(shelf.getByRole('button', { name: '前往来源阅读' })).toBeVisible()
+  await expect(page.getByRole('button', { name: /下载/ })).toHaveCount(0)
+  await expect(page.getByText('收藏保存的是书目信息与来源链接，不等于下载或获得应用内正文。未授权正文不会下载、存储或分发。')).toHaveCount(0)
 })
 
 test('P1: a stalled catalog request leaves loading state and can be retried', async ({ page }) => {
@@ -63,7 +85,7 @@ test('P1: world catalog presents a global, readable language picker and carries 
   const result = page.locator('[data-source-id="open-library"]')
   await expect(result.getByText('来源： Open Library')).toBeVisible()
   await expect(result.getByText('仅书目记录')).toBeVisible()
-  await expect(result.getByRole('button', { name: '前往来源阅读' })).toBeVisible()
+  await expect(result.getByRole('button', { name: '查看来源' })).toBeVisible()
   await result.getByRole('button', { name: '加入我的书库' }).click()
   await expect.poll(() => page.evaluate(() => JSON.parse(localStorage.getItem('worlibrary.saved-world-books') ?? '[]'))).toEqual([expect.objectContaining({
     sourceId: 'open-library', sourceRecordId: 'OLzulFixture', sourceName: 'Open Library', access: { mode: 'catalog_only', url: 'https://openlibrary.org/works/OLzulFixture' },
@@ -90,6 +112,7 @@ test('P1: Google Books supplies catalog results when Open Library returns none',
   const result = page.locator('[data-source-id="google-books"]')
   await expect(result.getByRole('heading', { name: 'Google fixture' })).toBeVisible()
   await expect(result.getByText('来源： Google Books')).toBeVisible()
-  await expect(result.getByText('来源提供预览')).toBeVisible()
+  await expect(result.getByText('限量预览')).toBeVisible()
+  await expect(result.getByRole('button', { name: '前往预览' })).toBeVisible()
   expect(googleUrl).toContain('langRestrict=ja')
 })
