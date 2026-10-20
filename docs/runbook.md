@@ -23,7 +23,8 @@
 - [ ] 确认最近一次数据库备份时间、恢复负责人和回滚版本。
 - [ ] migration 文件名连续且只向前执行；RLS policy 检查通过。
 - [ ] 登录匿名试用/魔法链接、首次同步和翻译成功/失败均有可追踪 request id。
-- [ ] 若本次首次发布平台自有/获授权内容，已执行 `0006_platform_content_operations.sql`，并由受控后台（不是浏览器）完成许可、来源、SHA-256、私有 R2 对象、地区策略和发布审计的完整接入清单；详见 `docs/deployment.md` 的“首个合规内容来源接入清单”。
+- [ ] 若本次首次发布平台自有/获授权内容，已执行 `0006_platform_content_operations.sql` 与 `0007_platform_delivery_resolution_and_staff_roles.sql`，并由受控后台（不是浏览器）完成许可、来源、SHA-256、私有 R2 对象、地区策略和发布审计的完整接入清单；详见 `docs/deployment.md` 的“首个合规内容来源接入清单”。
+- [ ] 动态交付必须先部署内部内容 resolver，并由 Service Binding 连接到主 Worker；resolver 独占 Supabase service-role key，主 Worker 仅保留私有 `PLATFORM_CONTENT` R2 binding。没有完成此步骤时，不得声称数据库发布、下架或许可撤销已经控制线上正文。
 - [ ] 验证普通 anon/authenticated 会话无法读取 `content_assets.object_key`、许可证据、来源审核记录或运营审计，也不能写入平台目录、资产、访问策略和权益；只有 service-role 可执行受控发布、下架与许可撤销 RPC。
 - [ ] 若启用了平台正文交付，使用两份获授权的测试 EPUB/PDF 验证平台阅读器可在当前会话中翻页；网络面板只应看到带 Authorization 的无缓存 `/api/reader/content` 请求，不能出现下载、对象 URL、IndexedDB/OPFS 正文记录或可复制的对象键。撤销授权后必须立即失败关闭。
 
@@ -43,7 +44,7 @@ curl -fsS -D - https://app.example.com/api/health
 
 自动化检查失败时先区分失败位置：`/api/health` 或 `/api/translation-status` 的状态、`cache-control` 或 request id 异常通常意味着 Worker 路由或部署配置问题；若翻译状态是 `configured: false`，检查 Cloudflare Environment 的 `AI_API_KEY` Secret 与 `AI_MODEL` Variable 是否已为当前发布生效，而不是把密钥改为 `VITE_*` 变量。翻译或解释响应的 `Cache-Control` 不是 `no-store` 时，停止发布并检查共享网关的响应头：选区文本和错误信息不能进入浏览器或 CDN 的共享缓存。首页安全头缺失通常意味着 Worker 未应用对应响应头。HTTPS/HSTS 缺失时不得通过降级为 HTTP 或删除该检查发布。
 
-平台内容异常（许可到期、地区误开、权利人通知或哈希不一致）属于内容安全事件：先停止对应交付，不要通过临时公开 R2、扩大 CORS、修改浏览器缓存或删除审计记录来“修复”。对单版本使用受控服务端 `withdraw_platform_catalog_edition`；对整份许可使用 `revoke_platform_content_license`，两者都应记录操作者和原因。随后保存 request id、许可/来源记录 ID 与审计时间，核对目录不再展示、访问策略已收回，再按许可证条款处理私有对象。正文、对象键、签名 URL、合同证据和完整权利人通知不得贴入工单、聊天或 Sentry。
+平台内容异常（许可到期、地区误开、权利人通知或哈希不一致）属于内容安全事件：先停止对应交付，不要通过临时公开 R2、扩大 CORS、修改浏览器缓存或删除审计记录来“修复”。对单版本使用受控服务端 `withdraw_platform_catalog_edition`；对整份许可使用 `revoke_platform_content_license`，两者都应记录操作者和原因。随后保存 request id、许可/来源记录 ID 与审计时间，核对目录不再展示、访问策略已收回，再按许可证条款处理私有对象。动态 resolver 投产后，再以已撤销的版本复验下一次 `/api/reader/content` 已失败关闭。正文、对象键、签名 URL、合同证据和完整权利人通知不得贴入工单、聊天或 Sentry。
 
 ## 回滚
 

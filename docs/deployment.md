@@ -68,7 +68,7 @@ AI_TIMEOUT_MS=12000
 
 `GET /api/reader/access?editionId=<平台版本 ID>` 只回答某个平台版本的**访问策略**，不传输 EPUB/PDF 正文、不返回 R2 对象键、文件 URL、签名下载 URL、阅读令牌或任何 Secret。成功响应包含稳定的 `access_mode`：`download`、`stream`、`external_reader`、`preview` 或 `catalog_only`。当该版本已经配置私有 R2 对象、格式和绑定时，`delivery.available` 为 `true`，`delivery.mode` 为 `in_app_stream`，并给出可安全渲染的 `delivery.content_type`；否则它会明确返回不可交付原因。前端不得把访问策略误当作可下载文件或永久正文 URL。
 
-访问策略由 Worker Secret `PLATFORM_CONTENT_ACCESS_JSON` 提供，格式为 JSON 数组。含有 `r2ObjectKey` 的条目必须作为 Secret 保存，因为对象键属于内部内容定位信息，绝不能交给浏览器：
+当前受控内测的访问策略由 Worker Secret `PLATFORM_CONTENT_ACCESS_JSON` 提供，格式为 JSON 数组。含有 `r2ObjectKey` 的条目必须作为 Secret 保存，因为对象键属于内部内容定位信息，绝不能交给浏览器。它仅适用于尚未接入动态 resolver 的测试内容，不能作为运营发布的长期数据源：
 
 ```json
 [
@@ -192,7 +192,9 @@ npx supabase db push
 
 `supabase/migrations/0001_initial_sync.sql` 创建用户资料、作品、版本、进度、摘录和设置表；`0002_production_hardening.sql` 增加索引、显式 authenticated 权限，并校验版本/进度/摘录只能引用同一用户的数据；`0003_ai_usage_ledger.sql` 创建仅能由受控 RPC 写入的按日 AI/OCR 用量账本；`0004_ai_usage_quota_release.sql` 在供应商失败时释放预扣额度；`0005_platform_catalog_and_library.sql` 将平台目录、私有内容资产、地区访问策略、用户书库项目和服务端管理的权益分离。`content_assets` 的 R2/外部对象键永不授予浏览器读取权限；平台目录仅可读，权益不能由客户端创建或修改。迁移使用 `if not exists` 或 `drop policy if exists`，可安全地在已执行 0001 的项目上继续执行。
 
-`0006_platform_content_operations.sql` 补充内容许可、来源记录和不可由浏览器读取或写入的运营审计日志。平台版本发布必须经受控服务端调用 `publish_platform_catalog_edition`：它要求已核验的来源记录、与来源记录一致的 SHA-256、有效许可及至少一条对应许可的有效地区访问策略。下架与许可撤销同样只可由受控服务端调用 `withdraw_platform_catalog_edition` 或 `revoke_platform_content_license`；撤销会立即收回对应访问策略。函数执行权仅授予 Supabase `service_role`，前端 anon/authenticated 会话没有目录、资产、许可、地区策略或权益的写入权。
+`0006_platform_content_operations.sql` 补充内容许可、来源记录和不可由浏览器读取或写入的运营审计日志。`0007_platform_delivery_resolution_and_staff_roles.sql` 增加仅服务端可见的运营角色表和 `resolve_platform_reader_delivery`：它即时检查已发布版本、私有 R2 主资产、来源 SHA-256、许可有效期、地区策略及所需的用户权益。平台版本发布必须经受控服务端调用 `publish_platform_catalog_edition`：它要求已核验的来源记录、与来源记录一致的 SHA-256、有效许可及至少一条对应许可的有效地区访问策略，并同步使该策略进入可解析状态。下架与许可撤销同样只可由受控服务端调用 `withdraw_platform_catalog_edition` 或 `revoke_platform_content_license`；撤销会立即收回对应访问策略。函数执行权仅授予 Supabase `service_role`，前端 anon/authenticated 会话没有目录、资产、许可、地区策略、员工角色或权益的写入权。
+
+动态发布需要额外部署一个**不公开路由**的内容 resolver Worker，并通过 Cloudflare Service Binding 供主 Worker 调用。resolver 持有 `SUPABASE_URL`、`SUPABASE_ANON_KEY` 与 `SUPABASE_SERVICE_ROLE_KEY`，验证用户会话后以 service role 调用 `resolve_platform_reader_delivery`；主 Worker 只获得临时的内部对象键并使用自己的私有 `PLATFORM_CONTENT` R2 binding 读取正文。对象键不得进入响应、日志、KV、Cache 或异常文本。Service Binding、resolver 和生产切换尚未在仓库部署完成；在此之前，不能将 SQL 发布/下架操作用于真实线上正文。
 
 ### 首个合规内容来源接入清单
 

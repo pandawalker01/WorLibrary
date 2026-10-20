@@ -53,7 +53,8 @@ npm run qa
 | 世界书库数据源边界 | Mock Open Library 与 Google Books 搜索后检查结果标有正确来源和访问状态；加入我的书库后，收藏保存 `sourceId`、`sourceRecordId`、外链与 `access.mode`；旧收藏仍能恢复；上游请求超时后必须退出加载态并允许再次搜索 | `tests/qa/world-language-discovery.spec.ts`；每新增适配器必须补相同来源/访问权验收。不得出现下载、导入正文或把书目页表示为可阅读全文的入口；来源失败不泄露或替换为未审核来源 |
 | 平台内容与书架权限边界 | 本地导入、平台版本与外部目录收藏必须在数据模型中分离；用户书架可显示“可离线阅读、在线阅读、限量预览、来源阅读、仅书目记录”等真实状态。已收藏的平台版本可进入 WorLibrary 平台阅读页；尚未配置交付时必须清晰失败，不能跳转第三方、伪造正文或下载入口；已配置 EPUB/PDF 只在当前会话内存中渲染和基本翻页，不写入本地书库、对象 URL 或持久缓存；平台阅读停留时长以 `platform:<editionId>` 保存到本地统计并可在“我的”最近阅读中重新打开，但只保存书目元数据与时长，绝不保存正文、阅读位置、交付 URL 或授权信息；平台私有对象键和用户权益不得被浏览器读取或写入 | `tests/platform-catalog-migration.spec.ts`、`tests/qa/world-language-discovery.spec.ts` |
 | 平台阅读访问与私有交付 | `/api/reader/access` 只输出访问策略及允许的媒体类型；受限版本缺少会话、授权服务或授权时失败关闭，且响应绝不包含正文、对象键、签名 URL 或令牌。`/api/reader/content` 必须在每次 GET/HEAD 重新验证授权，只服务 stream/preview 的私有 R2 EPUB/PDF，正确处理单段 Range、`private, no-store` 与 416，且无下载交付 | `tests/worker-contract.test.mjs`、`tests/qa/world-language-discovery.spec.ts` |
-| 平台内容运营控制 | 许可、来源审核、SHA-256、私有对象、地区策略和发布审计必须关联；浏览器不能读写许可/来源/审计/资产或目录与权益管理数据；仅 service-role 可受控发布、下架或撤销许可 | `tests/platform-content-operations-migration.spec.ts` |
+| 平台内容运营控制 | 许可、来源审核、SHA-256、私有对象、地区策略和发布审计必须关联；浏览器不能读写许可/来源/审计/资产、员工角色或目录与权益管理数据；仅 service-role 可受控发布、下架或撤销许可 | `tests/platform-content-operations-migration.spec.ts`、`tests/platform-delivery-resolution-migration.spec.ts` |
+| 平台动态交付解析 | 投产的内部 resolver 必须依据发布状态、许可、来源哈希、地区和权益，在每次访问时解析交付；主 Worker 使用私有 R2 读取正文，浏览器响应、缓存及日志绝不含对象键；数据库下架或许可撤销后下一次正文请求失败关闭 | `tests/platform-delivery-resolution-migration.spec.ts`；上线前补真实 resolver 端到端验收 |
 
 ## 竞品基线
 
