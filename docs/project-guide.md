@@ -106,3 +106,4 @@ WorLibrary 是本地优先的多语言阅读器：用户导入自己拥有的 EP
 5. docs/i18n-extension.md（若涉及语言）。
 6. docs/runbook.md 与 docs/deployment.md（若涉及环境、数据库或发布）。
 7. 与任务对应的组件、lib 文件和已有 Playwright 用例。
+8. docs/known-issues.md，确认没有把已知缺陷误报为已完成。
