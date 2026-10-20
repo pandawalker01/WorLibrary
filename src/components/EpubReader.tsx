@@ -77,10 +77,16 @@ function applyReaderPreferences(rendition: Rendition | undefined, preferences: R
 
 function highlightStyles(color: Highlight['color']): Record<string, string> {
   const fill = color === 'rose' ? '#bf6d76' : color === 'blue' ? '#6886a7' : '#e6b160'
-  // epub.js stores these as DOM dataset keys before applying them. Dashed
-  // names (such as fill-opacity) throw in browsers and can abort the entire
-  // selection callback, including the automatic translation request.
-  return { fill, fillOpacity: '0.35' }
+  return { fill, 'fill-opacity': '0.35', 'mix-blend-mode': 'multiply' }
+}
+
+function renderHighlight(rendition: Rendition | undefined, cfi: string, color: Highlight['color']) {
+  // epub.js expects styles as its fifth argument. Passing them as the second
+  // argument only stores metadata and leaves the SVG annotation uncoloured.
+  const annotations = rendition?.annotations as unknown as {
+    highlight?: (target: string, data?: Record<string, unknown>, callback?: () => void, className?: string, styles?: Record<string, string>) => void
+  } | undefined
+  annotations?.highlight?.(cfi, {}, undefined, 'worlibrary-highlight', highlightStyles(color))
 }
 
 export default function EpubReader({ book, onNotice, onProgress, onHighlightSaved, targetLanguage = '中文', uiLocale = 'zh-CN', preferences, onPreferencesChange }: EpubReaderProps) {
@@ -205,7 +211,7 @@ export default function EpubReader({ book, onNotice, onProgress, onHighlightSave
         })
         await rendition.display(book.location)
         const savedHighlights = await listHighlights(book.id)
-        savedHighlights.forEach((highlight) => rendition?.annotations?.highlight(highlight.location, highlightStyles(highlight.color)))
+        savedHighlights.forEach((highlight) => renderHighlight(rendition, highlight.location, highlight.color))
         setStatus('')
       } catch (error) {
         setOpenFailed(true)
@@ -284,7 +290,7 @@ export default function EpubReader({ book, onNotice, onProgress, onHighlightSave
       // When the user saves without picking a color, render the persisted gold
       // highlight now rather than waiting for the next book open.
       if (!activeSelectionHighlightRef.current) {
-        try { renditionRef.current?.annotations?.highlight(highlight.location, highlightStyles(highlight.color)) } catch { /* storage still has the excerpt */ }
+        try { renderHighlight(renditionRef.current, highlight.location, highlight.color) } catch { /* storage still has the excerpt */ }
       }
       activeSelectionHighlightRef.current = undefined
       onHighlightSaved?.(highlight)
@@ -319,7 +325,7 @@ export default function EpubReader({ book, onNotice, onProgress, onHighlightSave
     // Do not mark a selection merely because it was translated. The explicit
     // color choice is the user's request to create a visible EPUB annotation.
     try {
-      renditionRef.current?.annotations?.highlight(pendingSelection.cfi, highlightStyles(color))
+      renderHighlight(renditionRef.current, pendingSelection.cfi, color)
       activeSelectionHighlightRef.current = pendingSelection.cfi
     } catch { /* saving the excerpt below remains available for malformed CFIs */ }
     setSelectionColor(color)
