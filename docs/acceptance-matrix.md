@@ -54,6 +54,7 @@ npm run qa
 | 离线 | 已导入文件在断网时仍能打开 |
 | 数据边界与同步 | 原始 EPUB/PDF、封面二进制与离线文件始终留在本机；清除站点数据后原书不能恢复。旧的全表 REST 同步在客户端必须保持关闭；云端同步只在账户隔离 outbox、受控 RPC、墓碑、服务端 revision 与真实跨设备验收完成后启用。不同步项必须明确提示，不能把仅本地的阅读统计、联网收藏或偏好伪装为已同步。 |
 | 会话与同步边界 | 匿名试用不会创建同步队列或上传本地元数据；邮箱魔法链接登录后回到发起登录时的书库/阅读器查询参数路由；账户页不得把有限元数据同步称为完整跨设备恢复，且中英文状态文案均取自语言包。 | `tests/contracts.spec.ts` |
+| 浏览器同步设备注册 | 仅稳定账户且已配置受控远端时才读取或创建本机随机 UUID 并调用 `register_sync_device`；匿名或未配置时不触碰设备存储或网络。持久化 UUID 与请求体不含用户身份、邮箱、书籍 ID、文件名或正文；服务端设备响应只投影安全的设备状态。 | `tests/device-registration-session.spec.ts`、`tests/remote-rpc-client.spec.ts` |
 | 同步基础数据边界 | 同步设备、变更日志、删除墓碑、键级设置与阅读统计事件均以用户 RLS 隔离；普通浏览器会话不能直接写日志/墓碑/统计聚合，迁移不包含任何 EPUB/PDF blob 或对象键 | `tests/metadata-sync-foundation-migration.spec.ts` |
 | 受控元数据同步底座 | RPC 只接受 authenticated 自有未撤销设备的受限 metadata mutation/pull；服务端分配 revision、拒绝陈旧写、保证 operation 幂等并写入墓碑；客户端 outbox 以账户隔离且拒绝二进制、对象定位、数据 URL 和正文。change-feed 拉取只允许稳定账户，分页 sequence 必须严格递增；调用方拒绝未知/不安全 payload 时不得推进游标。它仍不代表页面已启用跨设备同步。 | `tests/controlled-metadata-sync-migration.spec.ts`、`tests/remote-rpc-client.spec.ts`、`tests/metadata-sync-outbox.spec.ts`、`tests/metadata-sync-engine.spec.ts` |
 | 内测元数据同步闭环 | 两个独立浏览器 profile 使用同一稳定邮箱账户后，书架元数据、进度、摘录和必要偏好可双向恢复；断网写入在恢复网络后只应用一次；匿名会话无队列。远端本地书只显示“需重新导入原书”且无法打开，任何 EPUB/PDF/封面二进制均不进入 Supabase。 | 待补真实 Supabase 双 profile 验收与自动化回归；未通过前同步入口保持关闭 |
