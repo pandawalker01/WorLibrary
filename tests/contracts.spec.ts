@@ -53,10 +53,12 @@ test('IndexedDB sync adapter releases each database connection after a transacti
   expect(source).toMatch(/transaction\.onabort = \(\) => \{\s*db\.close\(\)/)
 })
 
-test('anonymous sessions cannot enqueue or flush cloud metadata sync', async () => {
+test('legacy client sync is disabled until account-scoped RPC sync exists', async () => {
   const source = await readFile('src/App.tsx', 'utf8')
-  expect(source).toContain('if (!session || session.user.isAnonymous) return')
-  expect(source).toContain('if (!session || session.user.isAnonymous) return\n    enqueueSync()')
+  expect(source).toContain('legacy full-table REST synchronizer')
+  expect(source).not.toContain('flushQueuedSync(')
+  expect(source).not.toContain('enqueueSync(')
+  expect(source).not.toContain('deleteRemoteHighlight(')
 })
 
 test('sync uploads the merged winner instead of overwriting newer remote data', async () => {

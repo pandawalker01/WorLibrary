@@ -12,8 +12,6 @@ import type { Alignment, Edition } from './lib/edition'
 import EditionComparisonReader from './components/EditionComparisonReader'
 import AuthPanel from './components/AuthPanel'
 import { getSession, type AuthSession } from './lib/auth'
-import { createRemoteClient } from './lib/remote'
-import { createIndexedDbSyncAdapter, deleteRemoteHighlight, enqueueSync, flushQueuedSync } from './lib/sync'
 import { copy, interpolate, loadReadingLanguage, loadUiLocale, saveReadingLanguage, saveUiLocale, type ReadingLanguage } from './lib/i18n'
 import { clampFontScale, loadReaderPreferences, type ReaderPreferences } from './lib/reader'
 import { loadSavedWorldBooks, saveWorldBook, searchWorldLibrary, worldBookIdentity, type WorldBook } from './lib/world-library'
@@ -211,26 +209,20 @@ function App() {
   const [worldHasSearched, setWorldHasSearched] = useState(false)
   const fileInput = useRef<HTMLInputElement>(null)
   const coverInput = useRef<HTMLInputElement>(null)
-  const syncTimer = useRef<number | undefined>(undefined)
   const ui = copy[uiLocale]
   const account = accountIdentity(session, ui.signIn, ui.guestAccount)
 
   const syncNow = useCallback(async () => {
-    // Anonymous trials intentionally have no cloud ownership boundary. Do not
-    // enqueue or upload their local reading metadata under a temporary token.
-    if (!session || session.user.isAnonymous) return
-    try {
-      const result = await flushQueuedSync(createRemoteClient(session), createIndexedDbSyncAdapter())
-      if (result.uploaded || result.downloaded) toast(`已同步 ${result.uploaded + result.downloaded} 项阅读数据`)
-    } catch { toast('同步失败，网络恢复后会自动重试') }
-  }, [session])
+    // The legacy full-table REST synchronizer has no account-scoped outbox,
+    // server revisions, or a safe representation for metadata-only books.
+    // Keep it disabled until the controlled RPC protocol is live.
+    return undefined
+  }, [])
 
   const scheduleSync = useCallback(() => {
-    if (!session || session.user.isAnonymous) return
-    enqueueSync()
-    if (syncTimer.current) window.clearTimeout(syncTimer.current)
-    syncTimer.current = window.setTimeout(() => { void syncNow() }, 1200)
-  }, [session, syncNow])
+    // Local reading must remain responsive while account metadata sync is
+    // being rebuilt. In particular, never leave a cross-account legacy queue.
+  }, [])
 
   useEffect(() => {
     void Promise.all([listBooks(), listEditions(), listAlignments(), listHighlights()]).then(([savedBooks, savedEditions, savedAlignments, savedHighlights]) => { setBooks(savedBooks); setEditions(savedEditions); setAlignments(savedAlignments); setHighlightCount(savedHighlights.length); setBooksLoaded(true) })
@@ -606,7 +598,7 @@ function App() {
           </> : <section className="world-library-view" aria-label={ui.worldLibrary}><section className="world-recommendations" aria-labelledby="world-recommendations-title"><div><p className="eyebrow">CURATED DISCOVERY</p><h3 id="world-recommendations-title">{ui.recommendedReading}</h3><p>{ui.recommendedReadingCopy}</p></div><div className="recommendation-chips"><button onClick={() => useWorldRecommendation('world classics', true)}>{ui.recommendationClassics}</button><button onClick={() => useWorldRecommendation('literature', true)}>{ui.recommendationTranslation}</button><button onClick={() => useWorldRecommendation('public domain')}>{ui.recommendationPublicDomain}</button></div></section><form className="world-search-form" onSubmit={submitWorldSearch}><input value={worldQuery} onChange={(event) => setWorldQuery(event.target.value)} placeholder={ui.searchWorldPlaceholder} aria-label={ui.searchWorld} /><button type="submit">{ui.searchWorld}</button></form><div className="world-filters" aria-label={ui.worldFilters}><WorldLanguagePicker value={worldLanguage} onChange={setWorldLanguage} locale={uiLocale} label={ui.catalogLanguage} allLanguagesLabel={ui.allLanguages} searchLabel={ui.searchCatalogLanguage} searchPlaceholder={ui.searchCatalogLanguagePlaceholder} /><label className="world-multilingual-filter"><input type="checkbox" checked={multiLanguageOnly} onChange={(event) => setMultiLanguageOnly(event.target.checked)} /><span>{ui.multiLanguageOnly}</span><small>{ui.multiLanguageHint}</small></label></div><p className="world-rights-notice">{ui.worldRightsNotice}</p>{worldStatus === 'loading' && <p role="status">{ui.worldLoading}</p>}{worldStatus === 'error' && <p role="alert">{ui.worldUnavailable}</p>}{worldStatus === 'idle' && worldHasSearched && worldResults.length === 0 && <p role="status">{ui.worldEmpty}</p>}<div className="world-results">{worldResults.map((book) => { const saved = savedWorldBooks.some((item) => worldBookIdentity(item) === worldBookIdentity(book)); const access = worldAccessPresentation(book); return <article className="world-book-card" data-source-id={book.sourceId} key={worldBookIdentity(book)}><div className="world-cover">{book.coverUrl ? <img src={book.coverUrl} referrerPolicy="no-referrer" alt={`${book.title} ${ui.cover}`} /> : <span>{book.title.slice(0, 2)}</span>}</div><div><span className="source-badge">{ui.onlineSource} {book.sourceName}</span><h3>{book.title}</h3><p>{book.author || ui.unknownAuthor}{book.year ? ` · ${book.year}` : ''}</p><small><span className="world-access-badge">{access.label}</span>{book.languages.length ? ` · ${interpolate(ui.languagesAvailable, { count: book.languages.length })}` : ''}{book.editionCount ? ` · ${interpolate(ui.editionsAvailable, { count: book.editionCount })}` : ''}</small><div className="world-card-actions"><button onClick={() => addWorldBook(book)} disabled={saved}>{saved ? ui.savedToMyLibrary : ui.addToMyLibrary}</button><button className="text-action" onClick={() => openWorldBook(book)}>{access.action}</button></div></div></article> })}</div></section>}
         </section>}
 
-        {view === 'highlights' && <HighlightsView uiLocale={uiLocale} books={books.filter((book): book is StoredBook => Boolean(book.storage && book.fileName))} onNotice={toast} onChanged={() => { scheduleSync(); void listHighlights().then((items) => setHighlightCount(items.length)) }} onDeleted={(id) => { if (session) void deleteRemoteHighlight(createRemoteClient(session), id).catch(() => scheduleSync()); else scheduleSync(); void listHighlights().then((items) => setHighlightCount(items.length)) }} onOpenHighlight={(highlight: Highlight) => {
+        {view === 'highlights' && <HighlightsView uiLocale={uiLocale} books={books.filter((book): book is StoredBook => Boolean(book.storage && book.fileName))} onNotice={toast} onChanged={() => { scheduleSync(); void listHighlights().then((items) => setHighlightCount(items.length)) }} onDeleted={() => { void listHighlights().then((items) => setHighlightCount(items.length)) }} onOpenHighlight={(highlight: Highlight) => {
           const book = books.find((item) => item.id === highlight.bookId)
           if (!book?.storage || !book.fileName) {
             toast('找不到这本本地书籍，请重新导入')

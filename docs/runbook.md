@@ -3,7 +3,7 @@
 ## 发布前检查清单
 
 - [ ] 本地与 CI 均使用 Node.js 24（最低兼容版本为 22.13）；若 `npm ci` 出现 `EBADENGINE` 或 `Exit handler never called`，先检查 Node 版本，不能继续把后续 typecheck/build/Playwright 的连带失败当作产品问题。
-- [ ] 若启用登录用户的阅读数据同步，已依序执行 `0008_metadata_sync_foundation.sql`；它只建立元数据同步的设备/墓碑/日志基础，不上传 EPUB/PDF，也不代表客户端同步已上线。
+- [ ] 若启用登录用户的阅读数据同步，已依序执行 `0008_metadata_sync_foundation.sql` 与 `0009_controlled_metadata_sync_rpc.sql`。它们只建立受控元数据 mutation/pull、设备/墓碑/日志基础，不上传 EPUB/PDF，也不代表客户端同步已上线。
 - [ ] `npm ci && npm run typecheck && npm run build` 全部通过。
 - [ ] `npm run quality` 生成 `test-results/release-report.json`；只有 `releaseReady: true` 才可发布。`blocked` 需要补齐部署配置，`failed` 需要修复代码或测试。
 - [ ] 在 Cloudflare Dashboard 核对 Preview/Production 使用不同的部署环境；CI Token 仅授予该项目所需的 Workers 编辑权限，绝不复制生产 Token 到预览环境或前端变量。
@@ -24,6 +24,7 @@
 - [ ] 确认最近一次数据库备份时间、恢复负责人和回滚版本。
 - [ ] migration 文件名连续且只向前执行；RLS policy 检查通过。
 - [ ] 登录匿名试用/魔法链接、首次同步和翻译成功/失败均有可追踪 request id。
+- [ ] 在两个独立浏览器 profile 和两个测试账号上完成真实 Supabase 验收：匿名试用不创建同步队列；稳定账号只能操作自己的未撤销设备；离线重放的 mutation 幂等；删除墓碑不会被旧设备复活；远端仅元数据条目明确标为需重新导入且不能打开本地阅读器。没有这项验收，保持客户端同步入口关闭。
 - [ ] 若本次首次发布平台自有/获授权内容，已执行 `0006_platform_content_operations.sql` 与 `0007_platform_delivery_resolution_and_staff_roles.sql`，并由受控后台（不是浏览器）完成许可、来源、SHA-256、私有 R2 对象、地区策略和发布审计的完整接入清单；详见 `docs/deployment.md` 的“首个合规内容来源接入清单”。
 - [ ] 动态交付必须先部署内部内容 resolver，并由 Service Binding 连接到主 Worker；resolver 独占 Supabase service-role key，主 Worker 仅保留私有 `PLATFORM_CONTENT` R2 binding。没有完成此步骤时，不得声称数据库发布、下架或许可撤销已经控制线上正文。
 - [ ] 验证普通 anon/authenticated 会话无法读取 `content_assets.object_key`、许可证据、来源审核记录或运营审计，也不能写入平台目录、资产、访问策略和权益；只有 service-role 可执行受控发布、下架与许可撤销 RPC。
