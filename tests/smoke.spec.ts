@@ -192,6 +192,28 @@ test('personal shelf aligns account controls with the headline and opens the ema
   await expect(dialog.getByRole('region', { name: '账号与同步' })).toBeVisible()
 })
 
+test('account controls use one upper-right sized group across the shelf and other pages', async ({ page }) => {
+  await page.addInitScript(() => localStorage.removeItem('wor-library.auth.session'))
+  await page.goto('/')
+
+  const shelfHero = page.locator('.library-view .hero')
+  const shelfHeroBox = await shelfHero.boundingBox()
+  expect(shelfHeroBox?.y).toBeLessThanOrEqual(42)
+
+  await page.getByRole('button', { name: '摘录' }).click()
+  const topbar = page.locator('.topbar')
+  const controls = topbar.locator('.top-actions')
+  const topbarBox = await topbar.boundingBox()
+  const controlsBox = await controls.boundingBox()
+  expect(controlsBox?.x + controlsBox!.width).toBeGreaterThanOrEqual(topbarBox!.x + topbarBox!.width - 1)
+
+  const languageTrigger = controls.locator('.reading-language-picker__trigger')
+  const accountAvatar = controls.locator('.account-button span')
+  await expect(languageTrigger).toBeVisible()
+  await expect(accountAvatar).toBeVisible()
+  expect((await languageTrigger.boundingBox())?.height).toBe((await accountAvatar.boundingBox())?.height)
+})
+
 test('refresh and browser history restore the current application route', async ({ page }) => {
   await page.goto('/')
   await page.getByRole('button', { name: '设置' }).click()

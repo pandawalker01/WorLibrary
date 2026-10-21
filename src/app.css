@@ -61,3 +61,12 @@ button:focus-visible, input:focus-visible, [tabindex]:focus-visible { outline: 3
    with a separate promotional paragraph. */
 .content:has(.library-view) .hero-actions { margin-left: auto; }.content:has(.library-view) .hero-actions .top-actions { justify-content: flex-end; }
 @media (max-width: 860px) { .content:has(.library-view) .hero-actions { margin: 16px 0 0; }.content:has(.library-view) .hero-actions .top-actions { justify-content: flex-start; } }
+
+/* Account and reading-language controls always use the same compact group.
+   A non-shelf page has only this group in its header, so explicitly anchor it
+   at the upper right instead of relying on space-between with one child. */
+.topbar .top-actions { margin-left: auto; justify-content: flex-end; }
+
+/* The personal shelf starts with its content rather than a decorative band. */
+.content:has(.library-view) { padding-top: 18px; }
+.content:has(.library-view) .hero { margin-top: 18px; }
