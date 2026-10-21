@@ -24,13 +24,13 @@ WorLibrary 是本地优先的多语言阅读器：用户导入自己拥有的 EP
 - 键盘与辅助技术基础支持：主导航和筛选会暴露当前状态；阅读器目录、选区操作与元数据对话框可用 Escape 关闭；阅读器翻页快捷键只在阅读内容区域生效，目录、工具栏与 OCR 编辑控件保留自身键盘交互；所有交互控件有高对比度可见焦点。
 - 匿名/魔法链接认证、Supabase 同步基础、AI 额度账本与受控 API 网关。匿名试用没有云端数据所有权边界，客户端不会为其排队或上传同步数据；当前也不提供匿名试用原地升级到账户的迁移。邮箱魔法链接会保留当前的查询参数页面路由，不复用认证 hash。旧的全表 REST 同步已在客户端关闭：它不具备账户隔离队列、服务端 revision 或“仅元数据、需重新导入”的书籍表示。客户端已具备与书籍二进制分离、按账户隔离的 metadata outbox、顺序 flush 和受控 change-feed 分页拉取协调器；拉取器只接受稳定账户、严格递增的服务端 sequence，并在调用方拒绝未知/不安全 payload 时不推进游标。版本变更只经严格白名单投影到按账户隔离的 shadow store：仅接受书名、作者、语言、进度、位置、文件元数据和封面色，未知实体会被忽略且由上层决定是否推进游标；字节、封面二进制、对象键、URL 和正文一律拒绝。shadow 条目永远带 `needsReimport`，没有文件、封面二进制或可读权限，因此不能交给本地阅读器打开。它们尚未接入页面写入/合并路径。`0008` 建立同步设备、键级设置、变更日志、删除墓碑和阅读统计事件的数据边界；`0009` 增加只允许稳定自有设备调用的受控 metadata mutation/pull RPC、服务端 revision、幂等操作与墓碑，并拒绝文件字节、对象键和正文定位字段。客户端尚未完成真实跨设备验收，不能承诺恢复。
 
-书籍文件默认留在本机。已决策的目标同步范围是元数据、进度、摘录、阅读统计、世界书库收藏和相关设置；登录用户还可明确开启端到端加密的原 EPUB/PDF 云备份。当前云端同步尚未完成上述范围，清除站点数据前必须导出本地阅读数据。原文件备份的对象存储、密钥、配额、删除和验收规则见 `docs/user-data-sync-architecture.md`；未实现前不得承诺跨设备自动恢复原书。
+正式产品的已决策目标是“个人云书库”：登录用户在首次清晰同意后，后续自导入 EPUB/PDF 自动进入其私有云书库；新设备登录后无需重新导入即可按需打开，书架、元数据、进度、摘录、阅读统计、世界书库收藏和相关设置同步恢复。默认模式采用私有托管加密以优先保证无感访问；需要服务端不可读正文的用户可选择高级端到端加密模式，并接受首次新设备恢复码或已登录设备确认。当前云端同步尚未完成上述范围，清除站点数据前必须导出本地阅读数据，界面不得承诺跨设备自动访问。对象存储、密钥、配额、删除和验收规则见 `docs/user-data-sync-architecture.md`。
 
 ### 当前内测 MVP 的交付边界
 
 本轮按“可真实试用，而非一次完成所有长期能力”推进。内测必须可用：本地 EPUB/PDF 导入、原书封面、阅读与翻页、位置恢复、划词翻译/解释、用户主动选色的摘录、多译本对照、合规世界书库检索和收藏、邮箱魔法链接，以及稳定账户之间的书架元数据、进度、摘录和必要偏好同步。
 
-同步后的本地导入书在第二台设备只能显示为“需重新导入原书”：它保留书目和阅读数据，但不能伪装成已拥有正文或可打开的离线书。匿名会话继续完全本机化。内测验收前必须在两个独立浏览器 profile 中验证 RLS、断网重放、幂等和删除墓碑。
+当前内测中的同步后本地导入书在第二台设备只能显示为“需重新导入原书”：它保留书目和阅读数据，但不能伪装成已拥有正文或可打开的离线书。这是内测降级而非正式产品体验目标。匿名会话继续完全本机化。内测验收前必须在两个独立浏览器 profile 中验证 RLS、断网重放、幂等和删除墓碑。
 
 本轮不交付：原书加密云备份、恢复码与配额；Google/Apple 登录和匿名迁移；平台自有/授权正文的运营发布、下载与权益交付；原生客户端、订阅支付、复杂冲突界面和完整全球界面语言包。中英文是当前可切换界面语言；AI 理解语言仍支持全球可搜索选择。该范围是路线图中的优先级约束，不代表延后能力被删除。
 
@@ -69,7 +69,7 @@ WorLibrary 是本地优先的多语言阅读器：用户导入自己拥有的 EP
 | AI 客户端 | src/lib/translation.ts、src/lib/explanation.ts、src/lib/ai-result-cache.ts | 调网关、缓存、错误与重试信息 | 浏览器不能保存供应商密钥；仅传选区和必要上下文 |
 | OCR 客户端 | src/lib/ocr.ts、docs/ocr.md | 当前 PDF 页转数据并请求 OCR | 只发送用户主动选定的页；不要上传整本书；校正草稿不可自动发给 AI |
 | 认证与同步 | src/lib/auth.ts、src/lib/remote.ts、src/lib/device-registration-session.ts、src/lib/metadata-sync-engine.ts、src/lib/metadata-sync-edition-shadow.ts、src/lib/sync.ts、src/components/AuthPanel.tsx、supabase/migrations/0008_metadata_sync_foundation.sql、0009_controlled_metadata_sync_rpc.sql | 匿名/魔法链接会话、最小设备注册 RPC、稳定账户的浏览器设备会话协调、账户隔离 outbox 的顺序 flush、受控远端 mutation/pull 与安全 shadow 投影 | 设备协调器只在稳定账户且调用方已验证远端配置时读取/创建随机本机 UUID；该 UUID 不得含用户、邮箱、书籍或正文，服务器以 JWT 绑定账户。版本 shadow projector 只能向隔离 store 写入白名单元数据，未知实体不写入，禁止构造 StoredBook 或接受文件/URL/正文；原始书籍不进入同步；匿名会话不得启动同步；同步适配器必须使用与本地存储相同的 IndexedDB schema version；只能调用明确白名单的 RPC，页面接入前先完成真实两设备验收 |
-| 用户云备份（待实现） | docs/user-data-sync-architecture.md、未来的 user-files Worker/API 与 Supabase migrations | 已登录用户的书架/阅读数据同步，以及用户明确开启的端到端加密原书备份 | 用户文件与平台正文必须用不同私有 bucket、表、权限和审计流；客户端不保存恢复码或明文密钥到 localStorage |
+| 个人云书库（待实现） | docs/user-data-sync-architecture.md、未来的 user-files Worker/API 与 Supabase migrations | 已登录用户的书架/阅读数据同步、无感跨设备原书访问，以及可选端到端加密原书备份 | 默认托管加密必须让新设备仅登录即可按需打开文件；高级端到端加密必须明确恢复码/设备确认成本。用户文件与平台正文必须用不同私有 bucket、表、权限和审计流；客户端不保存恢复码或明文密钥到 localStorage |
 | 国际化 | src/lib/i18n.ts、src/lib/interface-locale-registry.ts、src/components/ReadingLanguagePicker.tsx 与各组件 | 界面语言和全球 AI 输出语言；界面语言的可用/规划状态、稳定回退与 RTL 方向 | 先读 docs/i18n-extension.md；两种语言配置独立；planned 语言没有完整文案前不得出现在可切换列表 |
 | API 与额度 | worker/、api/、server/、supabase/migrations/ | Worker 路由、平台版本访问策略、受保护正文 Range 交付、JWT 校验、额度扣减、目录代理、健康检查 | 密钥仅在环境变量；`/api/reader/access` 只返回策略，`/api/reader/content` 每次复验后才从私有 R2 读取允许的 EPUB/PDF；两者不得返回正文定位信息或对象存储位置；平台动态交付只能经内部 Service Binding resolver 调用 `resolve_platform_reader_delivery`，不得让浏览器或主 Worker 获得 Supabase service-role key；额度操作需服务端原子化 |
 | Cloudflare 部署 | worker/index.mjs、wrangler.jsonc、scripts/verify-deployment.mjs、.github/workflows/ci.yml | 同域静态 SPA、`/api/catalog`、`/api/translate`、`/api/explain`、健康/翻译就绪探针、真实目录发布验证与 Worker 安全头 | 手动部署必须从 Wrangler 输出提取地址，并由 GitHub Runner 验证健康、翻译配置状态和真实目录查询；公共书目结果可短期缓存；AI/OCR、认证和错误响应不得共享缓存；生产端点必须 HTTPS。当前 Worker 的边缘限流是每 isolate 的基础防护，公开启用付费 AI 前还必须接入全局限流/WAF 与账户额度边界 |
@@ -93,7 +93,7 @@ WorLibrary 是本地优先的多语言阅读器：用户导入自己拥有的 EP
 
 本地：书籍二进制、封面、阅读位置、摘录、笔记、作品/版本关系、AI 缓存，以及联网收藏书目的标题/作者/封面 URL/来源链接、来源记录 ID 与可读性状态（localStorage 的 `worlibrary.saved-world-books`）。
 
-远端目标：Supabase 保存认证身份、同步元数据、进度、摘录、设置、设备与额度账本；当前尚未完成阅读统计、世界书库收藏和所有设置的跨设备同步。Cloudflare Worker 只在用户提交搜索时向已启用的合规书目来源请求公共元数据，可短期缓存已归一化的无身份查询；服务端不得接收用户本地导入的整本书。平台版本由 Worker Secret `PLATFORM_CONTENT_ACCESS_JSON` 声明策略；受限策略再由 `READER_AUTHORIZATION_URL` 验证会话。只有受控、私有的 `PLATFORM_CONTENT` R2 绑定可被 `/api/reader/content` 读取，且每次请求重新验证后只流式返回允许格式的正文字节，不返回对象键、签名 URL、授权 token 或授权服务响应中的用户数据。`content_licenses`、`content_source_records`、`content_assets` 和审计日志只由服务端运营流程管理，浏览器无读写权。禁止接入、镜像、代理或为任何用户白名单绕过未获授权正文来源；AI 只接收选区与少量上下文，OCR 只接收用户点击识别的当前页。
+远端目标：Supabase 保存认证身份、同步元数据、进度、摘录、设置、设备与额度账本；当前尚未完成阅读统计、世界书库收藏和所有设置的跨设备同步。正式个人云书库还将通过独立私有对象桶保存登录用户同意同步的自导入文件，使新设备可无感按需访问；当前尚未实现，服务端不得接收用户本地导入的整本书。用户云书库与平台版本必须隔离：前者是账户私有、不可分享的个人文件，后者由 Worker Secret `PLATFORM_CONTENT_ACCESS_JSON` 声明策略；受限平台策略再由 `READER_AUTHORIZATION_URL` 验证会话。只有受控、私有的 `PLATFORM_CONTENT` R2 绑定可被 `/api/reader/content` 读取，且每次请求重新验证后只流式返回允许格式的正文字节，不返回对象键、签名 URL、授权 token 或授权服务响应中的用户数据。`content_licenses`、`content_source_records`、`content_assets` 和审计日志只由服务端运营流程管理，浏览器无读写权。禁止接入、镜像、代理或为任何用户白名单绕过未获授权正文来源；AI 只接收选区与少量上下文，OCR 只接收用户点击识别的当前页。
 
 涉及数据库时，新增 migration 只能向前；所有用户数据表必须有 RLS，并以 user_id 等于 auth.uid() 作为所有权边界。额度、订阅和权限只能由服务端更新。运营人员角色位于 `platform_staff_roles`，不能写入 `profiles`、`user_settings` 或 JWT claims；仅服务端可查询并且撤销必须立即生效。
 
