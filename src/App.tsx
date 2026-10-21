@@ -593,7 +593,6 @@ function App() {
           <p className="eyebrow">PERSONAL WORLD LIBRARY / 001</p>
           <div className="top-actions">
             <ReadingLanguagePicker value={language} onChange={changeReadingLanguage} locale={uiLocale} label={ui.readingLanguage} searchLabel={ui.searchReadingLanguage} searchPlaceholder={ui.searchReadingLanguagePlaceholder} className="header-reading-language-picker" compact />
-            <button className="round-button" onClick={importBooks} aria-label={ui.importBook}>＋</button>
             <button className="account-button" onClick={() => { if (session) setView('settings'); else setAuthDialogOpen(true) }} aria-label={`${ui.account}: ${account.label}`} title={ui.account}><span aria-hidden="true">{account.initials}</span><strong>{account.label}</strong></button>
           </div>
         </header>

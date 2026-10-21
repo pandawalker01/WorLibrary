@@ -16,7 +16,7 @@ test('library opens to an empty local shelf and guides the first import', async 
   await page.goto('/')
   await expect(page.getByRole('heading', { name: '把世界的书，' })).toBeVisible()
   await expect(page.getByText('你的书架还是空的。导入 EPUB 或 PDF 后，书籍会只保存在这台设备上。')).toBeVisible()
-  await expect(page.getByRole('button', { name: '导入书籍' })).toBeVisible()
+  await expect(page.getByRole('button', { name: /导入我的书/ })).toBeVisible()
 })
 
 test('world library saves a source-labelled catalog book to my library', async ({ page }) => {
@@ -61,7 +61,7 @@ test('library search includes imported file names and stays usable on a narrow s
   const search = page.getByRole('textbox', { name: '搜索书库' })
   await expect(search).toBeVisible()
   await expect(page.getByRole('navigation', { name: '主导航' })).toBeVisible()
-  await expect(page.getByRole('button', { name: '导入书籍' })).toBeVisible()
+  await expect(page.getByRole('button', { name: /导入我的书/ })).toBeVisible()
   await search.fill('Reader Fixture')
   await expect(page.getByRole('heading', { name: 'Reader Fixture' })).toBeVisible()
 })
