@@ -28,6 +28,28 @@ export type PullMetadataSyncChangesInput = {
   p_limit?: number
 }
 
+export type SyncDevicePlatform = 'web' | 'desktop' | 'ios' | 'android'
+
+/**
+ * The browser may identify one installation, but never a user: Supabase
+ * derives the account from the authenticated JWT in `register_sync_device`.
+ */
+export type RegisterSyncDeviceInput = {
+  p_client_instance_id: string
+  p_platform: SyncDevicePlatform
+  p_app_version?: string
+  p_metadata?: ControlledMetadataSyncPayload
+}
+
+/** The deliberately small, browser-safe projection of a device registration. */
+export type RegisteredSyncDevice = {
+  id: string
+  clientInstanceId: string
+  platform: SyncDevicePlatform
+  lastSeenAt: string | null
+  revokedAt: string | null
+}
+
 export type PulledMetadataSyncChange = {
   sequence: number
   device_id: string
@@ -41,6 +63,10 @@ export type PulledMetadataSyncChange = {
 }
 
 export type ControlledMetadataSyncRpc = {
+  register_sync_device: {
+    input: RegisterSyncDeviceInput
+    output: RegisteredSyncDevice
+  }
   apply_metadata_sync_change: {
     input: ApplyMetadataSyncChangeInput
     output: AppliedMetadataSyncChange[]
@@ -91,6 +117,14 @@ const forbiddenPayloadKeys = new Set([
   'rawcontent', 'content', 'body', 'fulltext', 'bookbody', 'documenttext', '正文', '原文', '原书',
 ])
 
+const controlledRpcNames = new Set<keyof ControlledMetadataSyncRpc>([
+  'register_sync_device',
+  'apply_metadata_sync_change',
+  'pull_metadata_sync_changes',
+])
+const syncDevicePlatforms = new Set<SyncDevicePlatform>(['web', 'desktop', 'ios', 'android'])
+const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
+
 function normalizedPayloadKey(value: string): string {
   return value.trim().toLocaleLowerCase().replace(/[_.\-\s]/g, '')
 }
@@ -140,6 +174,45 @@ export function assertMetadataOnlySyncPayload(payload: ControlledMetadataSyncPay
 function boundedInteger(value: number | undefined, fallback: number, minimum: number, maximum: number): number {
   if (!Number.isFinite(value)) return fallback
   return Math.min(maximum, Math.max(minimum, Math.floor(value!)))
+}
+
+function isControlledMetadataSyncRpc(value: string): value is keyof ControlledMetadataSyncRpc {
+  return controlledRpcNames.has(value as keyof ControlledMetadataSyncRpc)
+}
+
+/**
+ * Drops unknown fields before the request. Device registration is intentionally
+ * not a generic device-row upsert: the server owns the account, timestamps,
+ * revocation state, and every other device attribute.
+ */
+function safeRegisterSyncDeviceInput(input: RegisterSyncDeviceInput): RegisterSyncDeviceInput {
+  if (!uuidPattern.test(input.p_client_instance_id)) throw new TypeError('设备实例 ID 必须是 UUID')
+  if (!syncDevicePlatforms.has(input.p_platform)) throw new TypeError('设备平台无效')
+  if (input.p_app_version !== undefined && (typeof input.p_app_version !== 'string' || input.p_app_version.length > 128)) {
+    throw new TypeError('应用版本无效')
+  }
+  if (input.p_metadata !== undefined) assertMetadataOnlySyncPayload(input.p_metadata)
+  return {
+    p_client_instance_id: input.p_client_instance_id,
+    p_platform: input.p_platform,
+    ...(input.p_app_version ? { p_app_version: input.p_app_version } : {}),
+    ...(input.p_metadata ? { p_metadata: input.p_metadata } : {}),
+  }
+}
+
+function asRegisteredSyncDevice(value: unknown): RegisteredSyncDevice {
+  const record = (Array.isArray(value) ? value[0] : value) as Record<string, unknown> | undefined
+  if (!record || typeof record.id !== 'string' || typeof record.client_instance_id !== 'string' || typeof record.platform !== 'string') {
+    throw new RemoteRequestError('设备注册响应无效')
+  }
+  if (!syncDevicePlatforms.has(record.platform as SyncDevicePlatform)) throw new RemoteRequestError('设备注册响应平台无效')
+  return {
+    id: record.id,
+    clientInstanceId: record.client_instance_id,
+    platform: record.platform as SyncDevicePlatform,
+    lastSeenAt: typeof record.last_seen_at === 'string' ? record.last_seen_at : null,
+    revokedAt: typeof record.revoked_at === 'string' ? record.revoked_at : null,
+  }
 }
 
 export function createRemoteClient(session: AuthSession, config: RemoteClientConfig = {}): RemoteClient {
@@ -193,15 +266,22 @@ export function createRemoteClient(session: AuthSession, config: RemoteClientCon
     remove: (table: RemoteTable, query: string) => request<void>(table, { method: 'DELETE' }, query).then(() => undefined),
     rpc: async <TName extends keyof ControlledMetadataSyncRpc>(name: TName, input: ControlledMetadataSyncRpc[TName]['input']) => {
       if (session.user.isAnonymous) throw new RemoteRequestError('匿名会话不能同步云端元数据')
+      if (!isControlledMetadataSyncRpc(name)) throw new RemoteRequestError('不允许的受控同步 RPC')
+      let safeInput: ControlledMetadataSyncRpc[TName]['input'] = input
+      if (name === 'register_sync_device') {
+        safeInput = safeRegisterSyncDeviceInput(input as RegisterSyncDeviceInput) as ControlledMetadataSyncRpc[TName]['input']
+      }
       if (name === 'apply_metadata_sync_change') {
         const payload = (input as ApplyMetadataSyncChangeInput).p_payload ?? {}
         assertMetadataOnlySyncPayload(payload)
       }
-      return request<ControlledMetadataSyncRpc[TName]['output']>(`rpc/${name}`, {
+      const output = await request<unknown>(`rpc/${name}`, {
         method: 'POST',
         headers: { Accept: 'application/json' },
-        body: JSON.stringify(input),
+        body: JSON.stringify(safeInput),
       })
+      if (name === 'register_sync_device') return asRegisteredSyncDevice(output) as ControlledMetadataSyncRpc[TName]['output']
+      return output as ControlledMetadataSyncRpc[TName]['output']
     },
   }
 }

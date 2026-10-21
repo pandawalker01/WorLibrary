@@ -18,6 +18,13 @@ const mutation = {
   p_payload: { value: 'paper' },
 }
 
+const deviceRegistration = {
+  p_client_instance_id: 'a1d8eb2c-6996-4b5a-928f-2c429c083e69',
+  p_platform: 'web' as const,
+  p_app_version: '0.1.0',
+  p_metadata: { installation: 'browser' },
+}
+
 test('controlled sync RPC posts only to the typed Supabase RPC endpoint with session headers', async () => {
   const originalFetch = globalThis.fetch
   let request: Request | undefined
@@ -38,6 +45,38 @@ test('controlled sync RPC posts only to the typed Supabase RPC endpoint with ses
     expect(request?.headers.get('apikey')).toBe('public-anon-key')
     expect(request?.headers.get('authorization')).toBe('Bearer session-jwt')
     expect(await request?.json()).toEqual(mutation)
+  } finally {
+    globalThis.fetch = originalFetch
+  }
+})
+
+test('device registration is allowlisted, sends only its minimal input, and projects a safe response', async () => {
+  const originalFetch = globalThis.fetch
+  let request: Request | undefined
+  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    request = new Request(input, init)
+    return new Response(JSON.stringify({
+      id: 'device-row-id',
+      user_id: 'must-not-reach-browser-caller',
+      client_instance_id: deviceRegistration.p_client_instance_id,
+      platform: 'web',
+      last_seen_at: '2026-10-21T00:00:00.000Z',
+      revoked_at: null,
+      metadata: { server_owned: true },
+    }), { status: 200, headers: { 'content-type': 'application/json' } })
+  }) as typeof fetch
+  try {
+    const client = createRemoteClient(session, { url: 'https://sync.example.com/', anonKey: 'public-anon-key', retryDelayMs: 0 })
+    const unsafeAtRuntime = { ...deviceRegistration, p_user_id: 'another-user' } as typeof deviceRegistration
+    await expect(client.rpc('register_sync_device', unsafeAtRuntime)).resolves.toEqual({
+      id: 'device-row-id', clientInstanceId: deviceRegistration.p_client_instance_id, platform: 'web',
+      lastSeenAt: '2026-10-21T00:00:00.000Z', revokedAt: null,
+    })
+    expect(request?.url).toBe('https://sync.example.com/rest/v1/rpc/register_sync_device')
+    expect(request?.method).toBe('POST')
+    expect(request?.headers.get('apikey')).toBe('public-anon-key')
+    expect(request?.headers.get('authorization')).toBe('Bearer session-jwt')
+    expect(await request?.json()).toEqual(deviceRegistration)
   } finally {
     globalThis.fetch = originalFetch
   }
@@ -86,4 +125,18 @@ test('controlled RPC does not allow an anonymous session to upload metadata', as
     url: 'https://sync.example.com', anonKey: 'public-anon-key', retryDelayMs: 0,
   })
   await expect(anonymous.rpc('apply_metadata_sync_change', mutation)).rejects.toBeInstanceOf(RemoteRequestError)
+  await expect(anonymous.rpc('register_sync_device', deviceRegistration)).rejects.toBeInstanceOf(RemoteRequestError)
+})
+
+test('controlled RPC rejects names outside the explicit allowlist before making a request', async () => {
+  const originalFetch = globalThis.fetch
+  let calls = 0
+  globalThis.fetch = (async () => { calls += 1; return new Response('{}', { status: 200 }) }) as typeof fetch
+  try {
+    const client = createRemoteClient(session, { url: 'https://sync.example.com', anonKey: 'public-anon-key', retryDelayMs: 0 })
+    await expect(client.rpc('device_row_upsert' as never, {} as never)).rejects.toBeInstanceOf(RemoteRequestError)
+    expect(calls).toBe(0)
+  } finally {
+    globalThis.fetch = originalFetch
+  }
 })
