@@ -576,6 +576,10 @@ function App() {
   ].sort((left, right) => right.lastReadAt - left.lastReadAt).slice(0, 3)
   const weeklyReading = recentReadingDays(readingHistory, uiLocale)
   const weeklyReadingMax = Math.max(1, ...weeklyReading.map((day) => day.seconds))
+  const accountControls = <div className="top-actions">
+    <ReadingLanguagePicker value={language} onChange={changeReadingLanguage} locale={uiLocale} label={ui.readingLanguage} searchLabel={ui.searchReadingLanguage} searchPlaceholder={ui.searchReadingLanguagePlaceholder} className="header-reading-language-picker" compact />
+    <button className="account-button" onClick={() => { if (session) setView('settings'); else setAuthDialogOpen(true) }} aria-label={`${ui.account}: ${account.label}`} title={ui.account}><span aria-hidden="true">{account.initials}</span><strong>{account.label}</strong></button>
+  </div>
 
   return (
     <div className="app-shell">
@@ -592,15 +596,10 @@ function App() {
 
       <main className="content">
         {!isOnline && <div className="offline-banner" role="status">{ui.offlineBanner}</div>}
-        <header className="topbar">
-          <div className="top-actions">
-            <ReadingLanguagePicker value={language} onChange={changeReadingLanguage} locale={uiLocale} label={ui.readingLanguage} searchLabel={ui.searchReadingLanguage} searchPlaceholder={ui.searchReadingLanguagePlaceholder} className="header-reading-language-picker" compact />
-            <button className="account-button" onClick={() => { if (session) setView('settings'); else setAuthDialogOpen(true) }} aria-label={`${ui.account}: ${account.label}`} title={ui.account}><span aria-hidden="true">{account.initials}</span><strong>{account.label}</strong></button>
-          </div>
-        </header>
+        {!(view === 'library' && libraryMode === 'mine') && <header className="topbar">{accountControls}</header>}
 
         {view === 'library' && <section className={`library-view ${libraryMode === 'world' ? 'is-world-library' : ''}`}>
-          {libraryMode === 'mine' && <div className="hero"><div><h1>{ui.hero}<em>{ui.heroEmphasis}</em></h1></div><p className="hero-copy">{ui.heroCopy}</p></div>}
+          {libraryMode === 'mine' && <div className="hero"><h1>{ui.hero}<em>{ui.heroEmphasis}</em></h1><div className="hero-actions">{accountControls}</div></div>}
           <div className="library-mode-switch" role="tablist" aria-label={ui.libraryMode}><button role="tab" aria-selected={libraryMode === 'mine'} className={libraryMode === 'mine' ? 'active' : ''} onClick={() => setLibraryMode('mine')}>{ui.myLibrary}</button><button role="tab" aria-selected={libraryMode === 'world'} className={libraryMode === 'world' ? 'active' : ''} onClick={() => setLibraryMode('world')}>{ui.worldLibrary}</button></div>
           {libraryMode === 'mine' ? <>
             <div className="library-search"><span aria-hidden="true">⌕</span><input value={searchQuery} onChange={(event) => setSearchQuery(event.target.value)} placeholder={ui.searchPlaceholder} aria-label={ui.searchLibrary} />{searchQuery && <button onClick={() => setSearchQuery('')} aria-label={ui.clearSearch}>×</button>}</div>

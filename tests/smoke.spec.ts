@@ -179,10 +179,14 @@ test('settings and backup controls are reachable', async ({ page }) => {
   await expect(page.getByRole('button', { name: '导入阅读数据' })).toBeVisible()
 })
 
-test('signed-out top account avatar opens the email account dialog', async ({ page }) => {
+test('personal shelf aligns account controls with the headline and opens the email account dialog', async ({ page }) => {
   await page.addInitScript(() => localStorage.removeItem('wor-library.auth.session'))
   await page.goto('/')
-  await page.getByRole('button', { name: '个人账户: 登录' }).click()
+  const hero = page.locator('.library-view .hero')
+  await expect(hero.getByRole('heading', { name: '把世界的书，' })).toBeVisible()
+  await expect(hero.getByRole('button', { name: '个人账户: 登录' })).toBeVisible()
+  await expect(hero.locator('.hero-copy')).toHaveCount(0)
+  await hero.getByRole('button', { name: '个人账户: 登录' }).click()
   const dialog = page.getByRole('dialog', { name: '账号与同步' })
   await expect(dialog).toBeVisible()
   await expect(dialog.getByRole('region', { name: '账号与同步' })).toBeVisible()
