@@ -40,7 +40,7 @@ Supabase Postgres（按 user_id + RLS 隔离）
 
 ## 2. 当前状态与缺口
 
-现有浏览器本地库使用 IndexedDB/OPFS 保存导入文件、书架、进度和摘录；`src/lib/sync.ts` 保留的旧全表 REST 实现已被客户端关闭，不能作为任何跨设备同步的验收依据。IndexedDB v5 新增的 `metadata-sync-outbox` 只保存账户隔离、已验证的 metadata mutation 意图，独立于 `books` 与 `book-blobs`，但尚未接入页面写入路径或 RPC flush。IndexedDB v6 另设 `remote-book-metadata-shadows`：它按账户与来源 `editionId` 保存受控 change feed 的书名、作者、语言、进度、位置、文件元数据、封面色及服务器 revision/sequence；每条记录固定为 `needsReimport`，既不含原书字节、cover data URL、对象键/URL 或正文，也绝不构造成 `StoredBook`。`src/lib/device-registration-session.ts` 已能在稳定账户、调用方确认远端配置后，为当前浏览器读取或创建随机 UUID 并调用受控设备注册 RPC；它不会在匿名或未配置状态触碰本地设备标记或网络，也不把用户/书籍数据写入设备标记。该协调器尚未接入页面生命周期，不能视为已启用跨设备同步。它存在以下未完成项：
+现有浏览器本地库使用 IndexedDB/OPFS 保存导入文件、书架、进度和摘录；`src/lib/sync.ts` 保留的旧全表 REST 实现已被客户端关闭，不能作为任何跨设备同步的验收依据。IndexedDB v5 新增的 `metadata-sync-outbox` 只保存账户隔离、已验证的 metadata mutation 意图，独立于 `books` 与 `book-blobs`，但尚未接入页面写入路径或 RPC flush。IndexedDB v6 另设 `remote-book-metadata-shadows`：它按账户与来源 `editionId` 保存受控 change feed 的书名、作者、语言、进度、位置、文件元数据、封面色及服务器 revision/sequence；每条记录固定为 `needsReimport`，既不含原书字节、cover data URL、对象键/URL 或正文，也绝不构造成 `StoredBook`。`src/lib/metadata-sync-edition-shadow.ts` 是该 store 唯一允许的 edition feed 投影器：仅接受前述白名单字段与 `epub`/`pdf` 文件类型，拒绝未知字段、数据 URL、对象定位和正文；未知 entity 不触碰 store，由 change-feed 协调器决定游标语义。`src/lib/device-registration-session.ts` 已能在稳定账户、调用方确认远端配置后，为当前浏览器读取或创建随机 UUID 并调用受控设备注册 RPC；它不会在匿名或未配置状态触碰本地设备标记或网络，也不把用户/书籍数据写入设备标记。该协调器及 projector 尚未接入页面生命周期，不能视为已启用跨设备同步。它存在以下未完成项：
 
 1. 原 EPUB/PDF、封面和全文索引不上传；新设备无法自动恢复原书。
 2. `works`、`reading_progress`、`user_settings`、设备、阅读统计、联网收藏、版本关联和删除墓碑尚未形成完整同步闭环。
