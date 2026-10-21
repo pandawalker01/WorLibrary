@@ -59,6 +59,28 @@ test('P0: personal library makes platform access states explicit and never offer
   await expect(page.getByText('收藏保存的是书目信息与来源链接，不等于下载或获得应用内正文。未授权正文不会下载、存储或分发。')).toHaveCount(0)
 })
 
+test('P0: a reviewed platform result from the world catalog opens the WorLibrary reader', async ({ page }) => {
+  await page.route('**/api/catalog?*', async (route) => {
+    await route.fulfill({ contentType: 'application/json', body: JSON.stringify({ books: [{
+      id: 'platform:reviewed-open-edition', sourceId: 'platform', sourceRecordId: 'reviewed-open-edition', platformEditionId: 'reviewed-open-edition',
+      title: 'Reviewed Open Edition', author: 'Verified source', languages: ['eng', 'fra'], sourceUrl: 'https://provenance.example.test/reviewed-open-edition', sourceName: 'WorLibrary',
+      access: { mode: 'licensed_full_text', url: 'https://provenance.example.test/reviewed-open-edition', rightsNotice: 'Open licence verified by WorLibrary.' },
+    }] }) })
+  })
+  await page.route('**/api/reader/access?editionId=reviewed-open-edition', async (route) => {
+    await route.fulfill({ contentType: 'application/json', body: JSON.stringify({ editionId: 'reviewed-open-edition', access_mode: 'stream', delivery: { available: false, reason: 'content_delivery_not_implemented' } }) })
+  })
+
+  await page.goto('/?scope=world')
+  await page.getByRole('searchbox', { name: '搜索世界书库' }).fill('reviewed')
+  await page.getByRole('button', { name: '搜索世界书库' }).click()
+  await expect(page.getByRole('heading', { name: 'Reviewed Open Edition' })).toBeVisible()
+  await page.getByRole('button', { name: '在 WorLibrary 中阅读' }).click()
+  await expect(page.getByRole('heading', { name: 'Reviewed Open Edition' })).toBeVisible()
+  await expect(page).toHaveURL(/platformEdition=reviewed-open-edition/)
+  await expect(page.getByText('平台内容尚未配置，不能打开')).toBeVisible()
+})
+
 test('P0: platform online title opens the in-app reader and fails closed before content delivery exists', async ({ page }) => {
   await page.addInitScript(() => localStorage.setItem('worlibrary.saved-world-books', JSON.stringify([{
     id: 'platform-fixture', sourceId: 'platform', sourceRecordId: 'platform-fixture', platformEditionId: 'platform-fixture', title: 'Platform fixture', author: 'Rights holder', languages: ['eng'], sourceUrl: 'https://example.test/platform-fixture', sourceName: 'WorLibrary platform', access: { mode: 'licensed_full_text', url: 'https://example.test/platform-fixture' },

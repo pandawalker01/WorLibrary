@@ -76,6 +76,56 @@ test('Cloudflare catalog endpoint normalizes compliant source data, caches it, a
   }
 })
 
+test('Cloudflare catalog exposes only reviewed platform directory records with a matching policy', async () => {
+  const assets = createAssets()
+  const policy = JSON.stringify([
+    { editionId: 'reviewed-open-edition', accessMode: 'stream', requiresAuthorization: false, rightsNotice: 'Open licence verified by WorLibrary.' },
+  ])
+  const directory = JSON.stringify([
+    {
+      editionId: 'reviewed-open-edition',
+      title: 'Reviewed Open Edition',
+      author: 'A verified rights holder',
+      languages: ['eng', 'fra'],
+      subjects: ['world literature'],
+      sourceUrl: 'https://provenance.example.test/reviewed-open-edition',
+    },
+    {
+      editionId: 'unreviewed-edition',
+      title: 'Unreviewed Free Label',
+      languages: ['eng'],
+      sourceUrl: 'https://unreviewed.example.test/item',
+    },
+  ])
+
+  await withFetchStub(async () => { throw new Error('upstreams unavailable') }, async () => {
+    const response = await worker.fetch(new Request('https://app.example.test/api/catalog?q=world&language=eng&multiLanguageOnly=true'), {
+      ASSETS: assets,
+      PLATFORM_CONTENT_ACCESS_JSON: policy,
+      PLATFORM_CATALOG_JSON: directory,
+    })
+    assert.equal(response.status, 200)
+    const payload = await response.json()
+    assert.deepEqual(payload.books, [{
+      id: 'platform:reviewed-open-edition',
+      sourceId: 'platform',
+      sourceRecordId: 'reviewed-open-edition',
+      platformEditionId: 'reviewed-open-edition',
+      title: 'Reviewed Open Edition',
+      author: 'A verified rights holder',
+      languages: ['eng', 'fra'],
+      sourceUrl: 'https://provenance.example.test/reviewed-open-edition',
+      sourceName: 'WorLibrary',
+      access: {
+        mode: 'licensed_full_text',
+        url: 'https://provenance.example.test/reviewed-open-edition',
+        rightsNotice: 'Open licence verified by WorLibrary.',
+      },
+    }])
+    assert.doesNotMatch(JSON.stringify(payload), /r2ObjectKey|objectKey|signed/i)
+  })
+})
+
 test('Cloudflare worker rejects invalid catalog requests without contacting upstreams and falls back to the SPA shell', async () => {
   const assets = createAssets()
   await withFetchStub(async () => { throw new Error('upstream should not be contacted') }, async () => {

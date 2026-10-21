@@ -45,6 +45,6 @@ npm run build
 
 ## 当前边界
 
-书籍文件、封面、进度与摘录保存在本机的 OPFS / IndexedDB；Service Worker 只缓存应用壳和静态资源，绝不缓存或上传原始书籍。离线时可继续打开已导入书籍。Cloudflare Worker 部署后，世界书库查询经同源 `/api/catalog` 访问已审核书目来源；平台自有或已授权内容仅能经私有 R2 的受控 `/api/reader/content` 交付，需先完成许可、来源哈希、授权服务与 R2 绑定配置。已授权 EPUB/PDF 在平台阅读器中只进入当前会话内存并可翻页，不写入本地书库、缓存或下载路径。真实 AI/OCR 与云端同步仍需按部署文档配置服务端环境变量。清除站点数据会清除本地原书与本地状态；云端同步只恢复已完成并经真实跨设备验收的元数据，不能替代原书备份。
+书籍文件、封面、进度与摘录保存在本机的 OPFS / IndexedDB；Service Worker 只缓存应用壳和静态资源，绝不缓存或上传原始书籍。离线时可继续打开已导入书籍。Cloudflare Worker 部署后，世界书库查询经同源 `/api/catalog` 访问已审核书目来源；平台自有或已授权内容仅能经私有 R2 的受控 `/api/reader/content` 交付，需先完成许可、来源哈希、授权服务与 R2 绑定配置。已审核的平台目录可由 Worker 的 `PLATFORM_CATALOG_JSON` 公开其安全书目投影，但只有同时存在匹配的 `PLATFORM_CONTENT_ACCESS_JSON` 策略时才会显示为 WorLibrary 平台版本；它不能把第三方“免费”标签自动变成可分发正文。已授权 EPUB/PDF 在平台阅读器中只进入当前会话内存并可翻页，不写入本地书库、缓存或下载路径。真实 AI/OCR 与云端同步仍需按部署文档配置服务端环境变量。清除站点数据会清除本地原书与本地状态；云端同步只恢复已完成并经真实跨设备验收的元数据，不能替代原书备份。
 
 无需云配置也可以部署并使用本地阅读核心。运行 `npm run validate:env -- --staging --json` 可获得机器可读的已关闭能力与缺失项；完整认证、同步、AI/OCR 上线前使用 `npm run validate:env -- --production --json`。AI 网关的健康、翻译与解释响应均禁止共享 HTTP 缓存，保护用户主动发送的选区文本与错误信息。变量分类与安全边界见 `docs/deployment.md`，不要把任意密钥写入 `VITE_*` 或提交 `.env`。

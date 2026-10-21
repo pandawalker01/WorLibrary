@@ -101,6 +101,27 @@ AI_TIMEOUT_MS=12000
 
 平台阅读器收到允许的媒体类型后，会用带 Authorization 的无缓存请求将正文临时读为内存 ArrayBuffer，再交给 EPUB.js 或 PDF.js；它不创建 File、对象 URL、IndexedDB/OPFS 记录、全文索引或下载入口，卸载时销毁渲染器资源。首次上线必须分别使用一个已授权 EPUB 与 PDF 验收翻页、撤销授权后的失败状态和关闭阅读页后的内存释放；此过程不替代权利审核。
 
+### 已审核平台目录（仅引导期）
+
+世界书库可以合并一个由运营方维护的 `PLATFORM_CATALOG_JSON` 目录。它只包含安全的书目投影（`editionId`、标题、作者、语言、主题、封面 URL 与来源/许可证说明页），不能包含对象键、文件 URL、签名 URL、正文、用户数据或任何 Secret。Worker 会对每条记录要求一个同 `editionId` 的 `PLATFORM_CONTENT_ACCESS_JSON` 策略；没有匹配策略、格式错误或未经审核的记录都会被静默排除。因而，第三方来源的“免费”“公共领域”标签本身永远不会生成 WorLibrary 内阅读或下载入口。
+
+示例仅说明字段形状，真实条目必须先完成来源、许可证、地区和哈希审核：
+
+```json
+[
+  {
+    "editionId": "reviewed-open-edition",
+    "title": "Reviewed Open Edition",
+    "author": "Verified rights holder",
+    "languages": ["eng", "fra"],
+    "subjects": ["world literature"],
+    "sourceUrl": "https://rights-holder.example/edition"
+  }
+]
+```
+
+`PLATFORM_CATALOG_JSON` 不含内部定位信息，可作为普通 Worker Variable；但在动态 resolver 投产后应由服务端发布目录替代，而不是长期手工维护。`PLATFORM_CONTENT_ACCESS_JSON` 仍应作为 Secret。首先把来源内容存入**平台私有** R2、记录来源与许可证、验证 SHA-256、经受控发布流程生成版本和策略，才可把该版本加入目录。用户自导入文件走完全独立的个人私有云书库流程，不能放进这个目录或用于平台分发。
+
 这不是 DRM：浏览器显示正文仍无法绝对阻止截图或有能力的网络抓取。它的边界是：不提供原始文件下载入口、不把完整文件写入应用的本地书库，并由短生命周期登录会话、每次访问重验授权、地区/版权期限、审计和下架策略共同约束。不得代理或镜像第三方未授权正文。
 
 ### 本地完整翻译验收

@@ -420,7 +420,10 @@ function App() {
   }
 
   function openWorldBook(book: WorldBook) {
-    if (book.sourceId === 'platform' && book.platformEditionId) {
+    // A platform edition is a reviewed copy that WorLibrary is allowed to
+    // resolve through its own policy endpoint. Source catalog labels alone
+    // never grant this path.
+    if (book.platformEditionId) {
       setRoutedPlatformEditionId(book.platformEditionId)
       setRoutedBookId(undefined)
       setView('reader')
@@ -434,7 +437,7 @@ function App() {
       // This is still source-hosted reading. Until WorLibrary has a verified
       // entitlement and a licensed delivery path, no result can open as an
       // in-app reader or offer a file download.
-      case 'licensed_full_text': return { label: ui.onlineReadable, action: book.sourceId === 'platform' && book.platformEditionId ? ui.readInWorLibrary : ui.readOnlineAtSource }
+      case 'licensed_full_text': return { label: ui.onlineReadable, action: book.platformEditionId ? ui.readInWorLibrary : ui.readOnlineAtSource }
       case 'preview': return { label: ui.previewAccess, action: ui.previewAtSource }
       case 'catalog_only': return { label: ui.catalogRecordOnly, action: ui.viewAtSource }
       default: return { label: ui.sourceReading, action: ui.openAtSource }

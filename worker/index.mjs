@@ -275,7 +275,66 @@ async function fetchJson(url, signal) {
   return response.json()
 }
 
-async function searchCatalog(query, language, multiLanguageOnly) {
+function platformCatalogEntries(env, query, language, multiLanguageOnly) {
+  // This is an intentionally narrow bootstrap directory for editions that the
+  // operator has already passed through the platform content-review flow. It
+  // is not an importer, crawler, or a way to infer rights from a third-party
+  // "free" label. A missing policy hides the item rather than exposing a
+  // misleading in-app reader action.
+  const raw = typeof env.PLATFORM_CATALOG_JSON === 'string' ? env.PLATFORM_CATALOG_JSON.trim() : ''
+  const policies = platformAccessCatalog(env)
+  if (!raw || policies.error) return []
+  try {
+    const entries = JSON.parse(raw)
+    if (!Array.isArray(entries) || entries.length > 200) return []
+    const normalizedQuery = query.toLocaleLowerCase()
+    return entries.flatMap((entry) => {
+      if (!entry || typeof entry !== 'object') return []
+      const editionId = typeof entry.editionId === 'string' ? entry.editionId.trim() : ''
+      const title = typeof entry.title === 'string' ? entry.title.trim() : ''
+      const author = typeof entry.author === 'string' ? entry.author.trim() : ''
+      const sourceUrl = typeof entry.sourceUrl === 'string' ? entry.sourceUrl.trim() : ''
+      const policy = policies.records.get(editionId)
+      if (!editionId || editionId.length > MAX_PLATFORM_EDITION_ID_LENGTH || !title || title.length > 1024 || !/^https:\/\//i.test(sourceUrl) || !policy) return []
+      const languages = Array.isArray(entry.languages)
+        ? [...new Set(entry.languages.filter((value) => typeof value === 'string' && /^[a-z]{2,3}$/i.test(value)).map((value) => value.toLowerCase()))]
+        : []
+      const subjects = Array.isArray(entry.subjects)
+        ? entry.subjects.filter((value) => typeof value === 'string').slice(0, 20)
+        : []
+      if (language && !languages.includes(language)) return []
+      if (multiLanguageOnly && languages.length < 2) return []
+      if (![title, author, ...subjects].join(' ').toLocaleLowerCase().includes(normalizedQuery)) return []
+      const mode = policy.accessMode === 'preview'
+        ? 'preview'
+        : policy.accessMode === 'external_reader'
+          ? 'external'
+          : policy.accessMode === 'catalog_only'
+            ? 'catalog_only'
+            : 'licensed_full_text'
+      return [{
+        id: `platform:${editionId}`,
+        sourceId: 'platform',
+        sourceRecordId: editionId,
+        platformEditionId: editionId,
+        title,
+        author,
+        ...(typeof entry.year === 'number' && Number.isInteger(entry.year) && entry.year >= 0 && entry.year <= 9999 ? { year: entry.year } : {}),
+        languages,
+        ...(typeof entry.coverUrl === 'string' && /^https:\/\//i.test(entry.coverUrl) ? { coverUrl: entry.coverUrl } : {}),
+        sourceUrl,
+        sourceName: 'WorLibrary',
+        access: { mode, url: sourceUrl, ...(policy.rightsNotice ? { rightsNotice: policy.rightsNotice } : {}) },
+      }]
+    })
+  } catch {
+    // An invalid operator directory must fail closed without making public
+    // catalog search unavailable.
+    return []
+  }
+}
+
+async function searchCatalog(query, language, multiLanguageOnly, env) {
   const controller = new AbortController()
   const timeout = setTimeout(() => controller.abort('catalog timeout'), CATALOG_TIMEOUT_MS)
   const openLibraryParams = new URLSearchParams({ q: query, limit: '24', fields: 'key,title,author_name,first_publish_year,language,edition_count,cover_i' })
@@ -293,7 +352,10 @@ async function searchCatalog(query, language, multiLanguageOnly) {
   ]
   try {
     const settled = await Promise.allSettled(requests)
-    const books = settled.flatMap((result) => result.status === 'fulfilled' ? result.value : [])
+    const books = [
+      ...platformCatalogEntries(env, query, language, multiLanguageOnly),
+      ...settled.flatMap((result) => result.status === 'fulfilled' ? result.value : []),
+    ]
       .filter((book) => !multiLanguageOnly || book.languages.length > 1)
     if (books.length === 0 && settled.every((result) => result.status === 'rejected')) throw new Error('CATALOG_UNAVAILABLE')
     return [...new Map(books.map((book) => [`${book.sourceId}:${book.sourceRecordId}`, book])).values()]
@@ -302,7 +364,7 @@ async function searchCatalog(query, language, multiLanguageOnly) {
   }
 }
 
-async function catalog(request, id) {
+async function catalog(request, env, id) {
   if (request.method !== 'GET') return methodNotAllowed(id)
   const url = new URL(request.url)
   const query = (url.searchParams.get('q') || '').trim()
@@ -315,8 +377,8 @@ async function catalog(request, id) {
   const cached = cache ? await cache.match(cacheKey) : undefined
   if (cached) return withRequestId(cached, id)
   try {
-    const books = await searchCatalog(query, language, multiLanguageOnly)
-    const response = catalogSuccess({ books, sources: ['open-library', 'google-books'] })
+    const books = await searchCatalog(query, language, multiLanguageOnly, env)
+    const response = catalogSuccess({ books, sources: ['platform', 'open-library', 'google-books'] })
     // Errors are returned below and are intentionally never written to cache.
     if (cache) await cache.put(cacheKey, response.clone())
     return withRequestId(response, id)
@@ -555,7 +617,7 @@ export default {
     const url = new URL(request.url)
     const id = requestId(request)
     if (url.pathname === '/api/health' || url.pathname === '/health') return health(request, env, id)
-    if (url.pathname === '/api/catalog') return catalog(request, id)
+    if (url.pathname === '/api/catalog') return catalog(request, env, id)
     if (url.pathname === '/api/reader/access') return readerAccess(request, env, id)
     if (url.pathname === '/api/reader/content') return readerContent(request, env, id)
     if (url.pathname === '/api/translation-status') return translationStatus(request, env, id)
