@@ -14,6 +14,21 @@ test('login contract exposes anonymous and magic-link paths without provider sec
   expect(source).not.toContain('VITE_AI_API_KEY')
 })
 
+test('magic-link callback keeps the current query route and never reuses the auth hash', async () => {
+  const source = await readFile('src/lib/auth.ts', 'utf8')
+  expect(source).toContain('window.location.pathname}${window.location.search}')
+  expect(source).toContain('window.history.replaceState({}, document.title, `${window.location.pathname}${window.location.search}`)')
+})
+
+test('account UI does not promise cloud sync for anonymous or fully recovered accounts', async () => {
+  const [panel, i18n] = await Promise.all([readFile('src/components/AuthPanel.tsx', 'utf8'), readFile('src/lib/i18n.ts', 'utf8')])
+  expect(panel).toContain('ui.syncAnonymousUnavailable')
+  expect(panel).toContain('ui.syncMetadataSuccess')
+  expect(panel).toContain('ui.anonymousMigrationUnavailable')
+  expect(i18n).toContain('cloud sync is unavailable')
+  expect(i18n).toContain('完整跨设备恢复暂未开放')
+})
+
 test('sync merges remote rows and uploads only metadata', async () => {
   const localBook: StoredBook = { id: 'local', title: 'Local', author: 'Author', language: 'en', progress: 10, fileName: 'local.epub', fileType: 'application/epub+zip', fileSize: 12, storage: 'indexeddb', cover: 'ink', createdAt: Date.now() }
   const remoteBook = { id: 'remote', title: 'Remote', author: 'Author', language: 'zh', progress: 20, file_name: 'remote.epub', file_type: 'application/epub+zip', file_size: 4, cover: 'red', created_at: new Date().toISOString(), updated_at: new Date().toISOString() }
@@ -32,9 +47,16 @@ test('sync merges remote rows and uploads only metadata', async () => {
 
 test('IndexedDB sync adapter releases each database connection after a transaction settles', async () => {
   const source = await readFile('src/lib/sync.ts', 'utf8')
+  expect(source).toContain('const databaseVersion = 4')
   expect(source).toMatch(/transaction\.oncomplete = \(\) => \{\s*db\.close\(\)/)
   expect(source).toMatch(/transaction\.onerror = \(\) => \{\s*db\.close\(\)/)
   expect(source).toMatch(/transaction\.onabort = \(\) => \{\s*db\.close\(\)/)
+})
+
+test('anonymous sessions cannot enqueue or flush cloud metadata sync', async () => {
+  const source = await readFile('src/App.tsx', 'utf8')
+  expect(source).toContain('if (!session || session.user.isAnonymous) return')
+  expect(source).toContain('if (!session || session.user.isAnonymous) return\n    enqueueSync()')
 })
 
 test('sync uploads the merged winner instead of overwriting newer remote data', async () => {

@@ -91,7 +91,9 @@ export async function deleteRemoteHighlight(remote: RemoteClient, id: string): P
 }
 
 const databaseName = 'wor-library'
-const databaseVersion = 2
+// Keep this in lockstep with storage.ts. Opening an existing IndexedDB
+// database at an older version throws VersionError before any sync can start.
+const databaseVersion = 4
 const booksStore = 'books'
 const highlightsStore = 'highlights'
 

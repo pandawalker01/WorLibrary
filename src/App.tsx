@@ -216,7 +216,9 @@ function App() {
   const account = accountIdentity(session, ui.signIn, ui.guestAccount)
 
   const syncNow = useCallback(async () => {
-    if (!session) return
+    // Anonymous trials intentionally have no cloud ownership boundary. Do not
+    // enqueue or upload their local reading metadata under a temporary token.
+    if (!session || session.user.isAnonymous) return
     try {
       const result = await flushQueuedSync(createRemoteClient(session), createIndexedDbSyncAdapter())
       if (result.uploaded || result.downloaded) toast(`已同步 ${result.uploaded + result.downloaded} 项阅读数据`)
@@ -224,10 +226,11 @@ function App() {
   }, [session])
 
   const scheduleSync = useCallback(() => {
+    if (!session || session.user.isAnonymous) return
     enqueueSync()
     if (syncTimer.current) window.clearTimeout(syncTimer.current)
     syncTimer.current = window.setTimeout(() => { void syncNow() }, 1200)
-  }, [syncNow])
+  }, [session, syncNow])
 
   useEffect(() => {
     void Promise.all([listBooks(), listEditions(), listAlignments(), listHighlights()]).then(([savedBooks, savedEditions, savedAlignments, savedHighlights]) => { setBooks(savedBooks); setEditions(savedEditions); setAlignments(savedAlignments); setHighlightCount(savedHighlights.length); setBooksLoaded(true) })

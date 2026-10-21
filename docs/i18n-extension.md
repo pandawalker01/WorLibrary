@@ -22,7 +22,7 @@
 | src/components/EpubReader.tsx | EPUB 阅读器可见文案、阅读主题标签与划词操作 |
 | src/components/PdfReader.tsx | PDF 阅读器、翻页、OCR、阅读主题标签与划词操作 |
 | src/components/HighlightsView.tsx | 摘录筛选、编辑、删除等可见文案 |
-| src/components/AuthPanel.tsx | 登录、匿名试用和同步状态文案 |
+| src/components/AuthPanel.tsx | 登录、匿名试用和同步状态文案；所有可见文本必须取自 `i18n.ts` |
 | src/components/DataTransfer.tsx | 导入/导出阅读数据文案 |
 | tests/qa/ui-language.spec.ts | 界面语言与 AI 理解语言独立、刷新后持久化的核心回归 |
 
@@ -69,4 +69,5 @@
 - 交互状态文案也必须双语维护：例如“已选中”、目录展开/收起、选区关闭、自动翻译中的浮层、OCR 结果与重试。EPUB 自动译文浮层应锚定在选区下方；翻译本身不能自动创建颜色标注，颜色按钮必须明确表示当前选择并使用 `aria-pressed`。状态按钮应同步提供 `aria-pressed`、`aria-expanded` 或 `aria-current`，而不是只用颜色表示状态。划词后的自动译文必须始终使用独立保存的 AI 理解语言，不能因界面语言变化而改变目标语言。
 - 顶栏理解语言入口必须直接打开可搜索的选择器而不改变当前路由或跳转设置；它显示的语言名与选项名称都使用当前界面语言的 `Intl.DisplayNames` 本地化。存储值仍为稳定的英文名称，以保障既有 AI 请求与用户设置兼容。
 - 失败提示、空状态、确认框和 Toast 也必须本地化。
+- 账号与同步的状态同样必须从 `i18n.ts` 取值：匿名试用不可称为可云同步，已登录的元数据同步也不可称为完整跨设备恢复；登录回调应保留当前查询参数路由，不能因为语言或认证文案改动而跳回首页。
 - 日期、数字和复数规则较复杂时，优先引入成熟的 Intl 或 FormatJS 方案，不要手写多语言分支。

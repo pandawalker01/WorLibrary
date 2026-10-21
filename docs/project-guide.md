@@ -22,7 +22,7 @@ WorLibrary 是本地优先的多语言阅读器：用户导入自己拥有的 EP
 - 页面状态通过 URL 查询参数恢复：书库、世界书库、摘录、我的、设置以及已导入书籍的阅读器在刷新、复制链接和浏览器前进后退后回到对应位置；路由不占用认证魔法链接使用的 hash。
 - “我的”本地阅读页：统计本设备中的累计阅读时长、书籍、正在读、已完成与摘录数量；另以本地持久化的近 7 天阅读时长展示阅读轨迹，并记录本地导入书籍及已收藏平台版本的阅读时长、按最后阅读时间提供最近阅读记录。平台记录只保存稳定的版本 ID、书目元数据与时长，不保存正文、阅读位置、交付 URL 或授权信息。仅在阅读器所在的浏览器标签页处于前台可见时计时。这些数据不伪装成云端账户数据。右上角账户入口显示会话身份的首字母头像，并通向设置中的账号与同步区。
 - 键盘与辅助技术基础支持：主导航和筛选会暴露当前状态；阅读器目录、选区操作与元数据对话框可用 Escape 关闭；阅读器翻页快捷键只在阅读内容区域生效，目录、工具栏与 OCR 编辑控件保留自身键盘交互；所有交互控件有高对比度可见焦点。
-- 匿名/魔法链接认证、Supabase 同步基础、AI 额度账本与受控 API 网关。`0008` 已建立同步设备、键级设置、变更日志、删除墓碑和阅读统计事件的数据边界；客户端尚未切到受控 mutation RPC，跨设备同步仍处于实现阶段，不能在未配置 Supabase 且未通过真实跨设备验收时承诺恢复。
+- 匿名/魔法链接认证、Supabase 同步基础、AI 额度账本与受控 API 网关。匿名试用没有云端数据所有权边界，客户端不会为其排队或上传同步数据；当前也不提供匿名试用原地升级到账户的迁移。邮箱魔法链接会保留当前的查询参数页面路由，不复用认证 hash。`0008` 已建立同步设备、键级设置、变更日志、删除墓碑和阅读统计事件的数据边界；客户端尚未切到受控 mutation RPC，跨设备同步仍处于实现阶段，不能在未配置 Supabase 且未通过真实跨设备验收时承诺恢复。
 
 书籍文件默认留在本机。已决策的目标同步范围是元数据、进度、摘录、阅读统计、世界书库收藏和相关设置；登录用户还可明确开启端到端加密的原 EPUB/PDF 云备份。当前云端同步尚未完成上述范围，清除站点数据前必须导出本地阅读数据。原文件备份的对象存储、密钥、配额、删除和验收规则见 `docs/user-data-sync-architecture.md`；未实现前不得承诺跨设备自动恢复原书。
 
@@ -60,7 +60,7 @@ WorLibrary 是本地优先的多语言阅读器：用户导入自己拥有的 EP
 | 多版本对照 | src/components/EditionComparisonReader.tsx、src/lib/edition.ts | 关联版本、章节/段落对齐、双栏降级 | 不要强制不可靠的句对句同步 |
 | AI 客户端 | src/lib/translation.ts、src/lib/explanation.ts、src/lib/ai-result-cache.ts | 调网关、缓存、错误与重试信息 | 浏览器不能保存供应商密钥；仅传选区和必要上下文 |
 | OCR 客户端 | src/lib/ocr.ts、docs/ocr.md | 当前 PDF 页转数据并请求 OCR | 只发送用户主动选定的页；不要上传整本书；校正草稿不可自动发给 AI |
-| 认证与同步 | src/lib/auth.ts、src/lib/remote.ts、src/lib/sync.ts、src/components/AuthPanel.tsx、supabase/migrations/0008_metadata_sync_foundation.sql | 匿名/魔法链接会话、设备注册、远端行同步、队列与冲突处理 | 原始书籍不进入同步；匿名会话不得启动同步；RLS 与将来的受控 mutation RPC 是最终边界 |
+| 认证与同步 | src/lib/auth.ts、src/lib/remote.ts、src/lib/sync.ts、src/components/AuthPanel.tsx、supabase/migrations/0008_metadata_sync_foundation.sql | 匿名/魔法链接会话、设备注册、远端行同步、队列与冲突处理 | 原始书籍不进入同步；匿名会话不得启动同步；同步适配器必须使用与本地存储相同的 IndexedDB schema version；RLS 与将来的受控 mutation RPC 是最终边界 |
 | 用户云备份（待实现） | docs/user-data-sync-architecture.md、未来的 user-files Worker/API 与 Supabase migrations | 已登录用户的书架/阅读数据同步，以及用户明确开启的端到端加密原书备份 | 用户文件与平台正文必须用不同私有 bucket、表、权限和审计流；客户端不保存恢复码或明文密钥到 localStorage |
 | 国际化 | src/lib/i18n.ts、src/lib/interface-locale-registry.ts、src/components/ReadingLanguagePicker.tsx 与各组件 | 界面语言和全球 AI 输出语言；界面语言的可用/规划状态、稳定回退与 RTL 方向 | 先读 docs/i18n-extension.md；两种语言配置独立；planned 语言没有完整文案前不得出现在可切换列表 |
 | API 与额度 | worker/、api/、server/、supabase/migrations/ | Worker 路由、平台版本访问策略、受保护正文 Range 交付、JWT 校验、额度扣减、目录代理、健康检查 | 密钥仅在环境变量；`/api/reader/access` 只返回策略，`/api/reader/content` 每次复验后才从私有 R2 读取允许的 EPUB/PDF；两者不得返回正文定位信息或对象存储位置；平台动态交付只能经内部 Service Binding resolver 调用 `resolve_platform_reader_delivery`，不得让浏览器或主 Worker 获得 Supabase service-role key；额度操作需服务端原子化 |

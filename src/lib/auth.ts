@@ -105,7 +105,15 @@ export async function signInAnonymously(): Promise<AuthSession> {
   return session
 }
 
-export async function sendMagicLink(email: string, redirectTo = window.location.origin): Promise<void> {
+function currentMagicLinkRedirect(): string {
+  if (typeof window === 'undefined') return ''
+  // Routes live in the query string because Supabase returns tokens in the
+  // hash. Preserve the current page without ever carrying a stale auth hash
+  // into the next magic-link request.
+  return `${window.location.origin}${window.location.pathname}${window.location.search}`
+}
+
+export async function sendMagicLink(email: string, redirectTo = currentMagicLinkRedirect()): Promise<void> {
   const normalizedEmail = email.trim().toLowerCase()
   if (!/^\S+@\S+\.\S+$/.test(normalizedEmail)) throw new Error('请输入有效的邮箱地址')
   await authRequest('otp', { method: 'POST', body: JSON.stringify({ email: normalizedEmail, create_user: true, options: { emailRedirectTo: redirectTo } }) })
