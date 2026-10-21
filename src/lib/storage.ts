@@ -35,12 +35,34 @@ export type Highlight = {
   updatedAt?: number
 }
 
+/**
+ * A durable, account-scoped intent to call the controlled metadata-sync RPC.
+ * This store is deliberately separate from the local book and book-blob
+ * stores: it may describe a local book, but it never owns its file bytes.
+ */
+export type MetadataSyncOutboxEntry = {
+  operationId: string
+  userId: string
+  deviceClientId: string
+  entityType: 'work' | 'edition' | 'reading_progress' | 'highlight' | 'library_item' | 'setting'
+  entityId: string
+  operation: 'upsert' | 'delete'
+  baseRevision: number
+  payload: Record<string, unknown>
+  status: 'pending'
+  createdAt: number
+}
+
+export type CreateMetadataSyncOutboxEntry = Omit<MetadataSyncOutboxEntry, 'operationId' | 'status' | 'createdAt'> & {
+  operationId?: string
+}
+
 export type LibraryBackup = { version: 2; exportedAt: string; books: StoredBook[]; highlights: Highlight[]; files: Record<string, string>; works?: Work[]; editions?: Edition[]; alignments?: Alignment[] }
 
 import type { Alignment, Edition, Work } from './edition'
 
 const DB_NAME = 'wor-library'
-const DB_VERSION = 4
+const DB_VERSION = 5
 const BOOKS_STORE = 'books'
 const BLOBS_STORE = 'book-blobs'
 const HIGHLIGHTS_STORE = 'highlights'
@@ -48,6 +70,16 @@ const WORKS_STORE = 'works'
 const EDITIONS_STORE = 'editions'
 const ALIGNMENTS_STORE = 'alignments'
 const TEXT_INDEX_STORE = 'text-index'
+const METADATA_SYNC_OUTBOX_STORE = 'metadata-sync-outbox'
+const METADATA_SYNC_OUTBOX_BY_USER = 'by-user-id'
+
+const metadataSyncEntityTypes = new Set<MetadataSyncOutboxEntry['entityType']>([
+  'work', 'edition', 'reading_progress', 'highlight', 'library_item', 'setting',
+])
+
+const forbiddenMetadataKeys = new Set([
+  'blob', 'bookblob', 'filebytes', 'objectkey', 'contenturl', 'signedurl', 'rawcontent', 'body',
+])
 
 function openDatabase(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
@@ -63,6 +95,15 @@ function openDatabase(): Promise<IDBDatabase> {
       if (!db.objectStoreNames.contains(EDITIONS_STORE)) db.createObjectStore(EDITIONS_STORE, { keyPath: 'id' })
       if (!db.objectStoreNames.contains(ALIGNMENTS_STORE)) db.createObjectStore(ALIGNMENTS_STORE, { keyPath: 'id' })
       if (!db.objectStoreNames.contains(TEXT_INDEX_STORE)) db.createObjectStore(TEXT_INDEX_STORE, { keyPath: 'bookId' })
+      if (!db.objectStoreNames.contains(METADATA_SYNC_OUTBOX_STORE)) {
+        const outbox = db.createObjectStore(METADATA_SYNC_OUTBOX_STORE, { keyPath: 'operationId' })
+        outbox.createIndex(METADATA_SYNC_OUTBOX_BY_USER, 'userId', { unique: false })
+      } else {
+        const outbox = request.transaction?.objectStore(METADATA_SYNC_OUTBOX_STORE)
+        if (outbox && !outbox.indexNames.contains(METADATA_SYNC_OUTBOX_BY_USER)) {
+          outbox.createIndex(METADATA_SYNC_OUTBOX_BY_USER, 'userId', { unique: false })
+        }
+      }
     }
     request.onsuccess = () => {
       const db = request.result
@@ -85,6 +126,214 @@ function transaction<T>(storeName: string, mode: IDBTransactionMode, operation: 
     tx.onabort = () => { db.close(); reject(tx.error ?? request.error) }
     tx.onerror = () => { db.close(); reject(tx.error ?? request.error) }
   }))
+}
+
+function assertNonEmptyMetadataSyncId(value: string, label: string, maximum = 256) {
+  if (!value.trim() || value.length > maximum) throw new Error(`Invalid metadata sync ${label}`)
+}
+
+function isBlobLike(value: unknown): boolean {
+  return (typeof Blob !== 'undefined' && value instanceof Blob)
+    || (typeof ArrayBuffer !== 'undefined' && value instanceof ArrayBuffer)
+    || (typeof ArrayBuffer !== 'undefined' && ArrayBuffer.isView(value))
+}
+
+/**
+ * Reject data which must never leave the device through metadata sync.  This
+ * deliberately validates recursively because flexible `metadata` maps are a
+ * common route for accidentally reintroducing a file/object locator.
+ */
+export function assertSafeMetadataSyncPayload(value: unknown): asserts value is Record<string, unknown> {
+  const visited = new WeakSet<object>()
+  const visit = (candidate: unknown, path: string): void => {
+    if (candidate === null || typeof candidate === 'boolean') return
+    if (typeof candidate === 'number') {
+      if (!Number.isFinite(candidate)) throw new Error(`Metadata sync payload contains a non-finite number at ${path}`)
+      return
+    }
+    if (typeof candidate === 'string') {
+      if (/^\s*data:/i.test(candidate)) throw new Error(`Metadata sync payload cannot contain a data URL at ${path}`)
+      return
+    }
+    if (isBlobLike(candidate)) throw new Error(`Metadata sync payload cannot contain binary data at ${path}`)
+    if (Array.isArray(candidate)) {
+      if (visited.has(candidate)) throw new Error(`Metadata sync payload cannot contain circular values at ${path}`)
+      visited.add(candidate)
+      candidate.forEach((item, index) => visit(item, `${path}[${index}]`))
+      return
+    }
+    if (!candidate || typeof candidate !== 'object') throw new Error(`Metadata sync payload contains an unsupported value at ${path}`)
+    const prototype = Object.getPrototypeOf(candidate)
+    if (prototype !== Object.prototype && prototype !== null) {
+      throw new Error(`Metadata sync payload must contain plain objects at ${path}`)
+    }
+    if (visited.has(candidate)) throw new Error(`Metadata sync payload cannot contain circular values at ${path}`)
+    visited.add(candidate)
+    for (const [key, nested] of Object.entries(candidate as Record<string, unknown>)) {
+      const normalizedKey = key.toLowerCase().replace(/[\s_-]/g, '')
+      if (forbiddenMetadataKeys.has(normalizedKey)) {
+        throw new Error(`Metadata sync payload cannot contain ${key}`)
+      }
+      visit(nested, `${path}.${key}`)
+    }
+  }
+
+  if (!value || typeof value !== 'object' || Array.isArray(value) || isBlobLike(value)) {
+    throw new Error('Metadata sync payload must be a plain object')
+  }
+  visit(value, 'payload')
+  let serialized: string | undefined
+  try {
+    serialized = JSON.stringify(value)
+  } catch {
+    throw new Error('Metadata sync payload must be JSON serializable')
+  }
+  if (!serialized || new TextEncoder().encode(serialized).byteLength > 65_536) {
+    throw new Error('Metadata sync payload exceeds the 64 KiB metadata limit')
+  }
+}
+
+function outboxTransaction<T>(mode: IDBTransactionMode, action: (store: IDBObjectStore, resolve: (value: T) => void, reject: (reason: unknown) => void) => void): Promise<T> {
+  return openDatabase().then((db) => new Promise<T>((resolve, reject) => {
+    const tx = db.transaction(METADATA_SYNC_OUTBOX_STORE, mode)
+    let settled = false
+    const finish = (value: T) => {
+      if (!settled) {
+        settled = true
+        resolve(value)
+      }
+    }
+    const fail = (reason: unknown) => {
+      if (!settled) {
+        settled = true
+        reject(reason)
+      }
+    }
+    tx.oncomplete = () => db.close()
+    tx.onabort = () => { db.close(); fail(tx.error ?? new Error('Metadata sync outbox transaction aborted')) }
+    tx.onerror = () => { db.close(); fail(tx.error ?? new Error('Metadata sync outbox transaction failed')) }
+    try {
+      action(tx.objectStore(METADATA_SYNC_OUTBOX_STORE), finish, fail)
+    } catch (error) {
+      tx.abort()
+      fail(error)
+    }
+  }))
+}
+
+/** Queue only sanitized metadata for one stable account and one local device. */
+export async function createMetadataSyncOutboxEntry(input: CreateMetadataSyncOutboxEntry): Promise<MetadataSyncOutboxEntry> {
+  assertNonEmptyMetadataSyncId(input.userId, 'user id')
+  assertNonEmptyMetadataSyncId(input.deviceClientId, 'device client id')
+  assertNonEmptyMetadataSyncId(input.entityId, 'entity id')
+  if (!metadataSyncEntityTypes.has(input.entityType)) throw new Error('Invalid metadata sync entity type')
+  if (input.operation !== 'upsert' && input.operation !== 'delete') throw new Error('Invalid metadata sync operation')
+  if (!Number.isSafeInteger(input.baseRevision) || input.baseRevision < 0) throw new Error('Invalid metadata sync base revision')
+  assertSafeMetadataSyncPayload(input.payload)
+  if (input.operation === 'delete' && Object.keys(input.payload).length > 0) {
+    throw new Error('Metadata sync delete operations cannot contain a payload')
+  }
+
+  const operationId = input.operationId ?? crypto.randomUUID()
+  assertNonEmptyMetadataSyncId(operationId, 'operation id')
+  const entry: MetadataSyncOutboxEntry = {
+    operationId,
+    userId: input.userId,
+    deviceClientId: input.deviceClientId,
+    entityType: input.entityType,
+    entityId: input.entityId,
+    operation: input.operation,
+    baseRevision: input.baseRevision,
+    payload: input.payload,
+    status: 'pending',
+    createdAt: Date.now(),
+  }
+
+  return outboxTransaction('readwrite', (store, resolve, reject) => {
+    const existingRequest = store.get(operationId)
+    existingRequest.onerror = () => reject(existingRequest.error)
+    existingRequest.onsuccess = () => {
+      const existing = existingRequest.result as MetadataSyncOutboxEntry | undefined
+      if (existing) {
+        if (existing.userId !== entry.userId) {
+          reject(new Error('Metadata sync operation id belongs to another account'))
+          return
+        }
+        if (JSON.stringify(existing) !== JSON.stringify(entry)) {
+          reject(new Error('Metadata sync operation id was already used for another mutation'))
+          return
+        }
+        resolve(existing)
+        return
+      }
+      const putRequest = store.put(entry)
+      putRequest.onerror = () => reject(putRequest.error)
+      putRequest.onsuccess = () => resolve(entry)
+    }
+  })
+}
+
+/** List pending metadata intents for this account only. */
+export async function listMetadataSyncOutbox(userId: string): Promise<MetadataSyncOutboxEntry[]> {
+  assertNonEmptyMetadataSyncId(userId, 'user id')
+  return outboxTransaction('readonly', (store, resolve, reject) => {
+    const request = store.index(METADATA_SYNC_OUTBOX_BY_USER).getAll(userId)
+    request.onerror = () => reject(request.error)
+    request.onsuccess = () => {
+      const entries = (request.result as MetadataSyncOutboxEntry[])
+        .filter((entry) => entry.userId === userId && entry.status === 'pending')
+        .sort((left, right) => left.createdAt - right.createdAt)
+      resolve(entries)
+    }
+  })
+}
+
+/** Confirm an operation only when it belongs to the requesting account. */
+export async function confirmMetadataSyncOutboxEntry(userId: string, operationId: string): Promise<boolean> {
+  assertNonEmptyMetadataSyncId(userId, 'user id')
+  assertNonEmptyMetadataSyncId(operationId, 'operation id')
+  return outboxTransaction('readwrite', (store, resolve, reject) => {
+    const request = store.get(operationId)
+    request.onerror = () => reject(request.error)
+    request.onsuccess = () => {
+      const entry = request.result as MetadataSyncOutboxEntry | undefined
+      if (!entry || entry.userId !== userId) {
+        resolve(false)
+        return
+      }
+      const remove = store.delete(operationId)
+      remove.onerror = () => reject(remove.error)
+      remove.onsuccess = () => resolve(true)
+    }
+  })
+}
+
+/** Remove every pending metadata intent for exactly one account, never another. */
+export async function clearMetadataSyncOutbox(userId: string): Promise<number> {
+  assertNonEmptyMetadataSyncId(userId, 'user id')
+  return outboxTransaction('readwrite', (store, resolve, reject) => {
+    let removed = 0
+    const request = store.index(METADATA_SYNC_OUTBOX_BY_USER).openCursor(IDBKeyRange.only(userId))
+    request.onerror = () => reject(request.error)
+    request.onsuccess = () => {
+      const cursor = request.result
+      if (!cursor) {
+        resolve(removed)
+        return
+      }
+      const entry = cursor.value as MetadataSyncOutboxEntry
+      if (entry.userId !== userId) {
+        cursor.continue()
+        return
+      }
+      const remove = cursor.delete()
+      remove.onerror = () => reject(remove.error)
+      remove.onsuccess = () => {
+        removed += 1
+        cursor.continue()
+      }
+    }
+  })
 }
 
 function titleFromFile(fileName: string) {

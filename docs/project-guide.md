@@ -22,7 +22,7 @@ WorLibrary 是本地优先的多语言阅读器：用户导入自己拥有的 EP
 - 页面状态通过 URL 查询参数恢复：书库、世界书库、摘录、我的、设置以及已导入书籍的阅读器在刷新、复制链接和浏览器前进后退后回到对应位置；路由不占用认证魔法链接使用的 hash。
 - “我的”本地阅读页：统计本设备中的累计阅读时长、书籍、正在读、已完成与摘录数量；另以本地持久化的近 7 天阅读时长展示阅读轨迹，并记录本地导入书籍及已收藏平台版本的阅读时长、按最后阅读时间提供最近阅读记录。平台记录只保存稳定的版本 ID、书目元数据与时长，不保存正文、阅读位置、交付 URL 或授权信息。仅在阅读器所在的浏览器标签页处于前台可见时计时。这些数据不伪装成云端账户数据。右上角账户入口显示会话身份的首字母头像，并通向设置中的账号与同步区。
 - 键盘与辅助技术基础支持：主导航和筛选会暴露当前状态；阅读器目录、选区操作与元数据对话框可用 Escape 关闭；阅读器翻页快捷键只在阅读内容区域生效，目录、工具栏与 OCR 编辑控件保留自身键盘交互；所有交互控件有高对比度可见焦点。
-- 匿名/魔法链接认证、Supabase 同步基础、AI 额度账本与受控 API 网关。匿名试用没有云端数据所有权边界，客户端不会为其排队或上传同步数据；当前也不提供匿名试用原地升级到账户的迁移。邮箱魔法链接会保留当前的查询参数页面路由，不复用认证 hash。旧的全表 REST 同步已在客户端关闭：它不具备账户隔离队列、服务端 revision 或“仅元数据、需重新导入”的书籍表示。`0008` 建立同步设备、键级设置、变更日志、删除墓碑和阅读统计事件的数据边界；`0009` 增加只允许稳定自有设备调用的受控 metadata mutation/pull RPC、服务端 revision、幂等操作与墓碑，并拒绝文件字节、对象键和正文定位字段。客户端尚未切到该 RPC 或完成真实跨设备验收，不能承诺恢复。
+- 匿名/魔法链接认证、Supabase 同步基础、AI 额度账本与受控 API 网关。匿名试用没有云端数据所有权边界，客户端不会为其排队或上传同步数据；当前也不提供匿名试用原地升级到账户的迁移。邮箱魔法链接会保留当前的查询参数页面路由，不复用认证 hash。旧的全表 REST 同步已在客户端关闭：它不具备账户隔离队列、服务端 revision 或“仅元数据、需重新导入”的书籍表示。客户端已具备与书籍二进制分离、按账户隔离的 metadata outbox 和受限 RPC 调用底座，但尚未接入页面写入路径。`0008` 建立同步设备、键级设置、变更日志、删除墓碑和阅读统计事件的数据边界；`0009` 增加只允许稳定自有设备调用的受控 metadata mutation/pull RPC、服务端 revision、幂等操作与墓碑，并拒绝文件字节、对象键和正文定位字段。客户端尚未切到该 RPC 或完成真实跨设备验收，不能承诺恢复。
 
 书籍文件默认留在本机。已决策的目标同步范围是元数据、进度、摘录、阅读统计、世界书库收藏和相关设置；登录用户还可明确开启端到端加密的原 EPUB/PDF 云备份。当前云端同步尚未完成上述范围，清除站点数据前必须导出本地阅读数据。原文件备份的对象存储、密钥、配额、删除和验收规则见 `docs/user-data-sync-architecture.md`；未实现前不得承诺跨设备自动恢复原书。
 
@@ -53,7 +53,7 @@ WorLibrary 是本地优先的多语言阅读器：用户导入自己拥有的 EP
 | 应用编排 | src/App.tsx | URL 页面状态、我的/世界书库、阅读器内导入、统一阅读排版面板、我的页本地统计、设置、会话、同步触发 | 路由使用查询参数，保留认证 hash；不把文件解析或网络细节塞进这里；复用 lib 与组件 |
 | 世界书库 | src/lib/world-library.ts、src/components/WorldLanguagePicker.tsx、src/App.tsx | 用户主动发起的合规书目检索、全球语言列表与可搜索本地化选择器、多语种筛选、主题推荐、来源/可读性标注、联网收藏的本地持久化 | `WORLD_CATALOG_SOURCES` 是唯一的数据源注册点；每个适配器必须显式输出来源、来源记录 ID、外链和 `access.mode`，并在接入前完成条款、限流、来源与版权审查；当前启用 Open Library（`catalog_only`）和 Google Books（按 `viewability` 映射为 `catalog_only`、`preview` 或 `public_domain`）。每个来源请求必须有超时和失败回收，禁止让书库永久停在加载状态。Google Books 的语言筛选仅对有 ISO 639-1 映射的语言生效，无法映射时不混入未筛选结果。`WORLD_LANGUAGE_CODES` 是可扩展的 ISO 639-3 代码集，名称由 `worldLanguageName` 用 `Intl.DisplayNames` 显示；选择器禁止展示无法解释的裸代码；不要把搜索结果伪装为已授权全文，也不要把联网收藏写入 StoredBook 或同步成原始文件 |
 | PWA 离线壳 | src/main.tsx、public/manifest.webmanifest、public/sw.js、public/offline.html | 注册 Service Worker、应用安装元数据、静态资源缓存、离线回退和更新激活 | 只缓存应用壳/静态资源；绝不缓存 API、Supabase、原始书籍文件或用户正文 |
-| 本地书库 | src/lib/storage.ts | 文件保存、书籍元数据、封面、进度、摘录、导入导出、作品/版本关系 | 修改 StoredBook 或备份格式时兼容旧记录，并补迁移/回归 |
+| 本地书库 | src/lib/storage.ts | 文件保存、书籍元数据、封面、进度、摘录、导入导出、作品/版本关系，以及按账户隔离的 metadata sync outbox | outbox 不得保存原文件/封面二进制/正文/对象键，且不能与 books 或 book-blobs 混用；修改 StoredBook 或备份格式时兼容旧记录，并补迁移/回归 |
 | EPUB 阅读器 | src/components/EpubReader.tsx、src/components/PlatformEpubReader.tsx、src/epub-reader.css | 本地 EPUB 的目录、分页、位置、选区操作；平台 EPUB 的受保护内存阅读 | 本地 EPUB 的位置用 CFI；平台组件绝不调用存储、索引或下载 API，离开后销毁 EPUB.js 资源 |
 | PDF 阅读器 | src/components/PdfReader.tsx、src/components/PlatformPdfReader.tsx、src/pdf-reader.css | 本地 PDF 的位置、键盘控制、OCR；平台 PDF 的受保护内存渲染与基本翻页 | 不阻塞翻页；平台组件绝不调用存储或下载 API，离开后销毁 PDF.js 文档；本地 OCR 草稿只有点击确认后才能用于翻译或摘录 |
 | 摘录 | src/components/HighlightsView.tsx、src/highlights.css | 列表、搜索、筛选、笔记、颜色、删除 | 保存后要验证刷新与同步语义 |

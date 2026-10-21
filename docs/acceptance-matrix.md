@@ -48,6 +48,7 @@ npm run qa
 | 数据边界与同步 | 原始 EPUB/PDF、封面二进制与离线文件始终留在本机；清除站点数据后原书不能恢复。旧的全表 REST 同步在客户端必须保持关闭；云端同步只在账户隔离 outbox、受控 RPC、墓碑、服务端 revision 与真实跨设备验收完成后启用。不同步项必须明确提示，不能把仅本地的阅读统计、联网收藏或偏好伪装为已同步。 |
 | 会话与同步边界 | 匿名试用不会创建同步队列或上传本地元数据；邮箱魔法链接登录后回到发起登录时的书库/阅读器查询参数路由；账户页不得把有限元数据同步称为完整跨设备恢复，且中英文状态文案均取自语言包。 | `tests/contracts.spec.ts` |
 | 同步基础数据边界 | 同步设备、变更日志、删除墓碑、键级设置与阅读统计事件均以用户 RLS 隔离；普通浏览器会话不能直接写日志/墓碑/统计聚合，迁移不包含任何 EPUB/PDF blob 或对象键 | `tests/metadata-sync-foundation-migration.spec.ts` |
+| 受控元数据同步底座 | RPC 只接受 authenticated 自有未撤销设备的受限 metadata mutation/pull；服务端分配 revision、拒绝陈旧写、保证 operation 幂等并写入墓碑；客户端 outbox 以账户隔离且拒绝二进制、对象定位、数据 URL 和正文。它仍不代表页面已启用跨设备同步。 | `tests/controlled-metadata-sync-migration.spec.ts`、`tests/remote-rpc-client.spec.ts`、`tests/metadata-sync-outbox.spec.ts` |
 | 世界书库代理 | Cloudflare `/api/catalog` 可在用户浏览器不直连上游的情况下返回来源、访问状态与书目记录；上游全部不可达时应有限时失败提示，且不缓存错误。每次手动部署后 GitHub Runner 必须对实际 Worker 执行一次目录探针，验证响应来源、请求 ID 与短期公共缓存策略。 | `scripts/verify-deployment.mjs`、GitHub Actions |
 | 排版 | 字号、主题、目录和阅读进度显示正常 |
 | 本地书籍管理入口 | 已导入书籍在“我的书库”右键菜单提供封面刷新、上传封面、编辑信息和删除；设置页与书库页面均不展示独立的管理区 | `tests/smoke.spec.ts` |

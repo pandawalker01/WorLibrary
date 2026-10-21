@@ -47,7 +47,7 @@ test('sync merges remote rows and uploads only metadata', async () => {
 
 test('IndexedDB sync adapter releases each database connection after a transaction settles', async () => {
   const source = await readFile('src/lib/sync.ts', 'utf8')
-  expect(source).toContain('const databaseVersion = 4')
+  expect(source).toContain('const databaseVersion = 5')
   expect(source).toMatch(/transaction\.oncomplete = \(\) => \{\s*db\.close\(\)/)
   expect(source).toMatch(/transaction\.onerror = \(\) => \{\s*db\.close\(\)/)
   expect(source).toMatch(/transaction\.onabort = \(\) => \{\s*db\.close\(\)/)

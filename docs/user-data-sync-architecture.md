@@ -34,7 +34,7 @@ Supabase Postgres（按 user_id + RLS 隔离）
 
 ## 2. 当前状态与缺口
 
-现有浏览器本地库使用 IndexedDB/OPFS 保存导入文件、书架、进度和摘录；`src/lib/sync.ts` 保留的旧全表 REST 实现已被客户端关闭，不能作为任何跨设备同步的验收依据。它存在以下未完成项：
+现有浏览器本地库使用 IndexedDB/OPFS 保存导入文件、书架、进度和摘录；`src/lib/sync.ts` 保留的旧全表 REST 实现已被客户端关闭，不能作为任何跨设备同步的验收依据。IndexedDB v5 新增的 `metadata-sync-outbox` 只保存账户隔离、已验证的 metadata mutation 意图，独立于 `books` 与 `book-blobs`，但尚未接入页面写入路径或 RPC flush。它存在以下未完成项：
 
 1. 原 EPUB/PDF、封面和全文索引不上传；新设备无法自动恢复原书。
 2. `works`、`reading_progress`、`user_settings`、设备、阅读统计、联网收藏、版本关联和删除墓碑尚未形成完整同步闭环。
