@@ -1,5 +1,5 @@
 import type { AuthSession } from './auth'
-import type { RemoteClient, RemoteRequestError } from './remote'
+import type { PulledMetadataSyncChange, RemoteClient, RemoteRequestError } from './remote'
 import type { MetadataSyncOutboxEntry } from './storage'
 
 /**
@@ -41,6 +41,43 @@ export type MetadataSyncFlushResult = {
   error?: unknown
 }
 
+export type MetadataSyncChangeFeedHandler = (change: PulledMetadataSyncChange) => void | Promise<void>
+
+export type PullMetadataSyncChangeFeedInput = {
+  session: AuthSession | null
+  remote: MetadataSyncRpcClient
+  /** The opaque durable cursor last confirmed by the caller. */
+  afterSequence?: number
+  /** The server permits 1–200 rows per page; the default is deliberately small. */
+  pageSize?: number
+  /** Bounded polling prevents an accidental full-history loop in one UI tick. */
+  maxPages?: number
+  /**
+   * The application validates and applies each sanitized server change.  This
+   * engine deliberately does not interpret entity payloads: new entity types
+   * or unsafe/unhandled payloads must be rejected by this caller-owned hook.
+   */
+  onChange: MetadataSyncChangeFeedHandler
+}
+
+export type PullMetadataSyncChangeFeedStopReason =
+  | 'completed'
+  | 'no-stable-account'
+  | 'page-limit'
+  | 'invalid-feed'
+  | 'handler-failure'
+  | 'remote-failure'
+
+export type PullMetadataSyncChangeFeedResult = {
+  reason: PullMetadataSyncChangeFeedStopReason
+  /** Only advances after the entire corresponding page was accepted. */
+  nextSequence: number
+  pages: number
+  received: number
+  applied: number
+  error?: unknown
+}
+
 function isStableSession(session: AuthSession | null): session is AuthSession {
   return Boolean(session && !session.user.isAnonymous && session.user.id.trim())
 }
@@ -59,6 +96,26 @@ function isConflictError(error: unknown): boolean {
 
 function isValidDeviceId(value: string | null): value is string {
   return Boolean(value?.trim())
+}
+
+function boundedPositiveInteger(value: number | undefined, fallback: number, maximum: number): number {
+  if (!Number.isFinite(value)) return fallback
+  return Math.min(maximum, Math.max(1, Math.floor(value!)))
+}
+
+function validCursor(value: number | undefined): number {
+  if (value === undefined) return 0
+  if (!Number.isSafeInteger(value) || value < 0) throw new Error('同步游标必须是非负安全整数')
+  return value
+}
+
+function pageHasStrictlyIncreasingSequences(page: PulledMetadataSyncChange[], afterSequence: number): boolean {
+  let previous = afterSequence
+  return page.every((change) => {
+    if (!Number.isSafeInteger(change.sequence) || change.sequence <= previous) return false
+    previous = change.sequence
+    return true
+  })
 }
 
 /**
@@ -114,4 +171,56 @@ export async function flushMetadataSyncOutbox(input: MetadataSyncFlushInput): Pr
   }
 
   return { reason: 'completed', attempted, confirmed }
+}
+
+/**
+ * Pull the server-authoritative, account-scoped metadata change feed.  The
+ * function owns pagination only; it neither writes IndexedDB nor interprets
+ * content.  In particular, callers must validate each entity/payload and
+ * persist their cursor only after this result's `nextSequence` is durable.
+ */
+export async function pullMetadataSyncChangeFeed(input: PullMetadataSyncChangeFeedInput): Promise<PullMetadataSyncChangeFeedResult> {
+  const nextSequence = validCursor(input.afterSequence)
+  if (!isStableSession(input.session)) {
+    return { reason: 'no-stable-account', nextSequence, pages: 0, received: 0, applied: 0 }
+  }
+
+  const pageSize = boundedPositiveInteger(input.pageSize, 100, 200)
+  const maxPages = boundedPositiveInteger(input.maxPages, 20, 1_000)
+  let cursor = nextSequence
+  let pages = 0
+  let received = 0
+  let applied = 0
+
+  while (pages < maxPages) {
+    let page: PulledMetadataSyncChange[]
+    try {
+      page = await input.remote.rpc('pull_metadata_sync_changes', {
+        p_after_sequence: cursor,
+        p_limit: pageSize,
+      })
+    } catch (error) {
+      return { reason: 'remote-failure', nextSequence: cursor, pages, received, applied, error }
+    }
+    pages += 1
+    if (!Array.isArray(page) || !pageHasStrictlyIncreasingSequences(page, cursor)) {
+      return { reason: 'invalid-feed', nextSequence: cursor, pages, received, applied }
+    }
+    if (page.length === 0) {
+      return { reason: 'completed', nextSequence: cursor, pages, received, applied }
+    }
+
+    received += page.length
+    try {
+      for (const change of page) await input.onChange(change)
+    } catch (error) {
+      // Do not advance the durable cursor past a partially handled page.  The
+      // caller's handler must therefore be idempotent by operation id.
+      return { reason: 'handler-failure', nextSequence: cursor, pages, received, applied, error }
+    }
+    applied += page.length
+    cursor = page[page.length - 1].sequence
+  }
+
+  return { reason: 'page-limit', nextSequence: cursor, pages, received, applied }
 }

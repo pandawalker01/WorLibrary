@@ -30,6 +30,8 @@ export type Highlight = {
   location: string
   note?: string
   color: 'gold' | 'rose' | 'blue'
+  /** `false` keeps an excerpt without painting an EPUB annotation. Old records render by default. */
+  isHighlighted?: boolean
   createdAt: number
   /** Local edit time used only for metadata conflict resolution during sync. */
   updatedAt?: number

@@ -1,7 +1,8 @@
 import { expect, test } from '@playwright/test'
 import type { AuthSession } from '../src/lib/auth'
-import { flushMetadataSyncOutbox } from '../src/lib/metadata-sync-engine'
+import { flushMetadataSyncOutbox, pullMetadataSyncChangeFeed } from '../src/lib/metadata-sync-engine'
 import { RemoteRequestError } from '../src/lib/remote'
+import type { PulledMetadataSyncChange } from '../src/lib/remote'
 import type { MetadataSyncOutboxEntry } from '../src/lib/storage'
 
 const session: AuthSession = {
@@ -129,4 +130,102 @@ test('metadata outbox flush keeps retryable failures and later operations queued
   expect(result.failedOperationId).toBe('retry')
   expect(rpcOperations).toEqual(['retry'])
   expect(data.confirmations).toEqual([])
+})
+
+function pulledChange(sequence: number): PulledMetadataSyncChange {
+  return {
+    sequence,
+    device_id: '9c025db3-12bc-4c7b-8be7-b6d0bd658fba',
+    operation_id: `edc7ece7-86fc-4a68-95c9-${String(sequence).padStart(12, '0')}`,
+    entity_type: 'setting',
+    entity_id: `reader.setting.${sequence}`,
+    operation: 'upsert',
+    entity_revision: 1,
+    payload: { value: 'paper' },
+    occurred_at: '2026-10-21T00:00:00.000Z',
+  }
+}
+
+test('controlled change-feed pull paginates to an empty page and delegates every payload to its handler', async () => {
+  const requests: Array<{ after: number | undefined; limit: number | undefined }> = []
+  const applied: number[] = []
+  const pages = [[pulledChange(3), pulledChange(4)], [pulledChange(5)], []]
+
+  const result = await pullMetadataSyncChangeFeed({
+    session,
+    afterSequence: 2,
+    pageSize: 2,
+    remote: {
+      rpc: async (_name, input) => {
+        requests.push({ after: input.p_after_sequence, limit: input.p_limit })
+        return pages.shift() ?? []
+      },
+    },
+    onChange: async (change) => { applied.push(change.sequence) },
+  })
+
+  expect(result).toEqual({ reason: 'completed', nextSequence: 5, pages: 3, received: 3, applied: 3 })
+  expect(requests).toEqual([
+    { after: 2, limit: 2 },
+    { after: 4, limit: 2 },
+    { after: 5, limit: 2 },
+  ])
+  expect(applied).toEqual([3, 4, 5])
+})
+
+test('controlled change-feed pull does not make any request for an anonymous session', async () => {
+  let rpcCalls = 0
+  const result = await pullMetadataSyncChangeFeed({
+    session: { ...session, user: { ...session.user, isAnonymous: true } },
+    afterSequence: 7,
+    remote: { rpc: async () => { rpcCalls += 1; return [] } },
+    onChange: () => undefined,
+  })
+
+  expect(result).toEqual({ reason: 'no-stable-account', nextSequence: 7, pages: 0, received: 0, applied: 0 })
+  expect(rpcCalls).toBe(0)
+})
+
+test('controlled change-feed pull leaves cursor at the previous page when caller rejects an unsafe or unknown payload', async () => {
+  const rejected = {
+    ...pulledChange(8),
+    entity_type: 'future_entity' as PulledMetadataSyncChange['entity_type'],
+    payload: { object_key: 'must-be-rejected-by-caller' },
+  }
+  let rpcCalls = 0
+
+  const result = await pullMetadataSyncChangeFeed({
+    session,
+    afterSequence: 7,
+    remote: {
+      rpc: async () => {
+        rpcCalls += 1
+        return [rejected]
+      },
+    },
+    onChange: (change) => {
+      if (change.entity_type !== 'setting' || 'object_key' in change.payload) {
+        throw new Error('caller rejected unsupported feed payload')
+      }
+    },
+  })
+
+  expect(result.reason).toBe('handler-failure')
+  expect(result.nextSequence).toBe(7)
+  expect(result.pages).toBe(1)
+  expect(result.received).toBe(1)
+  expect(result.applied).toBe(0)
+  expect(rpcCalls).toBe(1)
+})
+
+test('controlled change-feed pull returns the cursor after its configured page limit', async () => {
+  const result = await pullMetadataSyncChangeFeed({
+    session,
+    afterSequence: 0,
+    maxPages: 2,
+    remote: { rpc: async (_name, input) => [pulledChange((input.p_after_sequence ?? 0) + 1)] },
+    onChange: () => undefined,
+  })
+
+  expect(result).toEqual({ reason: 'page-limit', nextSequence: 2, pages: 2, received: 2, applied: 2 })
 })

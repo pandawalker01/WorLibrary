@@ -51,6 +51,7 @@ test('P0: a fresh reader can import, read, translate, save, restore, and switch 
   await expect(page.getByTestId('translation-popover')).toHaveAttribute('style', /--selection-popover-left:/)
   await expect(page.getByTestId('translation-popover')).toHaveAttribute('style', /--selection-popover-top:/)
   await expect(page.getByRole('button', { name: '金色' })).toHaveAttribute('aria-pressed', 'false')
+  await expect(page.locator('.epub-reader-frame [ref="worlibrary-highlight"]')).toHaveCount(0)
   await expect.poll(() => page.evaluate(() => {
     const iframe = document.querySelector<HTMLIFrameElement>('.epub-reader-frame iframe')
     const popover = document.querySelector<HTMLElement>('[data-testid="translation-popover"]')
@@ -69,6 +70,7 @@ test('P0: a fresh reader can import, read, translate, save, restore, and switch 
   await page.waitForTimeout(500)
   await page.reload()
   await expect(page.frameLocator('.epub-reader-frame iframe').getByText('READER_E2E_SECOND_PAGE')).toBeVisible({ timeout: 10_000 })
+  await expect.poll(() => page.locator('.epub-reader-frame [ref="worlibrary-highlight"]').count()).toBeGreaterThan(0)
   await page.getByRole('button', { name: '摘录' }).click()
   await expect(page.getByText('READER_E2E_SECOND_PAGE')).toBeVisible()
 

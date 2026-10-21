@@ -211,7 +211,7 @@ export default function EpubReader({ book, onNotice, onProgress, onHighlightSave
         })
         await rendition.display(book.location)
         const savedHighlights = await listHighlights(book.id)
-        savedHighlights.forEach((highlight) => renderHighlight(rendition, highlight.location, highlight.color))
+        savedHighlights.filter((highlight) => highlight.isHighlighted !== false).forEach((highlight) => renderHighlight(rendition, highlight.location, highlight.color))
         setStatus('')
       } catch (error) {
         setOpenFailed(true)
@@ -285,11 +285,12 @@ export default function EpubReader({ book, onNotice, onProgress, onHighlightSave
     if (!pendingSelection) return
     try {
       const color = selectionColor ?? 'gold'
-      const highlight = await saveHighlight({ bookId: book.id, text: pendingSelection.text, location: pendingSelection.cfi, color })
-      // A color click already created the visible, temporary EPUB annotation.
-      // When the user saves without picking a color, render the persisted gold
-      // highlight now rather than waiting for the next book open.
-      if (!activeSelectionHighlightRef.current) {
+      const highlight = await saveHighlight({ bookId: book.id, text: pendingSelection.text, location: pendingSelection.cfi, color, isHighlighted: Boolean(selectionColor) })
+      if (highlight.isHighlighted) {
+        // Replace the provisional annotation with a fresh persisted one. Reusing
+        // the provisional entry can leave epub.js with a stale annotation map,
+        // so it disappears after the selection popup closes or the chapter reloads.
+        clearSelectionHighlight()
         try { renderHighlight(renditionRef.current, highlight.location, highlight.color) } catch { /* storage still has the excerpt */ }
       }
       activeSelectionHighlightRef.current = undefined
