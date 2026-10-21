@@ -19,6 +19,23 @@ test('library opens to an empty local shelf and guides the first import', async 
   await expect(page.getByRole('button', { name: /导入我的书/ })).toBeVisible()
 })
 
+test('primary pages omit decorative micro-labels and serial numbers', async ({ page }) => {
+  await page.goto('/')
+  await expect(page.locator('.eyebrow')).toHaveCount(0)
+
+  await page.getByRole('tab', { name: '世界书库' }).click()
+  await expect(page.locator('.eyebrow')).toHaveCount(0)
+
+  await page.getByRole('button', { name: '摘录' }).click()
+  await expect(page.locator('.eyebrow')).toHaveCount(0)
+
+  await page.getByRole('button', { name: '我的', exact: true }).click()
+  await expect(page.locator('.eyebrow')).toHaveCount(0)
+
+  await page.getByRole('button', { name: '设置' }).click()
+  await expect(page.locator('.eyebrow')).toHaveCount(0)
+})
+
 test('world library saves a source-labelled catalog book to my library', async ({ page }) => {
   await page.route('https://openlibrary.org/search.json**', async (route) => {
     await route.fulfill({ json: { docs: [{ key: '/works/OLfixtureW', title: 'World Fixture', author_name: ['Catalog Author'], first_publish_year: 2024, language: ['eng'] }] } })
