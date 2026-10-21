@@ -1,9 +1,15 @@
 # WorLibrary 发布与故障处理手册
 
+## 本轮内测 MVP 的发布模式
+
+本轮只启用本地阅读、合规目录搜索、邮箱魔法链接、Worker 翻译和经过真实验收的**元数据**同步。它不启用用户原书云备份、恢复码、Google/Apple 登录、匿名迁移、平台自有正文的运营交付、下载、支付或原生客户端。未启用的平台内容变量、私有用户备份桶和对应运营流程不是本轮部署前置条件；不得为了“演示完整产品”填入虚构许可、对象键或授权策略。
+
+内测同步上线前，必须执行 0008/0009 migration，并在两个独立浏览器 profile 中实际验证同一稳定邮箱账户的进度、摘录、书架元数据和必要偏好同步；远端本地书必须显示“需重新导入原书”且不可打开。匿名试用不得创建队列。任一项未通过时，保持客户端同步入口关闭，仍可发布不含同步的本地阅读内测。
+
 ## 发布前检查清单
 
 - [ ] 本地与 CI 均使用 Node.js 24（最低兼容版本为 22.13）；若 `npm ci` 出现 `EBADENGINE` 或 `Exit handler never called`，先检查 Node 版本，不能继续把后续 typecheck/build/Playwright 的连带失败当作产品问题。
-- [ ] 若启用登录用户的阅读数据同步，已依序执行 `0008_metadata_sync_foundation.sql` 与 `0009_controlled_metadata_sync_rpc.sql`。它们只建立受控元数据 mutation/pull、设备/墓碑/日志基础，不上传 EPUB/PDF，也不代表客户端同步已上线。
+- [ ] 若启用登录用户的内测元数据同步，已依序执行 `0008_metadata_sync_foundation.sql` 与 `0009_controlled_metadata_sync_rpc.sql`，并完成两个 profile 的真实验收。它们不上传 EPUB/PDF；第二设备中的本地书必须要求重新导入原书。
 - [ ] `npm ci && npm run typecheck && npm run build` 全部通过。
 - [ ] `npm run quality` 生成 `test-results/release-report.json`；只有 `releaseReady: true` 才可发布。`blocked` 需要补齐部署配置，`failed` 需要修复代码或测试。
 - [ ] 在 Cloudflare Dashboard 核对 Preview/Production 使用不同的部署环境；CI Token 仅授予该项目所需的 Workers 编辑权限，绝不复制生产 Token 到预览环境或前端变量。

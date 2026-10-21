@@ -10,6 +10,12 @@ npm run qa
 
 测试报告写入 `test-results/qa-report.json`，Playwright 的截图、视频和 trace 写入 `test-results/`。
 
+## 本轮内测 MVP 边界
+
+本轮只发布本地阅读、合规世界书库、邮箱登录和**元数据**跨设备同步。同步范围为书架元数据、进度、摘录和必要偏好；原 EPUB/PDF、封面二进制和离线正文仍在导入设备。另一设备获得本地书元数据时，必须显示“需重新导入原书”，且不可启动本地阅读器。匿名试用不创建同步队列。
+
+以下能力明确不作为本轮内测阻塞项：加密原书云备份/恢复码/配额、Google/Apple 登录、匿名升级迁移、平台自有或获授权内容的运营发布与下载、原生客户端、支付订阅及完整全球界面翻译包。它们仍须在后续各自的安全和合规验收通过后才可开放。
+
 ## P0：没有通过就不能发布
 
 | 场景 | 通过标准 | 自动化证据 |
@@ -27,6 +33,7 @@ npm run qa
 | PDF OCR 本地校正 | 用户可编辑识别文字并确认；后续翻译请求与保存摘录使用确认后的文字，不会使用未确认草稿 | `tests/qa/pdf-reader.spec.ts` |
 | 阅读位置恢复 | PDF 切换到第二页后，刷新及回到书库重新打开都恢复到第二页 | `tests/qa/reader-position.spec.ts` |
 | 划词翻译与失败反馈 | EPUB/PDF 选区一出现即自动请求目标理解语言译文；译文浮层锚定选区下方并可关闭；翻译本身不自动着色，只有明确点选颜色才会创建 EPUB 高亮；网关超时、限流、不可用和额度耗尽均给出可理解提示，且仅可重试的错误显示重试 | `tests/qa/import-open.spec.ts`、`tests/qa/reader-e2e-flow.spec.ts`、`tests/qa/pdf-reader.spec.ts`、`tests/qa/ai-feedback.spec.ts` |
+| 显式颜色摘录 | 用户在划词浮层选择颜色后，该 EPUB 摘录立刻以该颜色显示并在刷新、重开后保持；未选择颜色或关闭浮层不得创建高亮 | 待补回归用例；未通过前不进入内测 |
 | Worker 翻译部署边界 | `/api/translate`、`/api/explain` 仅用 Worker Secret 调用供应商；选区成功/失败均为 `no-store` 并回显 request id；`/api/translation-status` 只报告配置状态且绝不泄露密钥/模型/供应商细节 | `tests/worker-contract.test.mjs`、`scripts/verify-deployment.test.mjs` |
 | 生产鉴权与用量账本 | 已验证 JWT 在没有持久化额度适配器时必须于供应商调用前拒绝；适配器以请求 ID 去重、额度耗尽不调用供应商，账本和可观察日志都不得包含划词正文、访问令牌或供应商密钥 | `server/usage-ledger.quality.test.mjs` |
 | 界面语言与理解语言分离 | 中/英文界面切换在刷新后保持；切换界面语言绝不修改理解语言，也不会改变翻译请求的 `targetLanguage` | `tests/qa/cover-and-interface-language.spec.ts` |
@@ -49,6 +56,7 @@ npm run qa
 | 会话与同步边界 | 匿名试用不会创建同步队列或上传本地元数据；邮箱魔法链接登录后回到发起登录时的书库/阅读器查询参数路由；账户页不得把有限元数据同步称为完整跨设备恢复，且中英文状态文案均取自语言包。 | `tests/contracts.spec.ts` |
 | 同步基础数据边界 | 同步设备、变更日志、删除墓碑、键级设置与阅读统计事件均以用户 RLS 隔离；普通浏览器会话不能直接写日志/墓碑/统计聚合，迁移不包含任何 EPUB/PDF blob 或对象键 | `tests/metadata-sync-foundation-migration.spec.ts` |
 | 受控元数据同步底座 | RPC 只接受 authenticated 自有未撤销设备的受限 metadata mutation/pull；服务端分配 revision、拒绝陈旧写、保证 operation 幂等并写入墓碑；客户端 outbox 以账户隔离且拒绝二进制、对象定位、数据 URL 和正文。它仍不代表页面已启用跨设备同步。 | `tests/controlled-metadata-sync-migration.spec.ts`、`tests/remote-rpc-client.spec.ts`、`tests/metadata-sync-outbox.spec.ts` |
+| 内测元数据同步闭环 | 两个独立浏览器 profile 使用同一稳定邮箱账户后，书架元数据、进度、摘录和必要偏好可双向恢复；断网写入在恢复网络后只应用一次；匿名会话无队列。远端本地书只显示“需重新导入原书”且无法打开，任何 EPUB/PDF/封面二进制均不进入 Supabase。 | 待补真实 Supabase 双 profile 验收与自动化回归；未通过前同步入口保持关闭 |
 | 世界书库代理 | Cloudflare `/api/catalog` 可在用户浏览器不直连上游的情况下返回来源、访问状态与书目记录；上游全部不可达时应有限时失败提示，且不缓存错误。每次手动部署后 GitHub Runner 必须对实际 Worker 执行一次目录探针，验证响应来源、请求 ID 与短期公共缓存策略。 | `scripts/verify-deployment.mjs`、GitHub Actions |
 | 排版 | 字号、主题、目录和阅读进度显示正常 |
 | 本地书籍管理入口 | 已导入书籍在“我的书库”右键菜单提供封面刷新、上传封面、编辑信息和删除；设置页与书库页面均不展示独立的管理区 | `tests/smoke.spec.ts` |
