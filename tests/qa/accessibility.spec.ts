@@ -56,3 +56,14 @@ test('P1: navigation, language controls, contents, and metadata dialog expose ke
   await page.keyboard.press('Escape')
   await expect(page.getByRole('dialog')).toHaveCount(0)
 })
+
+test('P1: signed-out account entry opens an accessible email sign-in dialog', async ({ page }) => {
+  await page.addInitScript(() => localStorage.removeItem('wor-library.auth.session'))
+  await page.goto('/')
+  await page.getByRole('button', { name: /个人账户: 登录/ }).click()
+  const dialog = page.getByRole('dialog', { name: '账号与同步' })
+  await expect(dialog).toBeVisible()
+  await expect(dialog.getByRole('button', { name: '取消' })).toBeVisible()
+  await page.keyboard.press('Escape')
+  await expect(dialog).toHaveCount(0)
+})

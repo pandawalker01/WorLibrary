@@ -162,11 +162,13 @@ test('settings and backup controls are reachable', async ({ page }) => {
   await expect(page.getByRole('button', { name: '导入阅读数据' })).toBeVisible()
 })
 
-test('top account avatar leads to account settings', async ({ page }) => {
+test('signed-out top account avatar opens the email account dialog', async ({ page }) => {
+  await page.addInitScript(() => localStorage.removeItem('wor-library.auth.session'))
   await page.goto('/')
   await page.getByRole('button', { name: '个人账户: 登录' }).click()
-  await expect(page.getByRole('heading', { name: '阅读与界面语言' })).toBeVisible()
-  await expect(page.getByRole('region', { name: '账号与同步' })).toBeVisible()
+  const dialog = page.getByRole('dialog', { name: '账号与同步' })
+  await expect(dialog).toBeVisible()
+  await expect(dialog.getByRole('region', { name: '账号与同步' })).toBeVisible()
 })
 
 test('refresh and browser history restore the current application route', async ({ page }) => {
