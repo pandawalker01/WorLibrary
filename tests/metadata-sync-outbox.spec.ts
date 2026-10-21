@@ -5,7 +5,7 @@ import { assertSafeMetadataSyncPayload } from '../src/lib/storage'
 test('metadata sync outbox is an account-scoped metadata-only IndexedDB store', async () => {
   const source = await readFile('src/lib/storage.ts', 'utf8')
 
-  expect(source).toContain("const DB_VERSION = 5")
+  expect(source).toContain("const DB_VERSION = 6")
   expect(source).toContain("const METADATA_SYNC_OUTBOX_STORE = 'metadata-sync-outbox'")
   expect(source).toContain("outbox.createIndex(METADATA_SYNC_OUTBOX_BY_USER, 'userId'")
   expect(source).toContain('createMetadataSyncOutboxEntry')
@@ -16,6 +16,23 @@ test('metadata sync outbox is an account-scoped metadata-only IndexedDB store', 
   expect(source).toContain("entry.userId !== userId")
   expect(source).toContain("status: 'pending'")
   expect(source).toContain('baseRevision: input.baseRevision')
+})
+
+test('remote metadata shadows are account-scoped, require re-import, and never become local books', async () => {
+  const source = await readFile('src/lib/storage.ts', 'utf8')
+
+  expect(source).toContain("const REMOTE_BOOK_METADATA_SHADOWS_STORE = 'remote-book-metadata-shadows'")
+  expect(source).toContain("shadows.createIndex(REMOTE_BOOK_METADATA_SHADOWS_BY_USER, 'userId'")
+  expect(source).toContain('upsertRemoteBookMetadataShadow')
+  expect(source).toContain('listRemoteBookMetadataShadows')
+  expect(source).toContain('deleteRemoteBookMetadataShadow')
+  expect(source).toContain('needsReimport: true')
+  expect(source).toContain('remoteBookMetadataShadowKey(input.userId, input.editionId)')
+  const shadowType = source.slice(source.indexOf('export type RemoteBookMetadataShadow'), source.indexOf('export type UpsertRemoteBookMetadataShadow'))
+  expect(shadowType).not.toContain('coverImage')
+  expect(shadowType).not.toContain('storage:')
+  expect(shadowType).not.toContain('objectKey')
+  expect(shadowType).not.toContain('contentUrl')
 })
 
 test('metadata sync payload guard accepts bounded metadata and rejects file-bearing values', () => {

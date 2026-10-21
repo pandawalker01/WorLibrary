@@ -59,12 +59,37 @@ export type CreateMetadataSyncOutboxEntry = Omit<MetadataSyncOutboxEntry, 'opera
   operationId?: string
 }
 
+/**
+ * A remote edition's safe metadata shown on a second device before its owner
+ * re-imports the original EPUB/PDF. This is intentionally not a StoredBook:
+ * it has no local storage location, cover image, bytes, or reader entitlement.
+ */
+export type RemoteBookMetadataShadow = {
+  key: string
+  userId: string
+  editionId: string
+  revision: number
+  sequence: number
+  title: string
+  author: string
+  language: string
+  progress: number
+  location?: string
+  fileName: string
+  fileType: string
+  fileSize: number
+  cover: CoverTone
+  needsReimport: true
+}
+
+export type UpsertRemoteBookMetadataShadow = Omit<RemoteBookMetadataShadow, 'key' | 'needsReimport'>
+
 export type LibraryBackup = { version: 2; exportedAt: string; books: StoredBook[]; highlights: Highlight[]; files: Record<string, string>; works?: Work[]; editions?: Edition[]; alignments?: Alignment[] }
 
 import type { Alignment, Edition, Work } from './edition'
 
 const DB_NAME = 'wor-library'
-const DB_VERSION = 5
+const DB_VERSION = 6
 const BOOKS_STORE = 'books'
 const BLOBS_STORE = 'book-blobs'
 const HIGHLIGHTS_STORE = 'highlights'
@@ -74,6 +99,8 @@ const ALIGNMENTS_STORE = 'alignments'
 const TEXT_INDEX_STORE = 'text-index'
 const METADATA_SYNC_OUTBOX_STORE = 'metadata-sync-outbox'
 const METADATA_SYNC_OUTBOX_BY_USER = 'by-user-id'
+const REMOTE_BOOK_METADATA_SHADOWS_STORE = 'remote-book-metadata-shadows'
+const REMOTE_BOOK_METADATA_SHADOWS_BY_USER = 'by-user-id'
 
 const metadataSyncEntityTypes = new Set<MetadataSyncOutboxEntry['entityType']>([
   'work', 'edition', 'reading_progress', 'highlight', 'library_item', 'setting',
@@ -104,6 +131,15 @@ function openDatabase(): Promise<IDBDatabase> {
         const outbox = request.transaction?.objectStore(METADATA_SYNC_OUTBOX_STORE)
         if (outbox && !outbox.indexNames.contains(METADATA_SYNC_OUTBOX_BY_USER)) {
           outbox.createIndex(METADATA_SYNC_OUTBOX_BY_USER, 'userId', { unique: false })
+        }
+      }
+      if (!db.objectStoreNames.contains(REMOTE_BOOK_METADATA_SHADOWS_STORE)) {
+        const shadows = db.createObjectStore(REMOTE_BOOK_METADATA_SHADOWS_STORE, { keyPath: 'key' })
+        shadows.createIndex(REMOTE_BOOK_METADATA_SHADOWS_BY_USER, 'userId', { unique: false })
+      } else {
+        const shadows = request.transaction?.objectStore(REMOTE_BOOK_METADATA_SHADOWS_STORE)
+        if (shadows && !shadows.indexNames.contains(REMOTE_BOOK_METADATA_SHADOWS_BY_USER)) {
+          shadows.createIndex(REMOTE_BOOK_METADATA_SHADOWS_BY_USER, 'userId', { unique: false })
         }
       }
     }
@@ -334,6 +370,126 @@ export async function clearMetadataSyncOutbox(userId: string): Promise<number> {
         removed += 1
         cursor.continue()
       }
+    }
+  })
+}
+
+function remoteBookMetadataShadowKey(userId: string, editionId: string) {
+  return `${userId}:${editionId}`
+}
+
+function assertSafeRemoteBookMetadataString(value: string | undefined, label: string, maximum = 4_096, optional = false): asserts value is string | undefined {
+  if (value === undefined && optional) return
+  if (typeof value !== 'string' || !value.trim() || value.length > maximum || /^\s*data:/i.test(value)) {
+    throw new Error(`Invalid remote book metadata ${label}`)
+  }
+}
+
+function assertSafeRemoteBookMetadataNumber(value: number, label: string, maximum: number) {
+  if (!Number.isFinite(value) || value < 0 || value > maximum) throw new Error(`Invalid remote book metadata ${label}`)
+}
+
+function remoteBookMetadataShadowTransaction<T>(mode: IDBTransactionMode, action: (store: IDBObjectStore, resolve: (value: T) => void, reject: (reason: unknown) => void) => void): Promise<T> {
+  return openDatabase().then((db) => new Promise<T>((resolve, reject) => {
+    const tx = db.transaction(REMOTE_BOOK_METADATA_SHADOWS_STORE, mode)
+    let settled = false
+    const finish = (value: T) => {
+      if (!settled) {
+        settled = true
+        resolve(value)
+      }
+    }
+    const fail = (reason: unknown) => {
+      if (!settled) {
+        settled = true
+        reject(reason)
+      }
+    }
+    tx.oncomplete = () => db.close()
+    tx.onabort = () => { db.close(); fail(tx.error ?? new Error('Remote book metadata shadow transaction aborted')) }
+    tx.onerror = () => { db.close(); fail(tx.error ?? new Error('Remote book metadata shadow transaction failed')) }
+    try {
+      action(tx.objectStore(REMOTE_BOOK_METADATA_SHADOWS_STORE), finish, fail)
+    } catch (error) {
+      tx.abort()
+      fail(error)
+    }
+  }))
+}
+
+/**
+ * Persist a safe remote edition description for a specific account. The
+ * caller must use the controlled sync feed's server revision and sequence;
+ * this API never creates a StoredBook or a readable-file placeholder.
+ */
+export async function upsertRemoteBookMetadataShadow(input: UpsertRemoteBookMetadataShadow): Promise<RemoteBookMetadataShadow> {
+  assertNonEmptyMetadataSyncId(input.userId, 'user id')
+  assertNonEmptyMetadataSyncId(input.editionId, 'edition id')
+  assertSafeRemoteBookMetadataString(input.title, 'title')
+  assertSafeRemoteBookMetadataString(input.author, 'author')
+  assertSafeRemoteBookMetadataString(input.language, 'language')
+  assertSafeRemoteBookMetadataString(input.fileName, 'file name')
+  assertSafeRemoteBookMetadataString(input.fileType, 'file type')
+  assertSafeRemoteBookMetadataString(input.location, 'location', 4_096, true)
+  assertSafeRemoteBookMetadataNumber(input.progress, 'progress', 100)
+  assertSafeRemoteBookMetadataNumber(input.fileSize, 'file size', Number.MAX_SAFE_INTEGER)
+  if (!Number.isSafeInteger(input.revision) || input.revision < 0) throw new Error('Invalid remote book metadata revision')
+  if (!Number.isSafeInteger(input.sequence) || input.sequence < 0) throw new Error('Invalid remote book metadata sequence')
+  if (input.cover !== 'ink' && input.cover !== 'sun' && input.cover !== 'red') throw new Error('Invalid remote book metadata cover')
+
+  const shadow: RemoteBookMetadataShadow = {
+    key: remoteBookMetadataShadowKey(input.userId, input.editionId),
+    userId: input.userId,
+    editionId: input.editionId,
+    revision: input.revision,
+    sequence: input.sequence,
+    title: input.title,
+    author: input.author,
+    language: input.language,
+    progress: input.progress,
+    location: input.location,
+    fileName: input.fileName,
+    fileType: input.fileType,
+    fileSize: input.fileSize,
+    cover: input.cover,
+    needsReimport: true,
+  }
+  return remoteBookMetadataShadowTransaction('readwrite', (store, resolve, reject) => {
+    const request = store.put(shadow)
+    request.onerror = () => reject(request.error)
+    request.onsuccess = () => resolve(shadow)
+  })
+}
+
+/** Read remote metadata shadows for exactly one account; never local books. */
+export async function listRemoteBookMetadataShadows(userId: string): Promise<RemoteBookMetadataShadow[]> {
+  assertNonEmptyMetadataSyncId(userId, 'user id')
+  return remoteBookMetadataShadowTransaction('readonly', (store, resolve, reject) => {
+    const request = store.index(REMOTE_BOOK_METADATA_SHADOWS_BY_USER).getAll(userId)
+    request.onerror = () => reject(request.error)
+    request.onsuccess = () => resolve((request.result as RemoteBookMetadataShadow[])
+      .filter((shadow) => shadow.userId === userId && shadow.needsReimport === true)
+      .sort((left, right) => right.sequence - left.sequence))
+  })
+}
+
+/** Delete a remote metadata shadow only when it belongs to the requesting account. */
+export async function deleteRemoteBookMetadataShadow(userId: string, editionId: string): Promise<boolean> {
+  assertNonEmptyMetadataSyncId(userId, 'user id')
+  assertNonEmptyMetadataSyncId(editionId, 'edition id')
+  const key = remoteBookMetadataShadowKey(userId, editionId)
+  return remoteBookMetadataShadowTransaction('readwrite', (store, resolve, reject) => {
+    const request = store.get(key)
+    request.onerror = () => reject(request.error)
+    request.onsuccess = () => {
+      const shadow = request.result as RemoteBookMetadataShadow | undefined
+      if (!shadow || shadow.userId !== userId || shadow.editionId !== editionId) {
+        resolve(false)
+        return
+      }
+      const remove = store.delete(key)
+      remove.onerror = () => reject(remove.error)
+      remove.onsuccess = () => resolve(true)
     }
   })
 }
