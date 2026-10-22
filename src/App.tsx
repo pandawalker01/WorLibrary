@@ -746,7 +746,7 @@ function App() {
     <div className="account-menu-anchor">
       <button ref={accountButtonRef} className="account-button" onClick={() => { if (session) setAccountMenuOpen((current) => !current); else setAuthDialogOpen(true) }} aria-label={`${ui.account}: ${account.label}`} title={ui.account} aria-haspopup={session ? 'menu' : undefined} aria-expanded={session ? accountMenuOpen : undefined} aria-controls={session ? 'account-menu' : undefined}>{renderAccountAvatar('account-avatar')}<strong>{account.label}</strong></button>
       {session && accountMenuOpen && <div ref={accountMenuRef} id="account-menu" className="account-menu" role="menu" aria-label={ui.account}>
-        <div className="account-menu-identity">{renderAccountAvatar('account-menu-avatar')}<div><strong>{account.label}</strong><small>{session.user.isAnonymous ? ui.anonymousTrial : session.user.email}</small></div></div>
+        <button className="account-menu-identity" role="menuitem" onClick={() => openAccountDestination('profile')} aria-label={ui.accountProfileHome}>{renderAccountAvatar('account-menu-avatar')}<div><strong>{account.label}</strong><small>{session.user.isAnonymous ? ui.anonymousTrial : session.user.email}</small></div></button>
         <div className="account-menu-actions">
           <button role="menuitem" onClick={openAccountCenter}>{ui.accountCenter}</button>
           <button role="menuitem" onClick={() => openAccountDestination('profile')}>{ui.profile}</button>

@@ -235,7 +235,17 @@ test('a signed-in reader gets a private account menu with a reachable account ce
   await expect(menu.getByRole('menuitem', { name: '云端书库与同步' })).toBeVisible()
   await expect(menu.getByRole('menuitem', { name: '隐私与数据' })).toBeVisible()
 
-  await menu.getByRole('menuitem', { name: '账户中心' }).click()
+  await menu.getByRole('menuitem', { name: '前往个人主页' }).click()
+  await expect(page).toHaveURL(/view=profile/)
+  await expect(page).not.toHaveURL(/(?:email|token)=/)
+  await expect(menu).toBeHidden()
+  await expect(accountButton).toHaveAttribute('aria-expanded', 'false')
+  await expect(page.getByRole('heading', { name: '我的阅读' })).toBeVisible()
+  await expect(page.locator('.profile-view')).not.toContainText('reader@example.com')
+
+  await page.getByRole('button', { name: '个人账户: 读者' }).click()
+  const reopenedMenu = page.getByRole('menu', { name: '个人账户' })
+  await reopenedMenu.getByRole('menuitem', { name: '账户中心' }).click()
   await expect(page.getByRole('heading', { name: '账户中心' })).toBeVisible()
   await expect(page.getByText('你的邮箱只在此私密区域显示。')).toBeVisible()
 
