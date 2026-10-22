@@ -165,13 +165,13 @@ npm run validate:env -- --production --json
 
 ### 首次生产配置：最小操作清单
 
-1. 创建 Supabase 项目；在 SQL Editor 或 CLI 依序执行 `supabase/migrations/0001_initial_sync.sql`、`0002_production_hardening.sql`、`0003_ai_usage_ledger.sql`、`0004_ai_usage_quota_release.sql`、`0005_platform_catalog_and_library.sql`，再按 `supabase/verify_rls.sql` 用两个真实测试用户验证隔离。只有准备接入平台自有/获授权正文时，才继续执行 `0006_platform_content_operations.sql` 并完成下方“首个合规内容来源接入清单”；不要为试用书目搜索虚构许可或内容资产。
+1. 创建 Supabase 项目；在 SQL Editor 或 CLI 按编号顺序执行已有 migration（当前至少包括 `0001_initial_sync.sql` 至 `0011_account_profile_and_avatar_foundation.sql`），再按 `supabase/verify_rls.sql` 用两个真实测试用户验证隔离。`0008`/`0009` 只提供受控元数据同步底座，`0011` 只提供账户资料与私有头像桶基础；执行 migration 本身不等于客户端已完成同步或头像上传。只有准备接入平台自有/获授权正文时，才继续完成 `0006`/`0007` 对应的受控运营流程和下方“首个合规内容来源接入清单”；不要为试用书目搜索虚构许可或内容资产。
 2. 在 Cloudflare Worker 项目配置 `VITE_SUPABASE_URL` 与 `VITE_SUPABASE_ANON_KEY`。它们是浏览器公开配置；不要放 service-role key。
 3. 在 **AI/OCR 网关的服务端环境** 配置 `AI_*`、`OCR_*`、`SUPABASE_JWT_SECRET`、`SUPABASE_URL`、`SUPABASE_ANON_KEY` 与一个精确的 `ALLOWED_ORIGIN=https://你的域名`；两个 `*_ENV` 均为 `production`，`AI_REQUIRE_AUTH=true`、`OCR_REQUIRE_AUTH=true`。不要把这些 Secret 放入前端部署环境或仓库。
 4. 依次执行 `0003_ai_usage_ledger.sql` 和 `0004_ai_usage_quota_release.sql`。网关会使用已验证用户的 JWT 调用 `consume_ai_quota`，并在供应商失败时调用 `release_ai_quota`；生产环境缺少 `SUPABASE_URL` / `SUPABASE_ANON_KEY` 会在调用供应商前拒绝请求。该账本只记录用户、请求 ID、操作种类与状态，不保存原书、正文、图像或模型输出。
 5. 在 GitHub `staging` / `production` environments 中分别配置 `CLOUDFLARE_API_TOKEN` 与 `CLOUDFLARE_ACCOUNT_ID`，并在 production environment 开启 required reviewers。Token 只授予该账号内 Workers 的编辑权限。通过 `workflow_dispatch` 选择环境后才会部署；完整云服务再运行 `npm run validate:env -- --production` 与 `npm run test:production`。
 
-完成第 1–3 步后，网页可以进行登录与同步；完成第 4 步对应的网关适配后，才可安全对外启用真实 AI/OCR。预检通过只说明变量格式正确，不替代真实 RLS、JWT、供应商与跨域连通性验收。
+完成第 1–3 步后，网页可以进行登录；只有客户端页面写入已接入账户隔离 outbox、顺序 flush 与 revision pull，并在两个独立浏览器 profile 通过 RLS、幂等、墓碑、断网重放和账户切换验收后，才可启用内测元数据同步。完成第 4 步对应的网关适配后，才可安全对外启用真实 AI/OCR。预检通过只说明变量格式正确，不替代真实 RLS、JWT、供应商与跨域连通性验收。
 
 部署平台的健康探针使用 `GET /api/health`（也支持 `GET /health`）。Cloudflare Worker 当前提供健康与世界书库目录路由；AI/OCR 网关迁移完成前不得把它们标记为已由 Worker 托管。不要在前端构建变量中放置服务端密钥。响应只包含服务状态与公开的运行时能力，不会返回密钥或用户数据；探针应要求 HTTP 200，并设置 10 秒以内的超时。每次请求的 `x-request-id` 会在响应和服务端结构化日志中保留，便于从前端错误追踪到网关日志。健康、翻译与解释的成功和错误响应均会带 `Cache-Control: no-store`：这不是性能缓存开关，而是防止用户划词内容、认证错误或供应商错误经过浏览器与 CDN 的共享 HTTP 缓存。
 

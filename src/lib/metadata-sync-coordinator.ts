@@ -11,9 +11,9 @@ import {
 } from './metadata-sync-engine'
 
 /**
- * Durable cursor storage is injected because the current IndexedDB schema has
- * no cursor record yet.  A future App integration must persist this per stable
- * account and only write it after a fully accepted remote page.
+ * Durable cursor storage remains injected to keep the coordinator independent
+ * of IndexedDB. The browser runtime supplies the account-scoped cursor store;
+ * callers must write only after a fully accepted remote page.
  */
 export type MetadataSyncCursorStore = {
   read(userId: string): Promise<number>

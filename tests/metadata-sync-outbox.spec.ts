@@ -5,7 +5,7 @@ import { assertSafeMetadataSyncPayload } from '../src/lib/storage'
 test('metadata sync outbox is an account-scoped metadata-only IndexedDB store', async () => {
   const source = await readFile('src/lib/storage.ts', 'utf8')
 
-  expect(source).toContain("const DB_VERSION = 6")
+  expect(source).toContain("const DB_VERSION = 7")
   expect(source).toContain("const METADATA_SYNC_OUTBOX_STORE = 'metadata-sync-outbox'")
   expect(source).toContain("outbox.createIndex(METADATA_SYNC_OUTBOX_BY_USER, 'userId'")
   expect(source).toContain('createMetadataSyncOutboxEntry')
@@ -16,6 +16,24 @@ test('metadata sync outbox is an account-scoped metadata-only IndexedDB store', 
   expect(source).toContain("entry.userId !== userId")
   expect(source).toContain("status: 'pending'")
   expect(source).toContain('baseRevision: input.baseRevision')
+})
+
+test('metadata sync cursors are durable, account-scoped, monotonic, and metadata-only', async () => {
+  const source = await readFile('src/lib/storage.ts', 'utf8')
+
+  expect(source).toContain("const METADATA_SYNC_CURSORS_STORE = 'metadata-sync-cursors'")
+  expect(source).toContain("db.createObjectStore(METADATA_SYNC_CURSORS_STORE, { keyPath: 'userId' })")
+  expect(source).toContain('readMetadataSyncCursor')
+  expect(source).toContain('writeMetadataSyncCursor')
+  expect(source).toContain("resolve(0)")
+  expect(source).toContain("cursor.userId !== userId")
+  expect(source).toContain('Math.max(sequence, existing?.sequence ?? 0)')
+  const cursorType = source.slice(source.indexOf('export type MetadataSyncCursor'), source.indexOf('const metadataSyncEntityTypes'))
+  expect(cursorType).toContain('userId: string')
+  expect(cursorType).toContain('sequence: number')
+  expect(cursorType).not.toContain('payload')
+  expect(cursorType).not.toContain('url')
+  expect(cursorType).not.toContain('blob')
 })
 
 test('remote metadata shadows are account-scoped, require re-import, and never become local books', async () => {

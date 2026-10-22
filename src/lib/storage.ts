@@ -89,7 +89,7 @@ export type LibraryBackup = { version: 2; exportedAt: string; books: StoredBook[
 import type { Alignment, Edition, Work } from './edition'
 
 const DB_NAME = 'wor-library'
-const DB_VERSION = 6
+const DB_VERSION = 7
 const BOOKS_STORE = 'books'
 const BLOBS_STORE = 'book-blobs'
 const HIGHLIGHTS_STORE = 'highlights'
@@ -101,6 +101,18 @@ const METADATA_SYNC_OUTBOX_STORE = 'metadata-sync-outbox'
 const METADATA_SYNC_OUTBOX_BY_USER = 'by-user-id'
 const REMOTE_BOOK_METADATA_SHADOWS_STORE = 'remote-book-metadata-shadows'
 const REMOTE_BOOK_METADATA_SHADOWS_BY_USER = 'by-user-id'
+const METADATA_SYNC_CURSORS_STORE = 'metadata-sync-cursors'
+
+/**
+ * The last server sequence safely applied for one stable account.  This is
+ * intentionally a tiny, metadata-only record: it has no device identifier,
+ * payload, URL, or any reference to original book files.
+ */
+export type MetadataSyncCursor = {
+  userId: string
+  sequence: number
+  updatedAt: number
+}
 
 const metadataSyncEntityTypes = new Set<MetadataSyncOutboxEntry['entityType']>([
   'work', 'edition', 'reading_progress', 'highlight', 'library_item', 'setting',
@@ -141,6 +153,9 @@ function openDatabase(): Promise<IDBDatabase> {
         if (shadows && !shadows.indexNames.contains(REMOTE_BOOK_METADATA_SHADOWS_BY_USER)) {
           shadows.createIndex(REMOTE_BOOK_METADATA_SHADOWS_BY_USER, 'userId', { unique: false })
         }
+      }
+      if (!db.objectStoreNames.contains(METADATA_SYNC_CURSORS_STORE)) {
+        db.createObjectStore(METADATA_SYNC_CURSORS_STORE, { keyPath: 'userId' })
       }
     }
     request.onsuccess = () => {
@@ -376,6 +391,108 @@ export async function clearMetadataSyncOutbox(userId: string): Promise<number> {
 
 function remoteBookMetadataShadowKey(userId: string, editionId: string) {
   return `${userId}:${editionId}`
+}
+
+function assertMetadataSyncCursorSequence(sequence: number): void {
+  if (!Number.isSafeInteger(sequence) || sequence < 0) {
+    throw new Error('Invalid metadata sync cursor sequence')
+  }
+}
+
+function metadataSyncCursorTransaction<T>(mode: IDBTransactionMode, action: (store: IDBObjectStore, resolve: (value: T) => void, reject: (reason: unknown) => void) => void): Promise<T> {
+  return openDatabase().then((db) => new Promise<T>((resolve, reject) => {
+    const tx = db.transaction(METADATA_SYNC_CURSORS_STORE, mode)
+    let settled = false
+    let completed = false
+    let result: T | undefined
+    const finish = (nextValue: T) => {
+      if (!settled) {
+        completed = true
+        result = nextValue
+      }
+    }
+    const fail = (reason: unknown) => {
+      if (!settled) {
+        settled = true
+        reject(reason)
+      }
+    }
+    tx.oncomplete = () => {
+      db.close()
+      if (!settled && completed) {
+        settled = true
+        resolve(result as T)
+      }
+    }
+    tx.onabort = () => { db.close(); fail(tx.error ?? new Error('Metadata sync cursor transaction aborted')) }
+    tx.onerror = () => { db.close(); fail(tx.error ?? new Error('Metadata sync cursor transaction failed')) }
+    try {
+      action(tx.objectStore(METADATA_SYNC_CURSORS_STORE), finish, fail)
+    } catch (error) {
+      tx.abort()
+      fail(error)
+    }
+  }))
+}
+
+/** Read only this stable account's durable feed cursor; missing starts at zero. */
+export async function readMetadataSyncCursor(userId: string): Promise<number> {
+  assertNonEmptyMetadataSyncId(userId, 'user id')
+  return metadataSyncCursorTransaction('readonly', (store, resolve, reject) => {
+    const request = store.get(userId)
+    request.onerror = () => reject(request.error)
+    request.onsuccess = () => {
+      const cursor = request.result as MetadataSyncCursor | undefined
+      if (!cursor) {
+        resolve(0)
+        return
+      }
+      if (cursor.userId !== userId) {
+        reject(new Error('Metadata sync cursor belongs to another account'))
+        return
+      }
+      try {
+        assertMetadataSyncCursorSequence(cursor.sequence)
+        resolve(cursor.sequence)
+      } catch (error) {
+        reject(error)
+      }
+    }
+  })
+}
+
+/**
+ * Persist an account-scoped cursor without permitting an older browser tab to
+ * move it backwards and replay an already accepted remote history.
+ */
+export async function writeMetadataSyncCursor(userId: string, sequence: number): Promise<void> {
+  assertNonEmptyMetadataSyncId(userId, 'user id')
+  assertMetadataSyncCursorSequence(sequence)
+  return metadataSyncCursorTransaction('readwrite', (store, resolve, reject) => {
+    const existingRequest = store.get(userId)
+    existingRequest.onerror = () => reject(existingRequest.error)
+    existingRequest.onsuccess = () => {
+      const existing = existingRequest.result as MetadataSyncCursor | undefined
+      if (existing && existing.userId !== userId) {
+        reject(new Error('Metadata sync cursor belongs to another account'))
+        return
+      }
+      try {
+        if (existing) assertMetadataSyncCursorSequence(existing.sequence)
+      } catch (error) {
+        reject(error)
+        return
+      }
+      const cursor: MetadataSyncCursor = {
+        userId,
+        sequence: Math.max(sequence, existing?.sequence ?? 0),
+        updatedAt: Date.now(),
+      }
+      const putRequest = store.put(cursor)
+      putRequest.onerror = () => reject(putRequest.error)
+      putRequest.onsuccess = () => resolve()
+    }
+  })
 }
 
 function assertSafeRemoteBookMetadataString(value: string | undefined, label: string, maximum = 4_096, optional = false): asserts value is string | undefined {

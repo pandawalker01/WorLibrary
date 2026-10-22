@@ -7,6 +7,18 @@ export const SYNC_CLIENT_INSTANCE_STORAGE_KEY = 'wor-library.sync.client-instanc
 export type ClientInstanceStorage = Pick<Storage, 'getItem' | 'setItem'>
 export type DeviceRegistrationRemote = Pick<RemoteClient, 'rpc'>
 
+export type BrowserSyncClientInstanceInput = {
+  session: AuthSession | null
+  storage?: ClientInstanceStorage | null
+  /** Injected by tests; production uses cryptographically secure random UUIDs. */
+  createClientInstanceId?: () => string
+}
+
+export type BrowserSyncClientInstanceResult =
+  | { status: 'ready'; clientInstanceId: string }
+  | { status: 'no-stable-account' }
+  | { status: 'storage-unavailable'; error?: unknown }
+
 export type DeviceRegistrationSessionInput = {
   session: AuthSession | null
   /** Omit this until Supabase configuration has been validated by the caller. */
@@ -47,6 +59,31 @@ function browserClientInstanceId(): string {
 }
 
 /**
+ * Resolve the one opaque UUID for this browser installation. Both device
+ * registration and local metadata intents use this exact marker so the
+ * server can attribute an accepted mutation to the registered device. It is
+ * deliberately unavailable to anonymous sessions and never contains account,
+ * book, file, or reading data.
+ */
+export function resolveBrowserSyncClientInstanceId(input: BrowserSyncClientInstanceInput): BrowserSyncClientInstanceResult {
+  if (!stableSession(input.session)) return { status: 'no-stable-account' }
+  const storage = input.storage === undefined ? defaultStorage() : input.storage
+  if (!storage) return { status: 'storage-unavailable' }
+
+  try {
+    const existing = storage.getItem(SYNC_CLIENT_INSTANCE_STORAGE_KEY)
+    const clientInstanceId = existing && uuidPattern.test(existing)
+      ? existing
+      : (input.createClientInstanceId ?? browserClientInstanceId)()
+    if (!uuidPattern.test(clientInstanceId)) throw new Error('设备实例 ID 必须是 UUID')
+    if (clientInstanceId !== existing) storage.setItem(SYNC_CLIENT_INSTANCE_STORAGE_KEY, clientInstanceId)
+    return { status: 'ready', clientInstanceId }
+  } catch (error) {
+    return { status: 'storage-unavailable', error }
+  }
+}
+
+/**
  * Register the current browser installation for an already-stable account.
  * The persisted value is a random UUID shared by browser profiles only; it
  * contains no account id, email, book id, filename, or reading payload. The
@@ -58,18 +95,13 @@ export async function registerBrowserSyncDevice(input: DeviceRegistrationSession
   if (!stableSession(input.session)) return { status: 'no-stable-account' }
   if (!input.remote) return { status: 'unconfigured' }
 
-  const storage = input.storage === undefined ? defaultStorage() : input.storage
-  if (!storage) return { status: 'storage-unavailable' }
-
-  let clientInstanceId: string
-  try {
-    const existing = storage.getItem(SYNC_CLIENT_INSTANCE_STORAGE_KEY)
-    clientInstanceId = existing && uuidPattern.test(existing) ? existing : (input.createClientInstanceId ?? browserClientInstanceId)()
-    if (!uuidPattern.test(clientInstanceId)) throw new Error('设备实例 ID 必须是 UUID')
-    if (clientInstanceId !== existing) storage.setItem(SYNC_CLIENT_INSTANCE_STORAGE_KEY, clientInstanceId)
-  } catch (error) {
-    return { status: 'storage-unavailable', error }
-  }
+  const resolvedClient = resolveBrowserSyncClientInstanceId({
+    session: input.session,
+    storage: input.storage,
+    createClientInstanceId: input.createClientInstanceId,
+  })
+  if (resolvedClient.status !== 'ready') return resolvedClient
+  const { clientInstanceId } = resolvedClient
 
   try {
     const device = await input.remote.rpc('register_sync_device', {
