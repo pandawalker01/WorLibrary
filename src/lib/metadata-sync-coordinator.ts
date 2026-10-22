@@ -46,6 +46,8 @@ export type MetadataSyncCoordinatorInput = {
   registerDevice: () => Promise<DeviceRegistrationSessionResult>
   pageSize?: number
   maxPages?: number
+  /** Stops an obsolete runtime session before it enters another sync stage. */
+  shouldContinue?: () => boolean
 }
 
 export type MetadataSyncCoordinatorResult = {
@@ -57,6 +59,7 @@ export type MetadataSyncCoordinatorResult = {
     | 'outbox-blocked'
     | 'cursor-failure'
     | 'pull-failed'
+    | 'invalidated'
   registration?: DeviceRegistrationSessionResult
   flush?: MetadataSyncFlushResult
   pull?: PullMetadataSyncChangeFeedResult
@@ -78,6 +81,10 @@ function cursorCanAdvance(result: PullMetadataSyncChangeFeedResult): boolean {
   return result.reason === 'completed' || result.reason === 'page-limit'
 }
 
+function sessionIsCurrent(input: MetadataSyncCoordinatorInput): boolean {
+  return input.shouldContinue?.() !== false
+}
+
 /**
  * Bounded MVP assembly of the safe sync primitives.  It deliberately does
  * not know about `StoredBook`, book bytes, object URLs, or App state.  It is
@@ -88,8 +95,10 @@ function cursorCanAdvance(result: PullMetadataSyncChangeFeedResult): boolean {
 export async function coordinateMetadataSync(input: MetadataSyncCoordinatorInput): Promise<MetadataSyncCoordinatorResult> {
   if (!isStableSession(input.session)) return { status: 'no-stable-account' }
   if (!input.remote) return { status: 'unconfigured' }
+  if (!sessionIsCurrent(input)) return { status: 'invalidated' }
 
   const registration = await input.registerDevice()
+  if (!sessionIsCurrent(input)) return { status: 'invalidated', registration }
   if (!usableRegistration(registration)) {
     return { status: 'device-registration-failed', registration, error: registration.error }
   }
@@ -99,10 +108,15 @@ export async function coordinateMetadataSync(input: MetadataSyncCoordinatorInput
     serverDeviceId: registration.device.id,
     remote: input.remote,
     outbox: input.outbox,
+    shouldContinue: input.shouldContinue,
   })
+  if (flush.reason === 'invalidated' || !sessionIsCurrent(input)) {
+    return { status: 'invalidated', registration, flush }
+  }
   if (flush.reason !== 'completed') return { status: 'outbox-blocked', registration, flush, error: flush.error }
 
   let afterSequence: number
+  if (!sessionIsCurrent(input)) return { status: 'invalidated', registration, flush }
   try {
     afterSequence = await input.cursors.read(input.session.user.id)
   } catch (error) {
@@ -116,6 +130,7 @@ export async function coordinateMetadataSync(input: MetadataSyncCoordinatorInput
     pageSize: input.pageSize,
     maxPages: input.maxPages,
     onChange: async (change) => {
+      if (!sessionIsCurrent(input)) throw new Error('sync session invalidated')
       const projection = await projectRemoteEditionChangeToShadow({
         userId: input.session!.user.id,
         change,
@@ -126,6 +141,7 @@ export async function coordinateMetadataSync(input: MetadataSyncCoordinatorInput
       // silently losing highlights, settings, or future entity types.
       if (projection.outcome === 'ignored') throw new Error(`unsupported sync entity: ${change.entity_type}`)
       if (projection.outcome === 'rejected') throw projection.error
+      if (!sessionIsCurrent(input)) throw new Error('sync session invalidated')
       // The cursor may advance only after both the safe shadow projection and
       // its corresponding server revision are durable.  If this write fails,
       // the pull engine aborts the page and leaves its cursor unchanged.
@@ -137,10 +153,15 @@ export async function coordinateMetadataSync(input: MetadataSyncCoordinatorInput
         lastSequence: change.sequence,
       })
     },
+    shouldContinue: input.shouldContinue,
   })
+  if (pull.reason === 'invalidated' || !sessionIsCurrent(input)) {
+    return { status: 'invalidated', registration, flush, pull }
+  }
   if (!cursorCanAdvance(pull)) return { status: 'pull-failed', registration, flush, pull, error: pull.error }
 
   try {
+    if (!sessionIsCurrent(input)) return { status: 'invalidated', registration, flush, pull }
     await input.cursors.write(input.session.user.id, pull.nextSequence)
   } catch (error) {
     return { status: 'cursor-failure', registration, flush, pull, error }
