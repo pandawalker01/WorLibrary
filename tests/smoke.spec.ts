@@ -222,7 +222,7 @@ test('a signed-in reader gets a private account menu with a reachable account ce
   })))
   await page.goto('/')
 
-  const accountButton = page.getByRole('button', { name: '个人账户: reader' })
+  const accountButton = page.getByRole('button', { name: '个人账户: 读者' })
   await expect(accountButton).toBeVisible()
   await expect(accountButton).not.toContainText('@')
   await accountButton.click()
@@ -242,6 +242,26 @@ test('a signed-in reader gets a private account menu with a reachable account ce
   await page.getByRole('button', { name: '管理账户' }).click()
   await page.getByRole('menuitem', { name: '退出登录' }).click()
   await expect(page.getByRole('button', { name: '个人账户: 登录' })).toBeVisible()
+})
+
+test('a signed-in reader can save a local profile fallback without exposing email publicly', async ({ page }) => {
+  await page.addInitScript(() => localStorage.setItem('wor-library.auth.session', JSON.stringify({
+    accessToken: 'test-access-token',
+    refreshToken: 'test-refresh-token',
+    user: { id: 'profile-reader-1', email: 'profile-reader@example.com', isAnonymous: false },
+  })))
+  await page.goto('/?view=settings')
+
+  await expect(page.getByRole('heading', { name: '公开资料' })).toBeVisible()
+  await expect(page.getByText('云端资料服务尚未启用')).toBeVisible()
+  await page.getByLabel('公开昵称').fill('阅读中的熊猫')
+  await page.getByLabel('个人简介（可选）').fill('用不同语言读同一片世界。')
+  await page.getByRole('button', { name: '保存到本机' }).click()
+  await expect(page.getByText('公开资料已保存到本机，尚未同步到云端。')).toBeVisible()
+  await expect(page.getByRole('button', { name: '个人账户: 阅读中的熊猫' })).toBeVisible()
+  await expect(page.getByRole('button', { name: '个人账户: 阅读中的熊猫' })).not.toContainText('@')
+  await page.reload()
+  await expect(page.getByLabel('公开昵称')).toHaveValue('阅读中的熊猫')
 })
 
 test('refresh and browser history restore the current application route', async ({ page }) => {

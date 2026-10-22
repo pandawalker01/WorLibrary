@@ -12,6 +12,7 @@ import type { Alignment, Edition } from './lib/edition'
 import EditionComparisonReader from './components/EditionComparisonReader'
 import AuthPanel from './components/AuthPanel'
 import { getSession, signOut, type AuthSession } from './lib/auth'
+import { createAccountProfileClient, PROFILE_AVATAR_MAX_BYTES, PROFILE_BIO_MAX_LENGTH, PROFILE_DISPLAY_NAME_MAX_LENGTH } from './lib/account-profile'
 import { copy, interpolate, loadReadingLanguage, loadUiLocale, saveReadingLanguage, saveUiLocale, type ReadingLanguage } from './lib/i18n'
 import { clampFontScale, loadReaderPreferences, type ReaderPreferences } from './lib/reader'
 import { loadSavedWorldBooks, saveWorldBook, searchWorldLibrary, worldBookIdentity, type WorldBook } from './lib/world-library'
@@ -60,6 +61,38 @@ const PLATFORM_READING_METADATA_KEY = 'worlibrary.platform-reading-metadata'
 
 type ReadingHistory = Record<string, number>
 type PlatformReadingMetadata = Record<string, { editionId: string; title: string; author: string; lastReadAt: number }>
+type LocalProfileDraft = { nickname: string; bio: string; avatarDataUrl?: string }
+
+function localProfileKey(userId: string): string {
+  return `worlibrary.profile-draft:${userId}`
+}
+
+function defaultPublicName(fallback: string): string {
+  return fallback.slice(0, PROFILE_DISPLAY_NAME_MAX_LENGTH)
+}
+
+function loadLocalProfileDraft(userId: string, fallback: string): LocalProfileDraft {
+  const defaultProfile = { nickname: defaultPublicName(fallback), bio: '' }
+  try {
+    const value = JSON.parse(window.localStorage.getItem(localProfileKey(userId)) ?? '{}') as Record<string, unknown>
+    return {
+      nickname: typeof value.nickname === 'string' && value.nickname.trim() ? value.nickname.trim().slice(0, PROFILE_DISPLAY_NAME_MAX_LENGTH) : defaultProfile.nickname,
+      bio: typeof value.bio === 'string' ? value.bio.slice(0, PROFILE_BIO_MAX_LENGTH) : '',
+      avatarDataUrl: typeof value.avatarDataUrl === 'string' && value.avatarDataUrl.startsWith('data:image/') && value.avatarDataUrl.length <= 7_000_000 ? value.avatarDataUrl : undefined,
+    }
+  } catch {
+    return defaultProfile
+  }
+}
+
+function saveLocalProfileDraft(userId: string, profile: LocalProfileDraft): boolean {
+  try {
+    window.localStorage.setItem(localProfileKey(userId), JSON.stringify(profile))
+    return true
+  } catch {
+    return false
+  }
+}
 
 function loadReadingSeconds(): number {
   try { return Math.max(0, Number(window.localStorage.getItem(READING_SECONDS_KEY)) || 0) } catch { return 0 }
@@ -157,11 +190,11 @@ function formatLastRead(timestamp: number | undefined, locale: 'zh-CN' | 'en', n
   return new Intl.DateTimeFormat(locale === 'en' ? 'en' : 'zh-CN', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }).format(new Date(timestamp))
 }
 
-function accountIdentity(session: AuthSession | null, signedOutLabel: string, guestLabel: string) {
+function accountIdentity(session: AuthSession | null, signedOutLabel: string, guestLabel: string, defaultName: string, profile?: LocalProfileDraft) {
   if (!session) return { label: signedOutLabel, initials: 'WL' }
   if (session.user.isAnonymous) return { label: guestLabel, initials: 'G' }
-  const email = session.user.email ?? guestLabel
-  return { label: email.split('@')[0], initials: email.slice(0, 2).toUpperCase() }
+  const label = profile?.nickname || defaultPublicName(defaultName)
+  return { label, initials: label.slice(0, 2).toUpperCase(), avatarDataUrl: profile?.avatarDataUrl }
 }
 
 function App() {
@@ -190,6 +223,9 @@ function App() {
   const [updateReady, setUpdateReady] = useState(false)
   const [authDialogOpen, setAuthDialogOpen] = useState(false)
   const [accountMenuOpen, setAccountMenuOpen] = useState(false)
+  const [profileDraft, setProfileDraft] = useState<LocalProfileDraft | null>(null)
+  const [profileDraftStatus, setProfileDraftStatus] = useState('')
+  const [profileRemoteReady, setProfileRemoteReady] = useState(false)
   const accountButtonRef = useRef<HTMLButtonElement>(null)
   const accountMenuRef = useRef<HTMLDivElement>(null)
   const [metadataDraft, setMetadataDraft] = useState<StoredBook | null>(null)
@@ -214,13 +250,42 @@ function App() {
   const fileInput = useRef<HTMLInputElement>(null)
   const coverInput = useRef<HTMLInputElement>(null)
   const ui = copy[uiLocale]
-  const account = accountIdentity(session, ui.signIn, ui.guestAccount)
+  const account = accountIdentity(session, ui.signIn, ui.guestAccount, ui.profileDefaultName, profileDraft ?? undefined)
 
   const handleAuthSessionChange = useCallback((next: AuthSession | null) => {
     setSession(next)
     if (next && !next.user.isAnonymous) setAuthDialogOpen(false)
     if (!next) setAccountMenuOpen(false)
   }, [])
+
+  useEffect(() => {
+    if (!session || session.user.isAnonymous) {
+      setProfileDraft(null)
+      setProfileDraftStatus('')
+      setProfileRemoteReady(false)
+      return
+    }
+    const localDraft = loadLocalProfileDraft(session.user.id, ui.profileDefaultName)
+    setProfileDraft(localDraft)
+    setProfileDraftStatus('')
+    setProfileRemoteReady(false)
+    let cancelled = false
+    void (async () => {
+      try {
+        const remoteProfile = await createAccountProfileClient(session).getOwnProfile()
+        if (cancelled) return
+        setProfileRemoteReady(true)
+        if (remoteProfile) setProfileDraft((current) => ({
+          nickname: remoteProfile.displayName ?? current?.nickname ?? localDraft.nickname,
+          bio: remoteProfile.bio ?? current?.bio ?? localDraft.bio,
+          avatarDataUrl: current?.avatarDataUrl,
+        }))
+      } catch {
+        if (!cancelled) setProfileRemoteReady(false)
+      }
+    })()
+    return () => { cancelled = true }
+  }, [session?.user.id, session?.user.isAnonymous, ui.profileDefaultName])
 
   useEffect(() => {
     if (!accountMenuOpen) return
@@ -616,12 +681,72 @@ function App() {
       toast(ui.syncSignedOut)
     }).catch((error) => toast(error instanceof Error ? error.message : ui.actionFailed))
   }
+  const saveProfileDraft = () => {
+    if (!session || session.user.isAnonymous || !profileDraft) return
+    const next = { ...profileDraft, nickname: profileDraft.nickname.trim().slice(0, PROFILE_DISPLAY_NAME_MAX_LENGTH), bio: profileDraft.bio.slice(0, PROFILE_BIO_MAX_LENGTH) }
+    if (!next.nickname) {
+      setProfileDraftStatus(ui.profileNameRequired)
+      return
+    }
+    setProfileDraft(next)
+    if (!saveLocalProfileDraft(session.user.id, next)) {
+      setProfileDraftStatus(ui.profileSaveFailed)
+      return
+    }
+    if (!profileRemoteReady) {
+      setProfileDraftStatus(ui.profileSavedLocal)
+      return
+    }
+    setProfileDraftStatus(ui.profileSaving)
+    void createAccountProfileClient(session).updateOwnProfile({ displayName: next.nickname, bio: next.bio || null }).then(() => {
+      setProfileDraftStatus(next.avatarDataUrl ? ui.profileSavedRemoteAvatarLocal : ui.profileSavedRemote)
+    }).catch(() => {
+      setProfileRemoteReady(false)
+      setProfileDraftStatus(ui.profileSavedLocal)
+    })
+  }
+  const chooseProfileAvatar = (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0]
+    event.target.value = ''
+    if (!file || !profileDraft) return
+    if (!file.type.startsWith('image/')) {
+      setProfileDraftStatus(ui.profileAvatarInvalid)
+      return
+    }
+    if (!['image/jpeg', 'image/png', 'image/webp'].includes(file.type)) {
+      setProfileDraftStatus(ui.profileAvatarInvalid)
+      return
+    }
+    if (file.size > PROFILE_AVATAR_MAX_BYTES) {
+      setProfileDraftStatus(ui.profileAvatarTooLarge)
+      return
+    }
+    const reader = new FileReader()
+    reader.onload = () => {
+      const dataUrl = reader.result
+      if (typeof dataUrl !== 'string' || !dataUrl.startsWith('data:image/')) {
+        setProfileDraftStatus(ui.profileAvatarInvalid)
+        return
+      }
+      setProfileDraft((current) => current ? { ...current, avatarDataUrl: dataUrl } : current)
+      setProfileDraftStatus(ui.profileAvatarSelected)
+    }
+    reader.onerror = () => setProfileDraftStatus(ui.profileAvatarInvalid)
+    reader.readAsDataURL(file)
+  }
+  const removeProfileAvatar = () => {
+    setProfileDraft((current) => current ? { ...current, avatarDataUrl: undefined } : current)
+    setProfileDraftStatus(ui.profileAvatarRemoved)
+  }
+  const renderAccountAvatar = (className?: string) => account.avatarDataUrl
+    ? <img className={className} src={account.avatarDataUrl} alt="" />
+    : <span className={className} aria-hidden="true">{account.initials}</span>
   const accountControls = <div className="top-actions">
     <ReadingLanguagePicker value={language} onChange={changeReadingLanguage} locale={uiLocale} label={ui.readingLanguage} searchLabel={ui.searchReadingLanguage} searchPlaceholder={ui.searchReadingLanguagePlaceholder} className="header-reading-language-picker" compact />
     <div className="account-menu-anchor">
-      <button ref={accountButtonRef} className="account-button" onClick={() => { if (session) setAccountMenuOpen((current) => !current); else setAuthDialogOpen(true) }} aria-label={`${ui.account}: ${account.label}`} title={ui.account} aria-haspopup={session ? 'menu' : undefined} aria-expanded={session ? accountMenuOpen : undefined} aria-controls={session ? 'account-menu' : undefined}><span aria-hidden="true">{account.initials}</span><strong>{account.label}</strong></button>
+      <button ref={accountButtonRef} className="account-button" onClick={() => { if (session) setAccountMenuOpen((current) => !current); else setAuthDialogOpen(true) }} aria-label={`${ui.account}: ${account.label}`} title={ui.account} aria-haspopup={session ? 'menu' : undefined} aria-expanded={session ? accountMenuOpen : undefined} aria-controls={session ? 'account-menu' : undefined}>{renderAccountAvatar('account-avatar')}<strong>{account.label}</strong></button>
       {session && accountMenuOpen && <div ref={accountMenuRef} id="account-menu" className="account-menu" role="menu" aria-label={ui.account}>
-        <div className="account-menu-identity"><span aria-hidden="true">{account.initials}</span><div><strong>{account.label}</strong><small>{session.user.isAnonymous ? ui.anonymousTrial : session.user.email}</small></div></div>
+        <div className="account-menu-identity">{renderAccountAvatar('account-menu-avatar')}<div><strong>{account.label}</strong><small>{session.user.isAnonymous ? ui.anonymousTrial : session.user.email}</small></div></div>
         <div className="account-menu-actions">
           <button role="menuitem" onClick={openAccountCenter}>{ui.accountCenter}</button>
           <button role="menuitem" onClick={() => openAccountDestination('profile')}>{ui.profile}</button>
@@ -710,7 +835,7 @@ function App() {
           <div className="reader-bottom"><span>{selectedBook.progress}%</span><div><i style={{ width: `${selectedBook.progress}%` }} /></div><span>{selectedBook.fileName ? ui.savedLocally : '4 / 11'}</span><button onClick={() => toast(uiLocale === 'en' ? 'OCR is available from the PDF reader.' : 'OCR 是下一步真实服务接入点')}>{ui.scanPage}</button></div>
         </section>)}
 
-        {view === 'settings' && <section className="settings-view"><div className="settings-wrap"><h1>{ui.settingsTitle}</h1><section className="account-center-card" aria-labelledby="account-center-title"><div><h2 id="account-center-title">{ui.accountCenter}</h2><p>{session && !session.user.isAnonymous ? ui.accountCenterSignedIn : ui.accountCenterSignedOut}</p></div><button type="button" onClick={() => session ? setAccountMenuOpen(true) : setAuthDialogOpen(true)}>{session ? ui.accountMenuManage : ui.signIn}</button></section><AuthPanel uiLocale={uiLocale} onNotice={toast} onSessionChange={handleAuthSessionChange} /><section className="language-section" aria-labelledby="ui-language-title"><div className="language-heading"><h2 id="ui-language-title">{ui.uiLanguageTitle}</h2><p>{ui.uiLanguageCopy}</p></div><InterfaceLanguagePicker value={uiLocale} onChange={changeUiLocale} locale={uiLocale} label={ui.interfaceLanguagePickerLabel} searchLabel={ui.searchInterfaceLanguage} searchPlaceholder={ui.searchInterfaceLanguagePlaceholder} availableLabel={ui.interfaceLanguageAvailable} plannedLabel={ui.interfaceLanguagePlanned} plannedCopy={ui.interfaceLanguagePlannedCopy} emptyLabel={ui.interfaceLanguageEmpty} /></section><section className="language-section" aria-labelledby="reading-language-title"><div className="language-heading"><h2 id="reading-language-title">{ui.readingLanguageTitle}</h2><p>{ui.readingLanguageCopy}</p></div><ReadingLanguagePicker value={language} onChange={changeReadingLanguage} locale={uiLocale} label={ui.readingLanguagePickerLabel} searchLabel={ui.searchReadingLanguage} searchPlaceholder={ui.searchReadingLanguagePlaceholder} /></section><div className="settings-note"><span>◎</span><p><strong>{ui.privacyTitle}</strong><br />{ui.privacyCopy}</p></div></div></section>}
+        {view === 'settings' && <section className="settings-view"><div className="settings-wrap"><h1>{ui.settingsTitle}</h1><section className="account-center-card" aria-labelledby="account-center-title"><div><h2 id="account-center-title">{ui.accountCenter}</h2><p>{session && !session.user.isAnonymous ? ui.accountCenterSignedIn : ui.accountCenterSignedOut}</p></div><button type="button" onClick={() => session ? setAccountMenuOpen(true) : setAuthDialogOpen(true)}>{session ? ui.accountMenuManage : ui.signIn}</button></section>{session && !session.user.isAnonymous && profileDraft && <section className="profile-editor" aria-labelledby="profile-editor-title"><div className="profile-editor-heading"><div><h2 id="profile-editor-title">{ui.publicProfile}</h2><p>{profileRemoteReady ? ui.publicProfileRemote : ui.publicProfileLocalOnly}</p></div><div className="profile-editor-avatar">{renderAccountAvatar('profile-editor-avatar-image')}<div><label className="profile-file-button">{ui.profileChooseAvatar}<input type="file" accept="image/png,image/jpeg,image/webp" onChange={chooseProfileAvatar} aria-label={ui.profileChooseAvatar} /></label>{profileDraft.avatarDataUrl && <button type="button" className="profile-avatar-remove" onClick={removeProfileAvatar}>{ui.profileRemoveAvatar}</button>}</div></div></div><label className="profile-editor-field"><span>{ui.profilePublicName}</span><input value={profileDraft.nickname} maxLength={80} onChange={(event) => { setProfileDraft({ ...profileDraft, nickname: event.target.value }); setProfileDraftStatus('') }} autoComplete="nickname" /></label><label className="profile-editor-field"><span>{ui.profileBio}</span><textarea value={profileDraft.bio} maxLength={500} rows={3} onChange={(event) => { setProfileDraft({ ...profileDraft, bio: event.target.value }); setProfileDraftStatus('') }} /></label><div className="profile-editor-footer"><p>{profileDraftStatus || (profileRemoteReady ? ui.profileRemoteDraft : ui.profileLocalDraft)}</p><button type="button" onClick={saveProfileDraft}>{profileRemoteReady ? ui.profileSave : ui.profileSaveLocal}</button></div></section>}<AuthPanel uiLocale={uiLocale} onNotice={toast} onSessionChange={handleAuthSessionChange} /><section className="language-section" aria-labelledby="ui-language-title"><div className="language-heading"><h2 id="ui-language-title">{ui.uiLanguageTitle}</h2><p>{ui.uiLanguageCopy}</p></div><InterfaceLanguagePicker value={uiLocale} onChange={changeUiLocale} locale={uiLocale} label={ui.interfaceLanguagePickerLabel} searchLabel={ui.searchInterfaceLanguage} searchPlaceholder={ui.searchInterfaceLanguagePlaceholder} availableLabel={ui.interfaceLanguageAvailable} plannedLabel={ui.interfaceLanguagePlanned} plannedCopy={ui.interfaceLanguagePlannedCopy} emptyLabel={ui.interfaceLanguageEmpty} /></section><section className="language-section" aria-labelledby="reading-language-title"><div className="language-heading"><h2 id="reading-language-title">{ui.readingLanguageTitle}</h2><p>{ui.readingLanguageCopy}</p></div><ReadingLanguagePicker value={language} onChange={changeReadingLanguage} locale={uiLocale} label={ui.readingLanguagePickerLabel} searchLabel={ui.searchReadingLanguage} searchPlaceholder={ui.searchReadingLanguagePlaceholder} /></section><div className="settings-note"><span>◎</span><p><strong>{ui.privacyTitle}</strong><br />{ui.privacyCopy}</p></div></div></section>}
       </main>
       {bookContextMenu && <div className="book-context-menu" role="menu" aria-label={ui.localBooks} style={{ left: bookContextMenu.x, top: bookContextMenu.y }}><strong>{bookContextMenu.book.title}</strong>{bookContextMenu.book.fileName?.toLowerCase().endsWith('.epub') && <button role="menuitem" onClick={() => { void refreshCover(bookContextMenu.book); setBookContextMenu(null) }} disabled={refreshingCoverId === bookContextMenu.book.id}>{refreshingCoverId === bookContextMenu.book.id ? ui.readingCover : ui.manageCover}</button>}<button role="menuitem" onClick={() => { selectCustomCover(bookContextMenu.book); setBookContextMenu(null) }}>{ui.uploadCover}</button><button role="menuitem" onClick={() => { setMetadataDraft(bookContextMenu.book as StoredBook); setBookContextMenu(null) }}>{ui.editInfo}</button><button className="danger" role="menuitem" onClick={() => { void removeBook(bookContextMenu.book); setBookContextMenu(null) }}>{ui.delete}</button></div>}
       {metadataDraft && <div className="metadata-dialog-backdrop"><form className="metadata-dialog" onSubmit={(event) => { void saveMetadata(event) }} role="dialog" aria-modal="true" aria-labelledby="metadata-dialog-title"><div><h2 id="metadata-dialog-title">校正书籍信息</h2><p>只修改书架显示和本地阅读数据，不会改动或上传原始文件。</p></div><label>书名<input name="title" defaultValue={metadataDraft.title} autoFocus /></label><label>作者<input name="author" defaultValue={metadataDraft.author} /></label><div className="metadata-dialog-actions"><button type="button" onClick={() => setMetadataDraft(null)}>取消</button><button type="submit">保存信息</button></div></form></div>}
