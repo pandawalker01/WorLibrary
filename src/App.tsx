@@ -11,7 +11,7 @@ import { deleteBook, linkBookEditions, listAlignments, listBooks, listEditions, 
 import type { Alignment, Edition } from './lib/edition'
 import EditionComparisonReader from './components/EditionComparisonReader'
 import AuthPanel from './components/AuthPanel'
-import { getSession, type AuthSession } from './lib/auth'
+import { getSession, signOut, type AuthSession } from './lib/auth'
 import { copy, interpolate, loadReadingLanguage, loadUiLocale, saveReadingLanguage, saveUiLocale, type ReadingLanguage } from './lib/i18n'
 import { clampFontScale, loadReaderPreferences, type ReaderPreferences } from './lib/reader'
 import { loadSavedWorldBooks, saveWorldBook, searchWorldLibrary, worldBookIdentity, type WorldBook } from './lib/world-library'
@@ -189,6 +189,9 @@ function App() {
   const [isOnline, setIsOnline] = useState(() => navigator.onLine)
   const [updateReady, setUpdateReady] = useState(false)
   const [authDialogOpen, setAuthDialogOpen] = useState(false)
+  const [accountMenuOpen, setAccountMenuOpen] = useState(false)
+  const accountButtonRef = useRef<HTMLButtonElement>(null)
+  const accountMenuRef = useRef<HTMLDivElement>(null)
   const [metadataDraft, setMetadataDraft] = useState<StoredBook | null>(null)
   const [refreshingCoverId, setRefreshingCoverId] = useState<string | null>(null)
   const [coverTargetId, setCoverTargetId] = useState<string | null>(null)
@@ -216,7 +219,29 @@ function App() {
   const handleAuthSessionChange = useCallback((next: AuthSession | null) => {
     setSession(next)
     if (next && !next.user.isAnonymous) setAuthDialogOpen(false)
+    if (!next) setAccountMenuOpen(false)
   }, [])
+
+  useEffect(() => {
+    if (!accountMenuOpen) return
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') return
+      setAccountMenuOpen(false)
+      accountButtonRef.current?.focus()
+    }
+    const closeOnOutsidePointer = (event: PointerEvent) => {
+      const target = event.target
+      if (!(target instanceof Node)) return
+      if (accountButtonRef.current?.contains(target) || accountMenuRef.current?.contains(target)) return
+      setAccountMenuOpen(false)
+    }
+    window.addEventListener('keydown', closeOnEscape)
+    window.addEventListener('pointerdown', closeOnOutsidePointer)
+    return () => {
+      window.removeEventListener('keydown', closeOnEscape)
+      window.removeEventListener('pointerdown', closeOnOutsidePointer)
+    }
+  }, [accountMenuOpen])
 
   const syncNow = useCallback(async () => {
     // The legacy full-table REST synchronizer has no account-scoped outbox,
@@ -576,9 +601,37 @@ function App() {
   ].sort((left, right) => right.lastReadAt - left.lastReadAt).slice(0, 3)
   const weeklyReading = recentReadingDays(readingHistory, uiLocale)
   const weeklyReadingMax = Math.max(1, ...weeklyReading.map((day) => day.seconds))
+  const openAccountCenter = () => {
+    setAccountMenuOpen(false)
+    setView('settings')
+  }
+  const openAccountDestination = (destination: View) => {
+    setAccountMenuOpen(false)
+    setView(destination)
+  }
+  const handleAccountSignOut = () => {
+    setAccountMenuOpen(false)
+    void signOut().then(() => {
+      setSession(null)
+      toast(ui.syncSignedOut)
+    }).catch((error) => toast(error instanceof Error ? error.message : ui.actionFailed))
+  }
   const accountControls = <div className="top-actions">
     <ReadingLanguagePicker value={language} onChange={changeReadingLanguage} locale={uiLocale} label={ui.readingLanguage} searchLabel={ui.searchReadingLanguage} searchPlaceholder={ui.searchReadingLanguagePlaceholder} className="header-reading-language-picker" compact />
-    <button className="account-button" onClick={() => { if (session) setView('settings'); else setAuthDialogOpen(true) }} aria-label={`${ui.account}: ${account.label}`} title={ui.account}><span aria-hidden="true">{account.initials}</span><strong>{account.label}</strong></button>
+    <div className="account-menu-anchor">
+      <button ref={accountButtonRef} className="account-button" onClick={() => { if (session) setAccountMenuOpen((current) => !current); else setAuthDialogOpen(true) }} aria-label={`${ui.account}: ${account.label}`} title={ui.account} aria-haspopup={session ? 'menu' : undefined} aria-expanded={session ? accountMenuOpen : undefined} aria-controls={session ? 'account-menu' : undefined}><span aria-hidden="true">{account.initials}</span><strong>{account.label}</strong></button>
+      {session && accountMenuOpen && <div ref={accountMenuRef} id="account-menu" className="account-menu" role="menu" aria-label={ui.account}>
+        <div className="account-menu-identity"><span aria-hidden="true">{account.initials}</span><div><strong>{account.label}</strong><small>{session.user.isAnonymous ? ui.anonymousTrial : session.user.email}</small></div></div>
+        <div className="account-menu-actions">
+          <button role="menuitem" onClick={openAccountCenter}>{ui.accountCenter}</button>
+          <button role="menuitem" onClick={() => openAccountDestination('profile')}>{ui.profile}</button>
+          <button role="menuitem" onClick={() => openAccountDestination('highlights')}>{ui.highlights}</button>
+          <button role="menuitem" onClick={openAccountCenter}>{ui.accountMenuSync}</button>
+          <button role="menuitem" onClick={openAccountCenter}>{ui.accountMenuPrivacy}</button>
+        </div>
+        <button className="account-menu-signout" role="menuitem" onClick={handleAccountSignOut}>{ui.signOutAction}</button>
+      </div>}
+    </div>
   </div>
 
   return (
@@ -657,12 +710,11 @@ function App() {
           <div className="reader-bottom"><span>{selectedBook.progress}%</span><div><i style={{ width: `${selectedBook.progress}%` }} /></div><span>{selectedBook.fileName ? ui.savedLocally : '4 / 11'}</span><button onClick={() => toast(uiLocale === 'en' ? 'OCR is available from the PDF reader.' : 'OCR 是下一步真实服务接入点')}>{ui.scanPage}</button></div>
         </section>)}
 
-        {view === 'settings' && <section className="settings-view"><div className="settings-wrap"><h1>{ui.settingsTitle}</h1><section className="language-section" aria-labelledby="ui-language-title"><div className="language-heading"><h2 id="ui-language-title">{ui.uiLanguageTitle}</h2><p>{ui.uiLanguageCopy}</p></div><InterfaceLanguagePicker value={uiLocale} onChange={changeUiLocale} locale={uiLocale} label={ui.interfaceLanguagePickerLabel} searchLabel={ui.searchInterfaceLanguage} searchPlaceholder={ui.searchInterfaceLanguagePlaceholder} availableLabel={ui.interfaceLanguageAvailable} plannedLabel={ui.interfaceLanguagePlanned} plannedCopy={ui.interfaceLanguagePlannedCopy} emptyLabel={ui.interfaceLanguageEmpty} /></section><section className="language-section" aria-labelledby="reading-language-title"><div className="language-heading"><h2 id="reading-language-title">{ui.readingLanguageTitle}</h2><p>{ui.readingLanguageCopy}</p></div><ReadingLanguagePicker value={language} onChange={changeReadingLanguage} locale={uiLocale} label={ui.readingLanguagePickerLabel} searchLabel={ui.searchReadingLanguage} searchPlaceholder={ui.searchReadingLanguagePlaceholder} /></section><div className="settings-note"><span>◎</span><p><strong>{ui.privacyTitle}</strong><br />{ui.privacyCopy}</p></div></div></section>}
+        {view === 'settings' && <section className="settings-view"><div className="settings-wrap"><h1>{ui.settingsTitle}</h1><section className="account-center-card" aria-labelledby="account-center-title"><div><h2 id="account-center-title">{ui.accountCenter}</h2><p>{session && !session.user.isAnonymous ? ui.accountCenterSignedIn : ui.accountCenterSignedOut}</p></div><button type="button" onClick={() => session ? setAccountMenuOpen(true) : setAuthDialogOpen(true)}>{session ? ui.accountMenuManage : ui.signIn}</button></section><AuthPanel uiLocale={uiLocale} onNotice={toast} onSessionChange={handleAuthSessionChange} /><section className="language-section" aria-labelledby="ui-language-title"><div className="language-heading"><h2 id="ui-language-title">{ui.uiLanguageTitle}</h2><p>{ui.uiLanguageCopy}</p></div><InterfaceLanguagePicker value={uiLocale} onChange={changeUiLocale} locale={uiLocale} label={ui.interfaceLanguagePickerLabel} searchLabel={ui.searchInterfaceLanguage} searchPlaceholder={ui.searchInterfaceLanguagePlaceholder} availableLabel={ui.interfaceLanguageAvailable} plannedLabel={ui.interfaceLanguagePlanned} plannedCopy={ui.interfaceLanguagePlannedCopy} emptyLabel={ui.interfaceLanguageEmpty} /></section><section className="language-section" aria-labelledby="reading-language-title"><div className="language-heading"><h2 id="reading-language-title">{ui.readingLanguageTitle}</h2><p>{ui.readingLanguageCopy}</p></div><ReadingLanguagePicker value={language} onChange={changeReadingLanguage} locale={uiLocale} label={ui.readingLanguagePickerLabel} searchLabel={ui.searchReadingLanguage} searchPlaceholder={ui.searchReadingLanguagePlaceholder} /></section><div className="settings-note"><span>◎</span><p><strong>{ui.privacyTitle}</strong><br />{ui.privacyCopy}</p></div></div></section>}
       </main>
       {bookContextMenu && <div className="book-context-menu" role="menu" aria-label={ui.localBooks} style={{ left: bookContextMenu.x, top: bookContextMenu.y }}><strong>{bookContextMenu.book.title}</strong>{bookContextMenu.book.fileName?.toLowerCase().endsWith('.epub') && <button role="menuitem" onClick={() => { void refreshCover(bookContextMenu.book); setBookContextMenu(null) }} disabled={refreshingCoverId === bookContextMenu.book.id}>{refreshingCoverId === bookContextMenu.book.id ? ui.readingCover : ui.manageCover}</button>}<button role="menuitem" onClick={() => { selectCustomCover(bookContextMenu.book); setBookContextMenu(null) }}>{ui.uploadCover}</button><button role="menuitem" onClick={() => { setMetadataDraft(bookContextMenu.book as StoredBook); setBookContextMenu(null) }}>{ui.editInfo}</button><button className="danger" role="menuitem" onClick={() => { void removeBook(bookContextMenu.book); setBookContextMenu(null) }}>{ui.delete}</button></div>}
       {metadataDraft && <div className="metadata-dialog-backdrop"><form className="metadata-dialog" onSubmit={(event) => { void saveMetadata(event) }} role="dialog" aria-modal="true" aria-labelledby="metadata-dialog-title"><div><h2 id="metadata-dialog-title">校正书籍信息</h2><p>只修改书架显示和本地阅读数据，不会改动或上传原始文件。</p></div><label>书名<input name="title" defaultValue={metadataDraft.title} autoFocus /></label><label>作者<input name="author" defaultValue={metadataDraft.author} /></label><div className="metadata-dialog-actions"><button type="button" onClick={() => setMetadataDraft(null)}>取消</button><button type="submit">保存信息</button></div></form></div>}
       {authDialogOpen && <div className="auth-dialog-backdrop" onMouseDown={(event) => { if (event.currentTarget === event.target) setAuthDialogOpen(false) }}><section className="auth-dialog" role="dialog" aria-modal="true" aria-labelledby="auth-dialog-title"><div className="auth-dialog-heading"><div><h2 id="auth-dialog-title">{ui.accountSync}</h2></div><button type="button" onClick={() => setAuthDialogOpen(false)} aria-label={ui.cancel} title={ui.cancel}>×</button></div><AuthPanel uiLocale={uiLocale} onNotice={toast} onSessionChange={handleAuthSessionChange} autoFocusEmail /></section></div>}
-      {view === 'settings' && <AuthPanel uiLocale={uiLocale} onNotice={toast} onSessionChange={handleAuthSessionChange} />}
       {notice && <div className="toast" role="status">{notice}</div>}
       {updateReady && <div className="update-toast" role="status">{ui.updateReady}<button onClick={() => window.dispatchEvent(new Event('worlibrary:activate-update'))}>{ui.updateNow}</button></div>}
       <DataTransfer uiLocale={uiLocale} onNotice={toast} onImported={() => { void listBooks().then((savedBooks) => setBooks(savedBooks)) }} />

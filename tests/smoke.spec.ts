@@ -214,6 +214,36 @@ test('account controls use one upper-right sized group across the shelf and othe
   expect((await languageTrigger.boundingBox())?.height).toBe((await accountAvatar.boundingBox())?.height)
 })
 
+test('a signed-in reader gets a private account menu with a reachable account center and sign-out', async ({ page }) => {
+  await page.addInitScript(() => localStorage.setItem('wor-library.auth.session', JSON.stringify({
+    accessToken: 'test-access-token',
+    refreshToken: 'test-refresh-token',
+    user: { id: 'reader-1', email: 'reader@example.com', isAnonymous: false },
+  })))
+  await page.goto('/')
+
+  const accountButton = page.getByRole('button', { name: '个人账户: reader' })
+  await expect(accountButton).toBeVisible()
+  await expect(accountButton).not.toContainText('@')
+  await accountButton.click()
+  await expect(accountButton).toHaveAttribute('aria-expanded', 'true')
+
+  const menu = page.getByRole('menu', { name: '个人账户' })
+  await expect(menu).toBeVisible()
+  await expect(menu.getByText('reader@example.com')).toBeVisible()
+  await expect(menu.getByRole('menuitem', { name: '账户中心' })).toBeVisible()
+  await expect(menu.getByRole('menuitem', { name: '云端书库与同步' })).toBeVisible()
+  await expect(menu.getByRole('menuitem', { name: '隐私与数据' })).toBeVisible()
+
+  await menu.getByRole('menuitem', { name: '账户中心' }).click()
+  await expect(page.getByRole('heading', { name: '账户中心' })).toBeVisible()
+  await expect(page.getByText('你的邮箱只在此私密区域显示。')).toBeVisible()
+
+  await page.getByRole('button', { name: '管理账户' }).click()
+  await page.getByRole('menuitem', { name: '退出登录' }).click()
+  await expect(page.getByRole('button', { name: '个人账户: 登录' })).toBeVisible()
+})
+
 test('refresh and browser history restore the current application route', async ({ page }) => {
   await page.goto('/')
   await page.getByRole('button', { name: '设置' }).click()

@@ -33,8 +33,10 @@
 - [ ] 登录匿名试用/魔法链接、首次同步和翻译成功/失败均有可追踪 request id。
 - [ ] 在两个独立浏览器 profile 和两个测试账号上完成真实 Supabase 验收：匿名试用不创建同步队列；稳定账号只能操作自己的未撤销设备；离线重放的 mutation 幂等；删除墓碑不会被旧设备复活；远端仅元数据条目明确标为需重新导入且不能打开本地阅读器。没有这项验收，保持客户端同步入口关闭。
 - [ ] 若本次首次发布平台自有/获授权内容，已执行 `0006_platform_content_operations.sql` 与 `0007_platform_delivery_resolution_and_staff_roles.sql`，并由受控后台（不是浏览器）完成许可、来源、SHA-256、私有 R2 对象、地区策略和发布审计的完整接入清单；详见 `docs/deployment.md` 的“首个合规内容来源接入清单”。
+- [ ] 若本次启用社区审核、客服支持或平台管理能力，已执行 `0010_server_owned_account_roles.sql`。普通用户没有提升角色记录；`community_moderator`、`support_agent` 与 `platform_admin` 只能由受控 service-role 调用 `set_server_account_role` 授予或撤销，并必须填写内部操作者/工单引用。不得通过 `profiles`、`user_settings`、前端状态或 JWT claims 配置角色。
 - [ ] 动态交付必须先部署内部内容 resolver，并由 Service Binding 连接到主 Worker；resolver 独占 Supabase service-role key，主 Worker 仅保留私有 `PLATFORM_CONTENT` R2 binding。没有完成此步骤时，不得声称数据库发布、下架或许可撤销已经控制线上正文。
 - [ ] 验证普通 anon/authenticated 会话无法读取 `content_assets.object_key`、许可证据、来源审核记录或运营审计，也不能写入平台目录、资产、访问策略和权益；只有 service-role 可执行受控发布、下架与许可撤销 RPC。
+- [ ] 验证普通 anon/authenticated 会话无法读取、枚举、插入、更新或删除 `account_role_assignments` 和 `account_role_audit_log`，也无法执行 `set_server_account_role`；角色撤销后，下一次后台服务端鉴权立即拒绝相应能力。
 - [ ] 若启用了平台正文交付，使用两份获授权的测试 EPUB/PDF 验证平台阅读器可在当前会话中翻页；网络面板只应看到带 Authorization 的无缓存 `/api/reader/content` 请求，不能出现下载、对象 URL、IndexedDB/OPFS 正文记录或可复制的对象键。撤销授权后必须立即失败关闭。
 
 ## 发布后检查

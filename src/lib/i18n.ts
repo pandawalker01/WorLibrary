@@ -34,7 +34,7 @@ export function saveReadingLanguage(language: ReadingLanguage): void {
 
 export const copy = {
   'zh-CN': {
-    library: '书库', highlights: '摘录', profile: '我的', settings: '设置', account: '个人账户', signIn: '登录', guestAccount: '访客', offlineReady: '离线可读', offlineNow: '当前离线',
+    library: '书库', highlights: '摘录', profile: '我的', settings: '设置', account: '个人账户', accountCenter: '账户中心', accountCenterSignedIn: '管理你的登录、同步与隐私设置。你的邮箱只在此私密区域显示。', accountCenterSignedOut: '登录后可管理同步、隐私和你的账户资料。', accountMenuSync: '云端书库与同步', accountMenuPrivacy: '隐私与数据', accountMenuManage: '管理账户', signIn: '登录', guestAccount: '访客', offlineReady: '离线可读', offlineNow: '当前离线',
     offlineBanner: '当前离线：已导入的本地书籍仍可阅读；翻译、OCR 与同步将在联网后恢复。',
     updateReady: '有新版本可用', updateNow: '立即更新',
     interfaceLanguage: '界面语言', readingLanguage: '理解语言', importBook: '导入书籍',
@@ -64,7 +64,7 @@ export const copy = {
     accountSync: '账号与同步', syncLocal: '本地优先 · 尚未配置云端同步', syncPrivacy: '仅同步阅读进度、摘录与书籍信息；原始 EPUB/PDF 文件和封面始终留在本机。', syncSignedOut: '未登录 · 当前仅保存在本机', syncAnonymousUnavailable: '匿名试用 · 不支持云端同步，阅读数据仍仅保存在本机', syncMetadataInProgress: '正在同步部分阅读元数据 · 原始书籍仍留在本机', syncMetadataSuccess: '已完成一次元数据同步尝试 · 完整跨设备恢复暂未开放', syncMetadataFailed: '元数据同步失败，待重试', syncPreview: '已登录 · 元数据同步仍在内测，请保留本地阅读数据导出', syncPermissionHelp: '请检查网络或账号权限', anonymousTrial: '匿名试用', anonymousMigrationUnavailable: '当前版本不提供匿名试用账号升级迁移。若要使用邮箱账号，请先退出；已导入文件仍留在这台设备上。', signOutAction: '退出登录', tryAnonymous: '匿名试用', emailLabel: '邮箱', sendMagicLink: '发送登录链接', magicLinkSent: '登录链接已发送，请检查邮箱', actionFailed: '操作失败，请稍后重试',
   },
   en: {
-    library: 'Library', highlights: 'Highlights', profile: 'Me', settings: 'Settings', account: 'Account', signIn: 'Sign in', guestAccount: 'Guest', offlineReady: 'Offline ready', offlineNow: 'Offline',
+    library: 'Library', highlights: 'Highlights', profile: 'Me', settings: 'Settings', account: 'Account', accountCenter: 'Account center', accountCenterSignedIn: 'Manage your sign-in, sync, and privacy settings. Your email is only shown in this private area.', accountCenterSignedOut: 'Sign in to manage your sync, privacy, and account details.', accountMenuSync: 'Cloud library & sync', accountMenuPrivacy: 'Privacy & data', accountMenuManage: 'Manage account', signIn: 'Sign in', guestAccount: 'Guest', offlineReady: 'Offline ready', offlineNow: 'Offline',
     offlineBanner: 'You are offline: imported books remain readable; translation, OCR, and sync resume when you reconnect.',
     updateReady: 'A new version is ready', updateNow: 'Update now',
     interfaceLanguage: 'Interface', readingLanguage: 'Reading language', importBook: 'Import book',
