@@ -89,7 +89,7 @@ export type LibraryBackup = { version: 2; exportedAt: string; books: StoredBook[
 import type { Alignment, Edition, Work } from './edition'
 
 const DB_NAME = 'wor-library'
-const DB_VERSION = 7
+const DB_VERSION = 8
 const BOOKS_STORE = 'books'
 const BLOBS_STORE = 'book-blobs'
 const HIGHLIGHTS_STORE = 'highlights'
@@ -102,6 +102,7 @@ const METADATA_SYNC_OUTBOX_BY_USER = 'by-user-id'
 const REMOTE_BOOK_METADATA_SHADOWS_STORE = 'remote-book-metadata-shadows'
 const REMOTE_BOOK_METADATA_SHADOWS_BY_USER = 'by-user-id'
 const METADATA_SYNC_CURSORS_STORE = 'metadata-sync-cursors'
+const METADATA_SYNC_ENTITY_REVISIONS_STORE = 'metadata-sync-entity-revisions'
 
 /**
  * The last server sequence safely applied for one stable account.  This is
@@ -111,6 +112,21 @@ const METADATA_SYNC_CURSORS_STORE = 'metadata-sync-cursors'
 export type MetadataSyncCursor = {
   userId: string
   sequence: number
+  updatedAt: number
+}
+
+/**
+ * The latest server revision seen for exactly one account-owned sync entity.
+ * This contains routing metadata only: it deliberately has no entity payload,
+ * book bytes, object reference, URL, text body, or reader location.
+ */
+export type MetadataSyncEntityRevision = {
+  key: string
+  userId: string
+  entityType: MetadataSyncOutboxEntry['entityType']
+  entityId: string
+  revision: number
+  lastSequence?: number
   updatedAt: number
 }
 
@@ -156,6 +172,9 @@ function openDatabase(): Promise<IDBDatabase> {
       }
       if (!db.objectStoreNames.contains(METADATA_SYNC_CURSORS_STORE)) {
         db.createObjectStore(METADATA_SYNC_CURSORS_STORE, { keyPath: 'userId' })
+      }
+      if (!db.objectStoreNames.contains(METADATA_SYNC_ENTITY_REVISIONS_STORE)) {
+        db.createObjectStore(METADATA_SYNC_ENTITY_REVISIONS_STORE, { keyPath: 'key' })
       }
     }
     request.onsuccess = () => {
@@ -274,6 +293,42 @@ function outboxTransaction<T>(mode: IDBTransactionMode, action: (store: IDBObjec
   }))
 }
 
+/**
+ * Replace a pending edition upsert with a newer local snapshot without
+ * creating a second optimistic mutation against the same server revision.
+ *
+ * The first operation id and base revision are deliberately retained. The
+ * operation id remains idempotent at the RPC boundary, while the base
+ * revision continues to describe the remote version from which this pending
+ * local edit began. Only account-local, pending edition upserts can be
+ * combined; deletes and every other entity keep their independent ordering.
+ */
+export function coalescePendingEditionMetadataSyncEntry(
+  existing: MetadataSyncOutboxEntry,
+  replacement: MetadataSyncOutboxEntry,
+): MetadataSyncOutboxEntry | null {
+  if (
+    existing.userId !== replacement.userId
+    || existing.entityType !== 'edition'
+    || replacement.entityType !== 'edition'
+    || existing.entityId !== replacement.entityId
+    || existing.operation !== 'upsert'
+    || replacement.operation !== 'upsert'
+    || existing.status !== 'pending'
+    || replacement.status !== 'pending'
+  ) {
+    return null
+  }
+
+  return {
+    ...existing,
+    // A replacement may follow a browser device re-registration. It must use
+    // the current stable client id, but it never changes account ownership.
+    deviceClientId: replacement.deviceClientId,
+    payload: replacement.payload,
+  }
+}
+
 /** Queue only sanitized metadata for one stable account and one local device. */
 export async function createMetadataSyncOutboxEntry(input: CreateMetadataSyncOutboxEntry): Promise<MetadataSyncOutboxEntry> {
   assertNonEmptyMetadataSyncId(input.userId, 'user id')
@@ -319,9 +374,53 @@ export async function createMetadataSyncOutboxEntry(input: CreateMetadataSyncOut
         resolve(existing)
         return
       }
-      const putRequest = store.put(entry)
-      putRequest.onerror = () => reject(putRequest.error)
-      putRequest.onsuccess = () => resolve(entry)
+
+      // A local reader can write progress several times before the first
+      // network flush. Keep one pending edition mutation per account/edition
+      // so all of those snapshots apply against one base revision instead of
+      // racing as multiple baseRevision=0 requests.
+      const pendingRequest = store.index(METADATA_SYNC_OUTBOX_BY_USER).getAll(entry.userId)
+      pendingRequest.onerror = () => reject(pendingRequest.error)
+      pendingRequest.onsuccess = () => {
+        const pendingEditionUpserts = (pendingRequest.result as MetadataSyncOutboxEntry[])
+          .filter((candidate) => coalescePendingEditionMetadataSyncEntry(candidate, entry) !== null)
+          .sort((left, right) => left.createdAt - right.createdAt)
+
+        if (pendingEditionUpserts.length === 0) {
+          const putRequest = store.put(entry)
+          putRequest.onerror = () => reject(putRequest.error)
+          putRequest.onsuccess = () => resolve(entry)
+          return
+        }
+
+        const canonical = coalescePendingEditionMetadataSyncEntry(pendingEditionUpserts[0], entry)
+        if (!canonical) {
+          reject(new Error('Metadata sync edition coalescing failed'))
+          return
+        }
+
+        // Heal any older duplicate pending intents in the same transaction.
+        // Only their safe metadata is replaced; no book bytes or locators are
+        // consulted or written here.
+        const duplicateIds = pendingEditionUpserts.slice(1).map((candidate) => candidate.operationId)
+        const putRequest = store.put(canonical)
+        putRequest.onerror = () => reject(putRequest.error)
+        putRequest.onsuccess = () => {
+          if (duplicateIds.length === 0) {
+            resolve(canonical)
+            return
+          }
+          let removed = 0
+          for (const duplicateId of duplicateIds) {
+            const removeRequest = store.delete(duplicateId)
+            removeRequest.onerror = () => reject(removeRequest.error)
+            removeRequest.onsuccess = () => {
+              removed += 1
+              if (removed === duplicateIds.length) resolve(canonical)
+            }
+          }
+        }
+      }
     }
   })
 }
@@ -396,6 +495,28 @@ function remoteBookMetadataShadowKey(userId: string, editionId: string) {
 function assertMetadataSyncCursorSequence(sequence: number): void {
   if (!Number.isSafeInteger(sequence) || sequence < 0) {
     throw new Error('Invalid metadata sync cursor sequence')
+  }
+}
+
+function assertMetadataSyncEntityType(entityType: string): asserts entityType is MetadataSyncOutboxEntry['entityType'] {
+  if (!metadataSyncEntityTypes.has(entityType as MetadataSyncOutboxEntry['entityType'])) {
+    throw new Error('Invalid metadata sync entity type')
+  }
+}
+
+function metadataSyncEntityRevisionKey(
+  userId: string,
+  entityType: MetadataSyncOutboxEntry['entityType'],
+  entityId: string,
+): string {
+  // Length-prefix each component so an entity id containing a delimiter cannot
+  // collide with another account/entity tuple.
+  return `${userId.length}:${userId}${entityType.length}:${entityType}${entityId.length}:${entityId}`
+}
+
+function assertMetadataSyncEntityRevision(revision: number): void {
+  if (!Number.isSafeInteger(revision) || revision < 0) {
+    throw new Error('Invalid metadata sync entity revision')
   }
 }
 
@@ -491,6 +612,139 @@ export async function writeMetadataSyncCursor(userId: string, sequence: number):
       const putRequest = store.put(cursor)
       putRequest.onerror = () => reject(putRequest.error)
       putRequest.onsuccess = () => resolve()
+    }
+  })
+}
+
+function metadataSyncEntityRevisionTransaction<T>(
+  mode: IDBTransactionMode,
+  action: (store: IDBObjectStore, resolve: (value: T) => void, reject: (reason: unknown) => void) => void,
+): Promise<T> {
+  return openDatabase().then((db) => new Promise<T>((resolve, reject) => {
+    const tx = db.transaction(METADATA_SYNC_ENTITY_REVISIONS_STORE, mode)
+    let settled = false
+    let completed = false
+    let result: T | undefined
+    const finish = (nextValue: T) => {
+      if (!settled) {
+        completed = true
+        result = nextValue
+      }
+    }
+    const fail = (reason: unknown) => {
+      if (!settled) {
+        settled = true
+        reject(reason)
+      }
+    }
+    tx.oncomplete = () => {
+      db.close()
+      if (!settled && completed) {
+        settled = true
+        resolve(result as T)
+      }
+    }
+    tx.onabort = () => { db.close(); fail(tx.error ?? new Error('Metadata sync entity revision transaction aborted')) }
+    tx.onerror = () => { db.close(); fail(tx.error ?? new Error('Metadata sync entity revision transaction failed')) }
+    try {
+      action(tx.objectStore(METADATA_SYNC_ENTITY_REVISIONS_STORE), finish, fail)
+    } catch (error) {
+      tx.abort()
+      fail(error)
+    }
+  }))
+}
+
+/** Read one account/entity's server revision. Missing entities have no revision. */
+export async function readMetadataSyncEntityRevision(
+  userId: string,
+  entityType: MetadataSyncOutboxEntry['entityType'],
+  entityId: string,
+): Promise<MetadataSyncEntityRevision | null> {
+  assertNonEmptyMetadataSyncId(userId, 'user id')
+  assertMetadataSyncEntityType(entityType)
+  assertNonEmptyMetadataSyncId(entityId, 'entity id')
+  const key = metadataSyncEntityRevisionKey(userId, entityType, entityId)
+
+  return metadataSyncEntityRevisionTransaction('readonly', (store, resolve, reject) => {
+    const request = store.get(key)
+    request.onerror = () => reject(request.error)
+    request.onsuccess = () => {
+      const entry = request.result as MetadataSyncEntityRevision | undefined
+      if (!entry) {
+        resolve(null)
+        return
+      }
+      if (entry.key !== key || entry.userId !== userId || entry.entityType !== entityType || entry.entityId !== entityId) {
+        reject(new Error('Metadata sync entity revision belongs to another entity'))
+        return
+      }
+      try {
+        assertMetadataSyncEntityRevision(entry.revision)
+        if (entry.lastSequence !== undefined) assertMetadataSyncCursorSequence(entry.lastSequence)
+        resolve(entry)
+      } catch (error) {
+        reject(error)
+      }
+    }
+  })
+}
+
+/**
+ * Remember only a newer server revision/sequence for this account entity.
+ * Independent monotonic maxima protect against an older tab moving either
+ * marker backwards; there is never a content payload in this store.
+ */
+export async function writeMetadataSyncEntityRevision(input: {
+  userId: string
+  entityType: MetadataSyncOutboxEntry['entityType']
+  entityId: string
+  revision: number
+  lastSequence?: number
+}): Promise<MetadataSyncEntityRevision> {
+  assertNonEmptyMetadataSyncId(input.userId, 'user id')
+  assertMetadataSyncEntityType(input.entityType)
+  assertNonEmptyMetadataSyncId(input.entityId, 'entity id')
+  assertMetadataSyncEntityRevision(input.revision)
+  if (input.lastSequence !== undefined) assertMetadataSyncCursorSequence(input.lastSequence)
+  const key = metadataSyncEntityRevisionKey(input.userId, input.entityType, input.entityId)
+
+  return metadataSyncEntityRevisionTransaction('readwrite', (store, resolve, reject) => {
+    const existingRequest = store.get(key)
+    existingRequest.onerror = () => reject(existingRequest.error)
+    existingRequest.onsuccess = () => {
+      const existing = existingRequest.result as MetadataSyncEntityRevision | undefined
+      if (
+        existing
+        && (existing.key !== key || existing.userId !== input.userId || existing.entityType !== input.entityType || existing.entityId !== input.entityId)
+      ) {
+        reject(new Error('Metadata sync entity revision belongs to another entity'))
+        return
+      }
+      try {
+        if (existing) {
+          assertMetadataSyncEntityRevision(existing.revision)
+          if (existing.lastSequence !== undefined) assertMetadataSyncCursorSequence(existing.lastSequence)
+        }
+      } catch (error) {
+        reject(error)
+        return
+      }
+
+      const entry: MetadataSyncEntityRevision = {
+        key,
+        userId: input.userId,
+        entityType: input.entityType,
+        entityId: input.entityId,
+        revision: Math.max(input.revision, existing?.revision ?? 0),
+        ...(input.lastSequence === undefined && existing?.lastSequence === undefined
+          ? {}
+          : { lastSequence: Math.max(input.lastSequence ?? 0, existing?.lastSequence ?? 0) }),
+        updatedAt: Date.now(),
+      }
+      const putRequest = store.put(entry)
+      putRequest.onerror = () => reject(putRequest.error)
+      putRequest.onsuccess = () => resolve(entry)
     }
   })
 }

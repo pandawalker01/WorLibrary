@@ -67,9 +67,10 @@ function buildEditionPayload(book: StoredBook): Record<string, unknown> {
   }
   const location = book.location === undefined ? undefined : safeString(book.location, 'location', 4_096, true)
   if (location !== undefined) payload.location = location
-  // The edition UUID is the outbox entity id. The optional work UUID only
-  // preserves a stable relation and is not an object locator or file handle.
-  if (book.workId && uuidPattern.test(book.workId)) payload.work_id = book.workId
+  // Work relationships are intentionally not sent in this edition-only
+  // milestone. The controlled RPC requires a remote work row to already
+  // exist; sending a local-only work UUID would reject the whole edition
+  // mutation. A later work-first transaction will add the relation safely.
   return payload
 }
 

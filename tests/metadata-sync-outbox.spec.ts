@@ -1,11 +1,31 @@
 import { expect, test } from '@playwright/test'
 import { readFile } from 'node:fs/promises'
-import { assertSafeMetadataSyncPayload } from '../src/lib/storage'
+import {
+  assertSafeMetadataSyncPayload,
+  coalescePendingEditionMetadataSyncEntry,
+  type MetadataSyncOutboxEntry,
+} from '../src/lib/storage'
+
+function editionEntry(overrides: Partial<MetadataSyncOutboxEntry> = {}): MetadataSyncOutboxEntry {
+  return {
+    operationId: '11111111-1111-4111-8111-111111111111',
+    userId: 'account-a',
+    deviceClientId: 'device-a',
+    entityType: 'edition',
+    entityId: '22222222-2222-4222-8222-222222222222',
+    operation: 'upsert',
+    baseRevision: 0,
+    payload: { title: 'Earlier title', progress: 12 },
+    status: 'pending',
+    createdAt: 100,
+    ...overrides,
+  }
+}
 
 test('metadata sync outbox is an account-scoped metadata-only IndexedDB store', async () => {
   const source = await readFile('src/lib/storage.ts', 'utf8')
 
-  expect(source).toContain("const DB_VERSION = 7")
+  expect(source).toContain("const DB_VERSION = 8")
   expect(source).toContain("const METADATA_SYNC_OUTBOX_STORE = 'metadata-sync-outbox'")
   expect(source).toContain("outbox.createIndex(METADATA_SYNC_OUTBOX_BY_USER, 'userId'")
   expect(source).toContain('createMetadataSyncOutboxEntry')
@@ -16,6 +36,35 @@ test('metadata sync outbox is an account-scoped metadata-only IndexedDB store', 
   expect(source).toContain("entry.userId !== userId")
   expect(source).toContain("status: 'pending'")
   expect(source).toContain('baseRevision: input.baseRevision')
+  expect(source).toContain('coalescePendingEditionMetadataSyncEntry')
+  expect(source).toContain('store.index(METADATA_SYNC_OUTBOX_BY_USER).getAll(entry.userId)')
+})
+
+test('pending local edition upserts coalesce by account and edition while retaining idempotency and base revision', () => {
+  const earlier = editionEntry()
+  const latest = editionEntry({
+    operationId: '33333333-3333-4333-8333-333333333333',
+    deviceClientId: 'device-current',
+    baseRevision: 7,
+    payload: { title: 'Latest title', progress: 48 },
+    createdAt: 200,
+  })
+
+  expect(coalescePendingEditionMetadataSyncEntry(earlier, latest)).toEqual({
+    ...earlier,
+    deviceClientId: 'device-current',
+    payload: { title: 'Latest title', progress: 48 },
+  })
+})
+
+test('edition outbox coalescing never crosses accounts or changes delete/non-edition ordering', () => {
+  const earlier = editionEntry()
+  const latest = editionEntry({ operationId: '33333333-3333-4333-8333-333333333333' })
+
+  expect(coalescePendingEditionMetadataSyncEntry(earlier, { ...latest, userId: 'account-b' })).toBeNull()
+  expect(coalescePendingEditionMetadataSyncEntry(earlier, { ...latest, entityId: 'other-edition' })).toBeNull()
+  expect(coalescePendingEditionMetadataSyncEntry(earlier, { ...latest, operation: 'delete', payload: {} })).toBeNull()
+  expect(coalescePendingEditionMetadataSyncEntry(earlier, { ...latest, entityType: 'highlight' })).toBeNull()
 })
 
 test('metadata sync cursors are durable, account-scoped, monotonic, and metadata-only', async () => {
@@ -28,12 +77,29 @@ test('metadata sync cursors are durable, account-scoped, monotonic, and metadata
   expect(source).toContain("resolve(0)")
   expect(source).toContain("cursor.userId !== userId")
   expect(source).toContain('Math.max(sequence, existing?.sequence ?? 0)')
-  const cursorType = source.slice(source.indexOf('export type MetadataSyncCursor'), source.indexOf('const metadataSyncEntityTypes'))
+  const cursorType = source.slice(source.indexOf('export type MetadataSyncCursor'), source.indexOf('/**\n * The latest server revision'))
   expect(cursorType).toContain('userId: string')
   expect(cursorType).toContain('sequence: number')
   expect(cursorType).not.toContain('payload')
   expect(cursorType).not.toContain('url')
   expect(cursorType).not.toContain('blob')
+})
+
+test('metadata sync entity revisions are keyed by account and entity, and exclude all content fields', async () => {
+  const source = await readFile('src/lib/storage.ts', 'utf8')
+  expect(source).toContain("const METADATA_SYNC_ENTITY_REVISIONS_STORE = 'metadata-sync-entity-revisions'")
+  expect(source).toContain('export type MetadataSyncEntityRevision')
+  expect(source).toContain('readMetadataSyncEntityRevision')
+  expect(source).toContain('writeMetadataSyncEntityRevision')
+  expect(source).toContain('metadataSyncEntityRevisionKey')
+
+  const entityType = source.slice(source.indexOf('export type MetadataSyncEntityRevision'), source.indexOf('const metadataSyncEntityTypes'))
+  expect(entityType).toContain('userId: string')
+  expect(entityType).toContain('entityType: MetadataSyncOutboxEntry')
+  expect(entityType).toContain('entityId: string')
+  expect(entityType).toContain('revision: number')
+  expect(entityType).toContain('lastSequence?: number')
+  expect(entityType).not.toMatch(/payload|url|blob|body|content|file/i)
 })
 
 test('remote metadata shadows are account-scoped, require re-import, and never become local books', async () => {

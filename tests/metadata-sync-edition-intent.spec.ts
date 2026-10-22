@@ -14,14 +14,13 @@ const session: AuthSession = {
 }
 const clientInstanceId = 'a1d8eb2c-6996-4b5a-928f-2c429c083e69'
 const editionId = 'f2cbf73d-5716-433f-8e93-7f03a3e9d3e7'
-const workId = 'c292d267-dc68-49e9-9eb5-8afdfd6371f4'
 
 function book(overrides: Partial<StoredBook> = {}): StoredBook {
   return {
     id: 'local-book-id', title: 'A local EPUB', author: 'Reader', language: 'en', progress: 22,
     cover: 'ink', coverImage: 'data:image/png;base64,not-synced', fileName: 'reader.epub',
     fileType: 'application/epub+zip', fileSize: 2048, storage: 'indexeddb', createdAt: 1,
-    location: 'epubcfi(/6/2)', workId, editionId,
+    location: 'epubcfi(/6/2)', editionId,
     ...overrides,
   }
 }
@@ -69,12 +68,13 @@ test('a stable local edition queues only whitelisted metadata with the device re
     payload: {
       title: 'A local EPUB', author: 'Reader', language: 'en', progress: 22,
       location: 'epubcfi(/6/2)', file_name: 'reader.epub', file_type: 'epub', file_size: 2048,
-      cover: 'ink', work_id: workId,
+      cover: 'ink',
     },
   }])
   expect(JSON.stringify(entries)).not.toContain('coverImage')
   expect(JSON.stringify(entries)).not.toContain('data:image')
   expect(JSON.stringify(entries)).not.toContain('local-book-id')
+  expect(JSON.stringify(entries)).not.toContain('work_id')
 })
 
 test('anonymous sessions never inspect books, storage, or the outbox', async () => {
