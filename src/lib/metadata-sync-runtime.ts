@@ -8,6 +8,7 @@ import {
   coordinateMetadataSync,
   type MetadataSyncCoordinatorResult,
   type MetadataSyncCursorStore,
+  type MetadataSyncEntityRevisionStore,
 } from './metadata-sync-coordinator'
 import type { RemoteBookMetadataShadowStore } from './metadata-sync-edition-shadow'
 import type { MetadataSyncOutboxStore, MetadataSyncRpcClient } from './metadata-sync-engine'
@@ -18,6 +19,7 @@ import {
   listMetadataSyncOutbox,
   readMetadataSyncCursor,
   upsertRemoteBookMetadataShadow,
+  writeMetadataSyncEntityRevision,
   writeMetadataSyncCursor,
 } from './storage'
 
@@ -35,6 +37,7 @@ export type MetadataSyncRuntimeDependencies = {
   outbox?: MetadataSyncOutboxStore
   shadows?: RemoteBookMetadataShadowStore
   cursors?: MetadataSyncCursorStore
+  revisions?: MetadataSyncEntityRevisionStore
   deviceStorage?: ClientInstanceStorage | null
   registerDevice?: (input: {
     session: AuthSession
@@ -72,6 +75,10 @@ function defaultCursorStore(): MetadataSyncCursorStore {
     read: readMetadataSyncCursor,
     write: writeMetadataSyncCursor,
   }
+}
+
+function defaultEntityRevisionStore(): MetadataSyncEntityRevisionStore {
+  return { write: writeMetadataSyncEntityRevision }
 }
 
 function defaultOutboxStore(): MetadataSyncOutboxStore {
@@ -118,6 +125,7 @@ export function createMetadataSyncRuntime(
     const outbox = dependencies.outbox ?? defaultOutboxStore()
     const shadows = dependencies.shadows ?? defaultShadowStore()
     const cursors = dependencies.cursors ?? defaultCursorStore()
+    const revisions = dependencies.revisions ?? defaultEntityRevisionStore()
     const registerDevice = dependencies.registerDevice
       ? () => dependencies.registerDevice!({ session, remote })
       : () => registerBrowserSyncDevice({ session, remote, storage: dependencies.deviceStorage })
@@ -128,6 +136,7 @@ export function createMetadataSyncRuntime(
       outbox,
       shadows,
       cursors,
+      revisions,
       registerDevice,
       pageSize: dependencies.pageSize,
       maxPages: dependencies.maxPages,

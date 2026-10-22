@@ -42,6 +42,7 @@ function dependencies() {
   const calls: string[] = []
   const shadows: UpsertRemoteBookMetadataShadow[] = []
   const cursorWrites: number[] = []
+  const revisionWrites: Array<{ entityId: string; revision: number; lastSequence: number }> = []
   return {
     calls,
     shadows,
@@ -62,6 +63,13 @@ function dependencies() {
       read: async (userId: string) => { calls.push(`cursor-read:${userId}`); return 0 },
       write: async (_userId: string, sequence: number) => { calls.push(`cursor-write:${sequence}`); cursorWrites.push(sequence) },
     },
+    revisions: {
+      write: async ({ entityId, revision, lastSequence }) => {
+        calls.push(`revision-write:${entityId}:${revision}:${lastSequence}`)
+        revisionWrites.push({ entityId, revision, lastSequence })
+      },
+    },
+    revisionWrites,
   }
 }
 
@@ -76,6 +84,7 @@ test('metadata coordinator is inert for anonymous local-only trials', async () =
     outbox: data.outbox,
     shadows: data.shadowStore,
     cursors: data.cursors,
+    revisions: data.revisions,
     registerDevice: async () => { registered += 1; return registration },
   })
 
@@ -102,6 +111,7 @@ test('metadata coordinator flushes, projects a bounded edition feed, then persis
     outbox: data.outbox,
     shadows: data.shadowStore,
     cursors: data.cursors,
+    revisions: data.revisions,
     registerDevice: async () => registration,
     pageSize: 1,
   })
@@ -110,8 +120,10 @@ test('metadata coordinator flushes, projects a bounded edition feed, then persis
   expect(rpcCalls).toEqual(['pull_metadata_sync_changes', 'pull_metadata_sync_changes'])
   expect(data.shadows).toHaveLength(1)
   expect(data.cursorWrites).toEqual([1])
+  expect(data.revisionWrites).toEqual([{ entityId: editionId, revision: 1, lastSequence: 1 }])
   expect(data.calls).toEqual([
-    'list:stable-user', 'cursor-read:stable-user', `shadow:${editionId}`, 'cursor-write:1',
+    'list:stable-user', 'cursor-read:stable-user', `shadow:${editionId}`,
+    `revision-write:${editionId}:1:1`, 'cursor-write:1',
   ])
 })
 
@@ -125,6 +137,7 @@ test('metadata coordinator leaves cursor untouched when the feed contains an uns
     outbox: data.outbox,
     shadows: data.shadowStore,
     cursors: data.cursors,
+    revisions: data.revisions,
     registerDevice: async () => registration,
   })
 
@@ -132,6 +145,7 @@ test('metadata coordinator leaves cursor untouched when the feed contains an uns
   expect(result.pull?.reason).toBe('handler-failure')
   expect(data.shadows).toEqual([])
   expect(data.cursorWrites).toEqual([])
+  expect(data.revisionWrites).toEqual([])
 })
 
 test('metadata coordinator does not pull or advance a cursor when the outbox is blocked', async () => {
@@ -148,6 +162,7 @@ test('metadata coordinator does not pull or advance a cursor when the outbox is 
     outbox: data.outbox,
     shadows: data.shadowStore,
     cursors: data.cursors,
+    revisions: data.revisions,
     registerDevice: async () => registration,
   })
 
@@ -155,4 +170,24 @@ test('metadata coordinator does not pull or advance a cursor when the outbox is 
   expect(rpcCalls).toEqual(['apply_metadata_sync_change'])
   expect(data.cursorWrites).toEqual([])
   expect(data.shadows).toEqual([])
+})
+
+test('metadata coordinator leaves the whole page cursor behind when persisting an accepted edition revision fails', async () => {
+  const data = dependencies()
+  data.revisions.write = async () => { throw new Error('revision storage unavailable') }
+
+  const result = await coordinateMetadataSync({
+    session,
+    remote: { rpc: async () => [safeEdition()] },
+    outbox: data.outbox,
+    shadows: data.shadowStore,
+    cursors: data.cursors,
+    revisions: data.revisions,
+    registerDevice: async () => registration,
+  })
+
+  expect(result.status).toBe('pull-failed')
+  expect(result.pull?.reason).toBe('handler-failure')
+  expect(data.shadows).toHaveLength(1)
+  expect(data.cursorWrites).toEqual([])
 })

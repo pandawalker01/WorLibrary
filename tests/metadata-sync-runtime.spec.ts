@@ -23,8 +23,10 @@ const registration = {
 
 function dependencies() {
   const calls: string[] = []
+  const revisionWrites: Array<{ entityId: string; revision: number; lastSequence: number }> = []
   return {
     calls,
+    revisionWrites,
     outbox: {
       list: async (userId: string) => { calls.push(`list:${userId}`); return [] },
       confirm: async () => true,
@@ -39,6 +41,29 @@ function dependencies() {
       read: async (userId: string) => { calls.push(`cursor-read:${userId}`); return 0 },
       write: async (_userId: string, sequence: number) => { calls.push(`cursor-write:${sequence}`) },
     },
+    revisions: {
+      write: async ({ entityId, revision, lastSequence }: { entityId: string; revision: number; lastSequence: number }) => {
+        calls.push(`revision-write:${entityId}:${revision}:${lastSequence}`)
+        revisionWrites.push({ entityId, revision, lastSequence })
+      },
+    },
+  }
+}
+
+function safeEdition(sequence = 1) {
+  return {
+    sequence,
+    device_id: registration.device.id,
+    operation_id: `31e5ed3a-7258-4f7f-a53d-${String(sequence).padStart(12, '0')}`,
+    entity_type: 'edition' as const,
+    entity_id: 'f2cbf73d-5716-433f-8e93-7f03a3e9d3e7',
+    operation: 'upsert' as const,
+    entity_revision: 1,
+    payload: {
+      title: 'A local EPUB', author: 'Reader', language: 'en', progress: 22,
+      location: 'epubcfi(/6/2)', file_name: 'reader.epub', file_type: 'epub', file_size: 2048, cover: 'ink',
+    },
+    occurred_at: '2026-10-22T00:00:00.000Z',
   }
 }
 
@@ -52,6 +77,7 @@ test('runtime is inert before it reads local stores for anonymous and unconfigur
     outbox: data.outbox,
     shadows: data.shadows,
     cursors: data.cursors,
+    revisions: data.revisions,
     registerDevice: async () => { registered += 1; return registration },
   })
 
@@ -88,6 +114,7 @@ test('runtime adapts the configured client, browser device registration, outbox,
     outbox: data.outbox,
     shadows: data.shadows,
     cursors: data.cursors,
+    revisions: data.revisions,
   })
 
   const result = await runtime.run(session)
@@ -118,6 +145,7 @@ test('runtime coalesces concurrent runs for the same account into one device and
     outbox: data.outbox,
     shadows: data.shadows,
     cursors: data.cursors,
+    revisions: data.revisions,
     registerDevice: async () => { registerCalls += 1; return registration },
   })
 
@@ -134,13 +162,37 @@ test('runtime coalesces concurrent runs for the same account into one device and
   expect(data.calls).toEqual(['list:stable-user', 'cursor-read:stable-user', 'cursor-write:0'])
 })
 
+test('runtime forwards each accepted edition revision to its injectable durable store before advancing the cursor', async () => {
+  const data = dependencies()
+  const pages = [[safeEdition()], []]
+  const runtime = createMetadataSyncRuntime({
+    remote: { rpc: async () => pages.shift() ?? [] },
+    outbox: data.outbox,
+    shadows: data.shadows,
+    cursors: data.cursors,
+    revisions: data.revisions,
+    registerDevice: async () => registration,
+  })
+
+  await expect(runtime.run(session)).resolves.toMatchObject({ status: 'completed' })
+  expect(data.revisionWrites).toEqual([{
+    entityId: 'f2cbf73d-5716-433f-8e93-7f03a3e9d3e7', revision: 1, lastSequence: 1,
+  }])
+  expect(data.calls).toEqual([
+    'list:stable-user', 'cursor-read:stable-user',
+    'revision-write:f2cbf73d-5716-433f-8e93-7f03a3e9d3e7:1:1', 'cursor-write:1',
+  ])
+})
+
 test('runtime default cursor adapter delegates to the IndexedDB cursor helpers, never localStorage', async () => {
   const source = await readFile(new URL('../src/lib/metadata-sync-runtime.ts', import.meta.url), 'utf8')
 
   expect(source).toContain('readMetadataSyncCursor')
   expect(source).toContain('writeMetadataSyncCursor')
+  expect(source).toContain('writeMetadataSyncEntityRevision')
   expect(source).toContain('read: readMetadataSyncCursor')
   expect(source).toContain('write: writeMetadataSyncCursor')
+  expect(source).toContain('write: writeMetadataSyncEntityRevision')
   expect(source).not.toContain('localStorage')
   expect(source).not.toContain('cursorStorage')
 })

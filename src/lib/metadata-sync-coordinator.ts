@@ -11,6 +11,20 @@ import {
 } from './metadata-sync-engine'
 
 /**
+ * Keeps the server-authoritative revision for a single accepted entity. This
+ * intentionally stores only routing/version metadata, never its payload.
+ */
+export type MetadataSyncEntityRevisionStore = {
+  write(input: {
+    userId: string
+    entityType: 'edition'
+    entityId: string
+    revision: number
+    lastSequence: number
+  }): Promise<unknown>
+}
+
+/**
  * Durable cursor storage remains injected to keep the coordinator independent
  * of IndexedDB. The browser runtime supplies the account-scoped cursor store;
  * callers must write only after a fully accepted remote page.
@@ -27,6 +41,7 @@ export type MetadataSyncCoordinatorInput = {
   outbox: MetadataSyncOutboxStore
   shadows: RemoteBookMetadataShadowStore
   cursors: MetadataSyncCursorStore
+  revisions: MetadataSyncEntityRevisionStore
   /** Inject the registration session to keep browser localStorage outside this coordinator. */
   registerDevice: () => Promise<DeviceRegistrationSessionResult>
   pageSize?: number
@@ -111,6 +126,16 @@ export async function coordinateMetadataSync(input: MetadataSyncCoordinatorInput
       // silently losing highlights, settings, or future entity types.
       if (projection.outcome === 'ignored') throw new Error(`unsupported sync entity: ${change.entity_type}`)
       if (projection.outcome === 'rejected') throw projection.error
+      // The cursor may advance only after both the safe shadow projection and
+      // its corresponding server revision are durable.  If this write fails,
+      // the pull engine aborts the page and leaves its cursor unchanged.
+      await input.revisions.write({
+        userId: input.session!.user.id,
+        entityType: 'edition',
+        entityId: change.entity_id,
+        revision: change.entity_revision,
+        lastSequence: change.sequence,
+      })
     },
   })
   if (!cursorCanAdvance(pull)) return { status: 'pull-failed', registration, flush, pull, error: pull.error }
