@@ -12,7 +12,8 @@ import '../pdf-reader.css'
 type PdfReaderProps = {
   book: StoredBook
   onNotice: (message: string) => void
-  onProgress: (progress: number, location: string) => void
+  /** Called only after this exact book record has reached local storage. */
+  onProgress: (progress: number, location: string, persistedBook: StoredBook) => void
   targetLanguage?: string
   uiLocale?: UiLocale
   preferences?: Partial<ReaderPreferences>
@@ -49,7 +50,7 @@ export default function PdfReader({ book, onNotice, onProgress, targetLanguage =
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const textLayerRef = useRef<HTMLDivElement>(null)
   const ocrTextRef = useRef<HTMLDivElement>(null)
-  const progressWriteRef = useRef(Promise.resolve())
+  const progressWriteRef = useRef<Promise<StoredBook | null>>(Promise.resolve(null))
   const renderQueueRef = useRef(Promise.resolve())
   const [document, setDocument] = useState<PdfDocument>()
   const documentRef = useRef<PdfDocument | undefined>(undefined)
@@ -75,9 +76,13 @@ export default function PdfReader({ book, onNotice, onProgress, targetLanguage =
   const persistPageProgress = useCallback((nextPage: number, totalPages: number) => {
     const location = `pdf:${nextPage}`
     const progress = Math.round((nextPage / totalPages) * 100)
-    progressWriteRef.current = progressWriteRef.current.catch(() => undefined).then(() => saveReadingProgress(book.id, location, progress))
+    progressWriteRef.current = progressWriteRef.current.catch(() => null).then(async () => {
+      const persisted = await saveReadingProgress(book.id, location, progress)
+      if (persisted) onProgress(progress, location, persisted)
+      return persisted
+    })
     return progressWriteRef.current
-  }, [book.id])
+  }, [book.id, onProgress])
 
   const moveToPage = useCallback(async (requestedPage: number) => {
     if (!document) return
@@ -86,8 +91,6 @@ export default function PdfReader({ book, onNotice, onProgress, targetLanguage =
     // Mark the navigation immediately. An older render can finish while this
     // write is in flight; it must not append its former page to the queue.
     intendedPageRef.current = nextPage
-    const location = `pdf:${nextPage}`
-    const progress = Math.round((nextPage / document.numPages) * 100)
     try {
       // Do not reveal the new page until its location is durable: a refresh immediately
       // after a visible page turn must reopen at the page the reader just reached.
@@ -95,7 +98,6 @@ export default function PdfReader({ book, onNotice, onProgress, targetLanguage =
     } catch {
       onNotice('阅读进度暂未保存；请稍后重试')
     }
-    onProgress(progress, location)
     setPage(nextPage)
   }, [document, onNotice, onProgress, page, persistPageProgress])
 
@@ -187,10 +189,7 @@ export default function PdfReader({ book, onNotice, onProgress, targetLanguage =
       const textContent = await pdfPage.getTextContent()
       if (!active || intendedPageRef.current !== page) return
       setPageText(textContent.items.map((item) => item.str ?? '').join(' ').replace(/\s+/g, ' ').trim())
-      const progress = Math.round((page / document.numPages) * 100)
-      const location = `pdf:${page}`
-      void persistPageProgress(page, document.numPages)
-      onProgress(progress, location)
+      void persistPageProgress(page, document.numPages).catch(() => undefined)
     }).catch(() => onNotice('这一页 PDF 渲染失败，请尝试重新打开'))
     return () => { active = false }
   }, [document, page, readerPreferences.pdfZoom, onNotice, onProgress, persistPageProgress])

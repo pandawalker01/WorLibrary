@@ -1345,15 +1345,22 @@ export async function searchBookTextIndex(query: string): Promise<Array<{ bookId
   })
 }
 
-export async function saveReadingProgress(bookId: string, location: string, progress: number): Promise<void> {
+/**
+ * Persist a reader location and return exactly the record that reached local
+ * storage. Callers that later enqueue metadata sync work must use this value,
+ * rather than rebuilding a payload from an optimistic UI snapshot.
+ */
+export async function saveReadingProgress(bookId: string, location: string, progress: number): Promise<StoredBook | null> {
   const current = await transaction<StoredBook | undefined>('books', 'readonly', (store) => store.get(bookId))
-  if (!current) return
-  await transaction('books', 'readwrite', (store) => store.put({
+  if (!current) return null
+  const next: StoredBook = {
     ...current,
     location,
     progress: Math.max(0, Math.min(100, progress)),
     lastReadAt: Date.now(),
-  }))
+  }
+  await transaction('books', 'readwrite', (store) => store.put(next))
+  return next
 }
 
 export async function saveHighlight(input: Omit<Highlight, 'id' | 'createdAt'>): Promise<Highlight> {

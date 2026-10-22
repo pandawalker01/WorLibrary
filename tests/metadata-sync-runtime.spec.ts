@@ -220,6 +220,64 @@ test('runtime invalidation during a pending pull blocks projection, revision, an
   expect(data.calls).toEqual(['list:stable-user', 'cursor-read:stable-user'])
 })
 
+test('account switching invalidates an old projection after its shadow write and never advances its revision or cursor', async () => {
+  const data = dependencies()
+  let releaseShadow: (() => void) | undefined
+  const waitForShadow = new Promise<void>((resolve) => { releaseShadow = resolve })
+  let shadowStarted = false
+  const oldSession = session
+  const nextSession = {
+    ...session,
+    user: { id: 'next-stable-user', isAnonymous: false },
+  }
+  let oldPulls = 0
+  const runtime = createMetadataSyncRuntime({
+    remote: {
+      rpc: async (name, input) => {
+        if (name !== 'pull_metadata_sync_changes') return []
+        if (input.p_after_sequence === 0 && oldPulls === 0) {
+          oldPulls += 1
+          return [safeEdition()]
+        }
+        return []
+      },
+    },
+    outbox: data.outbox,
+    shadows: {
+      ...data.shadows,
+      upsert: async (input) => {
+        shadowStarted = true
+        await waitForShadow
+        return {
+          key: `${input.userId}:${input.editionId}`,
+          ...input,
+          needsReimport: true,
+        }
+      },
+    },
+    cursors: data.cursors,
+    revisions: data.revisions,
+    registerDevice: async () => registration,
+  })
+
+  const obsolete = runtime.run(oldSession)
+  await expect.poll(() => shadowStarted).toBe(true)
+  runtime.invalidate(oldSession.user.id)
+  const next = runtime.run(nextSession)
+  releaseShadow?.()
+
+  await expect(obsolete).resolves.toMatchObject({ status: 'invalidated' })
+  await expect(next).resolves.toMatchObject({ status: 'completed' })
+  expect(data.revisionWrites).toEqual([])
+  expect(data.calls).toEqual([
+    'list:stable-user',
+    'cursor-read:stable-user',
+    'list:next-stable-user',
+    'cursor-read:next-stable-user',
+    'cursor-write:0',
+  ])
+})
+
 test('runtime forwards each accepted edition revision to its injectable durable store before advancing the cursor', async () => {
   const data = dependencies()
   const pages = [[safeEdition()], []]

@@ -11,7 +11,8 @@ import '../epub-reader.css'
 type EpubReaderProps = {
   book: StoredBook
   onNotice: (message: string) => void
-  onProgress: (progress: number, location: string) => void
+  /** Called only after this exact book record has reached local storage. */
+  onProgress: (progress: number, location: string, persistedBook: StoredBook) => void
   onHighlightSaved?: (highlight: Highlight) => void
   targetLanguage?: string
   uiLocale?: UiLocale
@@ -186,8 +187,9 @@ export default function EpubReader({ book, onNotice, onProgress, onHighlightSave
           pageAtChapterEndRef.current = Boolean(displayed?.page && displayed?.total && displayed.page >= displayed.total)
           const chapter = toc.find((item) => href && (href === item.href || href.endsWith(item.href) || item.href.endsWith(href)))
           setChapterLabel(chapter?.label ?? '')
-          void saveReadingProgress(book.id, cfi, progress)
-          onProgress(progress, cfi)
+          void saveReadingProgress(book.id, cfi, progress).then((persisted) => {
+            if (persisted) onProgress(progress, cfi, persisted)
+          }).catch(() => undefined)
         })
         rendition.on('selected', (cfi: string, contents: { window?: Window }) => {
           const text = contents?.window?.getSelection()?.toString().trim() ?? ''

@@ -77,6 +77,40 @@ test('a stable local edition queues only whitelisted metadata with the device re
   expect(JSON.stringify(entries)).not.toContain('work_id')
 })
 
+test('edition-only intent has a closed payload boundary even when the local record carries unsynced file-related fields', async () => {
+  const entries: CreateMetadataSyncOutboxEntry[] = []
+  const localRecord = Object.assign(book({
+    coverImage: 'data:image/png;base64,private-cover-bytes',
+    workId: 'local-work-relation',
+  }), {
+    objectKey: 'private-user-files/reader.epub',
+    sourceUrl: 'https://private.example/reader.epub',
+    textBody: 'never sync an EPUB body',
+    fileBytes: 'private-epub-bytes',
+  })
+
+  const result = await enqueueLocalEditionMetadataSyncIntent({
+    session,
+    book: localRecord,
+    deviceStorage: storage(clientInstanceId),
+    enqueue: captureEnqueue(entries),
+  })
+
+  expect(result.status).toBe('queued')
+  const payload = entries[0]?.payload ?? {}
+  expect(Object.keys(payload).sort()).toEqual([
+    'author', 'cover', 'file_name', 'file_size', 'file_type', 'language', 'location', 'progress', 'title',
+  ])
+  const serialized = JSON.stringify({ entityId: entries[0]?.entityId, payload })
+  for (const forbidden of [
+    'private-cover-bytes', 'local-work-relation', 'private-user-files',
+    'https://private.example', 'never sync an EPUB body', 'private-epub-bytes',
+    'work_id', 'objectKey', 'sourceUrl', 'textBody', 'fileBytes',
+  ]) {
+    expect(serialized).not.toContain(forbidden)
+  }
+})
+
 test('anonymous sessions never inspect books, storage, or the outbox', async () => {
   const entries: CreateMetadataSyncOutboxEntry[] = []
   const deviceStorage = storage()

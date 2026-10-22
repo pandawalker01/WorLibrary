@@ -7,7 +7,7 @@ import './highlights.css'
 import { listHighlights, type Highlight } from './lib/storage'
 import './library.css'
 import './settings.css'
-import { deleteBook, linkBookEditions, listAlignments, listBooks, listEditions, refreshBookCover, saveBook, saveEditionProgress, searchBookTextIndex, updateBookCover, updateBookMetadata, type StoredBook } from './lib/storage'
+import { deleteBook, linkBookEditions, listAlignments, listBooks, listEditions, readMetadataSyncEntityRevision, refreshBookCover, saveBook, saveEditionProgress, searchBookTextIndex, updateBookCover, updateBookMetadata, type StoredBook } from './lib/storage'
 import type { Alignment, Edition } from './lib/edition'
 import EditionComparisonReader from './components/EditionComparisonReader'
 import AuthPanel from './components/AuthPanel'
@@ -20,6 +20,8 @@ import WorldLanguagePicker from './components/WorldLanguagePicker'
 import ReadingLanguagePicker, { displayReadingLanguage } from './components/ReadingLanguagePicker'
 import InterfaceLanguagePicker from './components/InterfaceLanguagePicker'
 import { interfaceLocaleDirection, presentInterfaceLocales } from './lib/interface-locale-registry'
+import { enqueueLocalEditionMetadataSyncIntent } from './lib/metadata-sync-edition-intent'
+import { createMetadataSyncRuntime, type MetadataSyncRuntime } from './lib/metadata-sync-runtime'
 
 // Platform rendering pulls in EPUB.js/PDF.js integration. Keep it out of the
 // personal-library shell until a user explicitly opens an authorised title.
@@ -249,10 +251,17 @@ function App() {
   const [worldHasSearched, setWorldHasSearched] = useState(false)
   const fileInput = useRef<HTMLInputElement>(null)
   const coverInput = useRef<HTMLInputElement>(null)
+  const metadataSyncRuntimeRef = useRef<MetadataSyncRuntime | null>(null)
+  const metadataSyncTimerRef = useRef<number | null>(null)
+  const sessionRef = useRef<AuthSession | null>(null)
+  if (!metadataSyncRuntimeRef.current) metadataSyncRuntimeRef.current = createMetadataSyncRuntime()
   const ui = copy[uiLocale]
   const account = accountIdentity(session, ui.signIn, ui.guestAccount, ui.profileDefaultName, profileDraft ?? undefined)
 
   const handleAuthSessionChange = useCallback((next: AuthSession | null) => {
+    const previous = sessionRef.current
+    if (previous?.user.id && previous.user.id !== next?.user.id) metadataSyncRuntimeRef.current?.invalidate(previous.user.id)
+    sessionRef.current = next
     setSession(next)
     if (next && !next.user.isAnonymous) setAuthDialogOpen(false)
     if (!next) setAccountMenuOpen(false)
@@ -309,16 +318,40 @@ function App() {
   }, [accountMenuOpen])
 
   const syncNow = useCallback(async () => {
-    // The legacy full-table REST synchronizer has no account-scoped outbox,
-    // server revisions, or a safe representation for metadata-only books.
-    // Keep it disabled until the controlled RPC protocol is live.
-    return undefined
+    const current = sessionRef.current
+    if (!current || current.user.isAnonymous) return undefined
+    return metadataSyncRuntimeRef.current?.run(current)
   }, [])
 
   const scheduleSync = useCallback(() => {
-    // Local reading must remain responsive while account metadata sync is
-    // being rebuilt. In particular, never leave a cross-account legacy queue.
-  }, [])
+    const current = sessionRef.current
+    if (!current || current.user.isAnonymous) return
+    if (metadataSyncTimerRef.current !== null) window.clearTimeout(metadataSyncTimerRef.current)
+    metadataSyncTimerRef.current = window.setTimeout(() => {
+      metadataSyncTimerRef.current = null
+      void syncNow()
+    }, 900)
+  }, [syncNow])
+
+  const queueEditionMetadataSync = useCallback(async (book: StoredBook) => {
+    const current = sessionRef.current
+    if (!current || current.user.isAnonymous || !book.editionId) return
+    try {
+      const revision = await readMetadataSyncEntityRevision(current.user.id, 'edition', book.editionId)
+      // An asynchronous IndexedDB read can outlive sign-out/account switching.
+      // Never enqueue an old account's metadata under the newer account.
+      if (sessionRef.current?.user.id !== current.user.id) return
+      const result = await enqueueLocalEditionMetadataSyncIntent({
+        session: current,
+        book,
+        baseRevision: revision?.revision ?? 0,
+      })
+      if (result.status === 'queued') scheduleSync()
+    } catch {
+      // The shelf remains local-first. Background metadata sync must not turn
+      // an otherwise successful import, edit, or page turn into a UI failure.
+    }
+  }, [scheduleSync])
 
   useEffect(() => {
     void Promise.all([listBooks(), listEditions(), listAlignments(), listHighlights()]).then(([savedBooks, savedEditions, savedAlignments, savedHighlights]) => { setBooks(savedBooks); setEditions(savedEditions); setAlignments(savedAlignments); setHighlightCount(savedHighlights.length); setBooksLoaded(true) })
@@ -369,24 +402,36 @@ function App() {
     if (currentRoute.view !== nextRoute.view || currentRoute.libraryMode !== nextRoute.libraryMode || currentRoute.bookId !== nextRoute.bookId || currentRoute.platformEditionId !== nextRoute.platformEditionId) writeAppRoute(nextRoute)
   }, [libraryMode, routedPlatformEditionId, selectedBook.id, view])
 
-  useEffect(() => { void getSession().then((next) => { setSession(next); if (next) void syncNow() }) }, [syncNow])
+  useEffect(() => {
+    void getSession().then(handleAuthSessionChange).catch(() => handleAuthSessionChange(null))
+  }, [handleAuthSessionChange])
+  useEffect(() => {
+    if (!session || session.user.isAnonymous) return
+    void syncNow()
+  }, [session?.user.id, session?.user.isAnonymous, syncNow])
   useEffect(() => {
     const onOnline = () => { setIsOnline(true); void syncNow() }
     const onOffline = () => setIsOnline(false)
+    const onVisibilityChange = () => {
+      if (document.visibilityState === 'visible') void syncNow()
+    }
     window.addEventListener('online', onOnline)
     window.addEventListener('offline', onOffline)
-    return () => { window.removeEventListener('online', onOnline); window.removeEventListener('offline', onOffline) }
+    document.addEventListener('visibilitychange', onVisibilityChange)
+    return () => {
+      window.removeEventListener('online', onOnline)
+      window.removeEventListener('offline', onOffline)
+      document.removeEventListener('visibilitychange', onVisibilityChange)
+    }
   }, [syncNow])
   useEffect(() => {
     const onUpdateReady = () => setUpdateReady(true)
     window.addEventListener('worlibrary:update-ready', onUpdateReady)
     return () => window.removeEventListener('worlibrary:update-ready', onUpdateReady)
   }, [])
-  useEffect(() => {
-    if (view !== 'reader') return
-    const timer = window.setInterval(scheduleSync, 5000)
-    return () => window.clearInterval(timer)
-  }, [view, scheduleSync])
+  useEffect(() => () => {
+    if (metadataSyncTimerRef.current !== null) window.clearTimeout(metadataSyncTimerRef.current)
+  }, [])
   useEffect(() => {
     if (view !== 'reader' || !activeReadingBookKey) return
     const timer = window.setInterval(() => {
@@ -556,7 +601,7 @@ function App() {
       const saved = await Promise.all(files.map((file, index) => saveBook(file, index)))
       setBooks((current) => [...current, ...saved])
       setEditions(await listEditions())
-      scheduleSync()
+      void Promise.all(saved.map((book) => queueEditionMetadataSync(book)))
       toast(`已保存 ${saved.length} 本书 · 文件不会上传`)
     } catch (error) {
       toast(error instanceof Error ? error.message : '保存失败，请重试')
@@ -578,12 +623,13 @@ function App() {
     } catch (error) { toast(error instanceof Error ? error.message : '关联译本失败') }
   }
 
-  function updateEditionProgress(bookId: string, progress: number, location: string) {
+  function updateEditionProgress(bookId: string, progress: number, location: string, persistedBook?: StoredBook) {
     const lastReadAt = Date.now()
     setSelectedBook((current) => current.id === bookId ? { ...current, progress, location, lastReadAt } : current)
     setBooks((current) => current.map((item) => item.id === bookId ? { ...item, progress, location, lastReadAt } : item))
     const edition = editions.find((item) => item.bookId === bookId)
     if (edition) { setEditions((current) => current.map((item) => item.id === edition.id ? { ...item, progress, location } : item)); void saveEditionProgress(edition.id, location, progress) }
+    if (persistedBook) void queueEditionMetadataSync(persistedBook)
   }
 
   async function removeBook(book: DisplayBook) {
@@ -605,7 +651,7 @@ function App() {
       setSelectedBook((current) => current.id === updated.id ? { ...current, title: updated.title, author: updated.author } : current)
       setEditions(await listEditions())
       setMetadataDraft(null)
-      scheduleSync()
+      void queueEditionMetadataSync(updated)
       toast('书籍信息已在本地更新')
     } catch (error) { toast(error instanceof Error ? error.message : '书籍信息保存失败，请重试') }
   }
