@@ -14,10 +14,12 @@ import type { RemoteBookMetadataShadowStore } from './metadata-sync-edition-shad
 import type { MetadataSyncOutboxStore, MetadataSyncRpcClient } from './metadata-sync-engine'
 import { createRemoteClient } from './remote'
 import {
-  confirmMetadataSyncOutboxEntry,
+  acknowledgeMetadataSyncOutboxEntry,
+  claimMetadataSyncOutboxEntry,
   deleteRemoteBookMetadataShadow,
   listMetadataSyncOutbox,
   readMetadataSyncCursor,
+  releaseMetadataSyncOutboxClaim,
   upsertRemoteBookMetadataShadow,
   writeMetadataSyncEntityRevision,
   writeMetadataSyncCursor,
@@ -54,6 +56,13 @@ export type MetadataSyncRuntime = {
    * bodies are accepted by this runtime.
    */
   run(session: AuthSession | null): Promise<MetadataSyncCoordinatorResult>
+  /**
+   * Marks a current run obsolete after sign-out or account switching.  It
+   * cannot retract an RPC already at the server, but prevents the obsolete
+   * browser session from continuing with another flush, pull, or durable
+   * cursor/revision write.  Omit `userId` to invalidate every known account.
+   */
+  invalidate(userId?: string): void
 }
 
 function stableSession(session: AuthSession | null): session is AuthSession {
@@ -84,7 +93,9 @@ function defaultEntityRevisionStore(): MetadataSyncEntityRevisionStore {
 function defaultOutboxStore(): MetadataSyncOutboxStore {
   return {
     list: listMetadataSyncOutbox,
-    confirm: confirmMetadataSyncOutboxEntry,
+    claim: claimMetadataSyncOutboxEntry,
+    acknowledge: acknowledgeMetadataSyncOutboxEntry,
+    release: releaseMetadataSyncOutboxClaim,
   }
 }
 
@@ -105,11 +116,24 @@ export function createMetadataSyncRuntime(
   dependencies: MetadataSyncRuntimeDependencies = {},
 ): MetadataSyncRuntime {
   const flights = new Map<string, Promise<MetadataSyncCoordinatorResult>>()
+  const generations = new Map<string, number>()
+
+  const invalidate = (userId?: string): void => {
+    const users = userId ? [userId] : [...generations.keys()]
+    for (const id of users) {
+      generations.set(id, (generations.get(id) ?? 0) + 1)
+      // A future stable session must not be held behind the obsolete flight.
+      flights.delete(id)
+    }
+  }
 
   const run = (session: AuthSession | null): Promise<MetadataSyncCoordinatorResult> => {
     // These guards intentionally precede browser storage, default-store, ID
     // generation, device registration, and network-client construction.
     if (!stableSession(session)) return Promise.resolve({ status: 'no-stable-account' })
+
+    const existing = flights.get(session.user.id)
+    if (existing) return existing
 
     let remote = dependencies.remote
     if (!remote) {
@@ -119,9 +143,6 @@ export function createMetadataSyncRuntime(
       remote = (dependencies.createRemote ?? createRemoteClient)(session)
     }
 
-    const existing = flights.get(session.user.id)
-    if (existing) return existing
-
     const outbox = dependencies.outbox ?? defaultOutboxStore()
     const shadows = dependencies.shadows ?? defaultShadowStore()
     const cursors = dependencies.cursors ?? defaultCursorStore()
@@ -129,6 +150,9 @@ export function createMetadataSyncRuntime(
     const registerDevice = dependencies.registerDevice
       ? () => dependencies.registerDevice!({ session, remote })
       : () => registerBrowserSyncDevice({ session, remote, storage: dependencies.deviceStorage })
+    const generation = generations.get(session.user.id) ?? 0
+    generations.set(session.user.id, generation)
+    const shouldContinue = () => generations.get(session.user.id) === generation
 
     const task = coordinateMetadataSync({
       session,
@@ -140,16 +164,17 @@ export function createMetadataSyncRuntime(
       registerDevice,
       pageSize: dependencies.pageSize,
       maxPages: dependencies.maxPages,
+      shouldContinue,
     })
     flights.set(session.user.id, task)
     // Do not use `finally` without consuming the promise it returns: a
     // rejected injected adapter must still release the single-flight slot.
     void task.then(
-      () => { flights.delete(session.user.id) },
-      () => { flights.delete(session.user.id) },
+      () => { if (flights.get(session.user.id) === task) flights.delete(session.user.id) },
+      () => { if (flights.get(session.user.id) === task) flights.delete(session.user.id) },
     )
     return task
   }
 
-  return { run }
+  return { run, invalidate }
 }

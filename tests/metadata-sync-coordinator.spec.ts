@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test'
 import { coordinateMetadataSync } from '../src/lib/metadata-sync-coordinator'
-import type { RemoteBookMetadataShadow, UpsertRemoteBookMetadataShadow } from '../src/lib/storage'
+import type { MetadataSyncOutboxEntry, RemoteBookMetadataShadow, UpsertRemoteBookMetadataShadow } from '../src/lib/storage'
 
 const session = {
   accessToken: 'jwt',
@@ -49,7 +49,9 @@ function dependencies() {
     cursorWrites,
     outbox: {
       list: async (userId: string) => { calls.push(`list:${userId}`); return [] },
-      confirm: async () => true,
+      claim: async (): Promise<MetadataSyncOutboxEntry | null> => null,
+      acknowledge: async () => true,
+      release: async () => true,
     },
     shadowStore: {
       upsert: async (shadow: UpsertRemoteBookMetadataShadow): Promise<RemoteBookMetadataShadow> => {
@@ -150,10 +152,12 @@ test('metadata coordinator leaves cursor untouched when the feed contains an uns
 
 test('metadata coordinator does not pull or advance a cursor when the outbox is blocked', async () => {
   const data = dependencies()
-  data.outbox.list = async () => [{
+  const blocked: MetadataSyncOutboxEntry = {
     operationId: '31e5ed3a-7258-4f7f-a53d-5d43a02f4aec', userId: session.user.id, deviceClientId: registration.clientInstanceId,
     entityType: 'setting', entityId: 'reader.theme', operation: 'upsert', baseRevision: 0, payload: { value: 'paper' }, status: 'pending', createdAt: 1,
-  }]
+  }
+  data.outbox.list = async () => [blocked]
+  data.outbox.claim = async () => ({ ...blocked, status: 'in-flight', claimId: 'flush-claim', claimExpiresAt: Date.now() + 60_000 })
   const rpcCalls: string[] = []
 
   const result = await coordinateMetadataSync({

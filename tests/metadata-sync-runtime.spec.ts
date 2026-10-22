@@ -29,7 +29,9 @@ function dependencies() {
     revisionWrites,
     outbox: {
       list: async (userId: string) => { calls.push(`list:${userId}`); return [] },
-      confirm: async () => true,
+      claim: async () => null,
+      acknowledge: async () => true,
+      release: async () => true,
     },
     shadows: {
       upsert: async (input: UpsertRemoteBookMetadataShadow): Promise<RemoteBookMetadataShadow> => ({
@@ -160,6 +162,62 @@ test('runtime coalesces concurrent runs for the same account into one device and
   expect(registerCalls).toBe(1)
   expect(pullCalls).toBe(1)
   expect(data.calls).toEqual(['list:stable-user', 'cursor-read:stable-user', 'cursor-write:0'])
+})
+
+test('runtime invalidation prevents an obsolete session from pulling or writing cursor state after registration', async () => {
+  const data = dependencies()
+  let releaseRegistration: (() => void) | undefined
+  const waitForRegistration = new Promise<void>((resolve) => { releaseRegistration = resolve })
+  let pullCalls = 0
+  const runtime = createMetadataSyncRuntime({
+    remote: { rpc: async () => { pullCalls += 1; return [] } },
+    outbox: data.outbox,
+    shadows: data.shadows,
+    cursors: data.cursors,
+    revisions: data.revisions,
+    registerDevice: async () => { await waitForRegistration; return registration },
+  })
+
+  const obsolete = runtime.run(session)
+  runtime.invalidate(session.user.id)
+  releaseRegistration?.()
+
+  await expect(obsolete).resolves.toMatchObject({ status: 'invalidated' })
+  expect(pullCalls).toBe(0)
+  expect(data.calls).toEqual([])
+})
+
+test('runtime invalidation during a pending pull blocks projection, revision, and cursor writes', async () => {
+  const data = dependencies()
+  let releasePull: (() => void) | undefined
+  const waitForPull = new Promise<void>((resolve) => { releasePull = resolve })
+  let pullCalls = 0
+  const runtime = createMetadataSyncRuntime({
+    remote: {
+      rpc: async (name) => {
+        if (name === 'pull_metadata_sync_changes') {
+          pullCalls += 1
+          await waitForPull
+          return [safeEdition()]
+        }
+        return []
+      },
+    },
+    outbox: data.outbox,
+    shadows: data.shadows,
+    cursors: data.cursors,
+    revisions: data.revisions,
+    registerDevice: async () => registration,
+  })
+
+  const obsolete = runtime.run(session)
+  await expect.poll(() => pullCalls).toBe(1)
+  runtime.invalidate(session.user.id)
+  releasePull?.()
+
+  await expect(obsolete).resolves.toMatchObject({ status: 'invalidated' })
+  expect(data.revisionWrites).toEqual([])
+  expect(data.calls).toEqual(['list:stable-user', 'cursor-read:stable-user'])
 })
 
 test('runtime forwards each accepted edition revision to its injectable durable store before advancing the cursor', async () => {

@@ -1,5 +1,5 @@
 import type { AuthSession } from './auth'
-import type { PulledMetadataSyncChange, RemoteClient, RemoteRequestError } from './remote'
+import type { AppliedMetadataSyncChange, PulledMetadataSyncChange, RemoteClient, RemoteRequestError } from './remote'
 import type { MetadataSyncOutboxEntry } from './storage'
 
 /**
@@ -9,7 +9,12 @@ import type { MetadataSyncOutboxEntry } from './storage'
  */
 export type MetadataSyncOutboxStore = {
   list(userId: string): Promise<MetadataSyncOutboxEntry[]>
-  confirm(userId: string, operationId: string): Promise<boolean>
+  /** Atomically reserve one local operation before its RPC is sent. */
+  claim(userId: string, operationId: string, claimId: string): Promise<MetadataSyncOutboxEntry | null>
+  /** Delete only the matching reservation and rebase later local work. */
+  acknowledge(userId: string, operationId: string, claimId: string, entityRevision: number): Promise<boolean>
+  /** Return a failed reservation to the retryable pending queue. */
+  release(userId: string, operationId: string, claimId: string): Promise<boolean>
 }
 
 export type MetadataSyncRpcClient = Pick<RemoteClient, 'rpc'>
@@ -23,12 +28,19 @@ export type MetadataSyncFlushInput = {
   serverDeviceId: string | null
   remote: MetadataSyncRpcClient
   outbox: MetadataSyncOutboxStore
+  /**
+   * Lets the session owner invalidate an in-flight run after sign-out or an
+   * account switch.  This is deliberately a synchronous predicate so the
+   * engine can stop before every new storage or network step.
+   */
+  shouldContinue?: () => boolean
 }
 
 export type MetadataSyncFlushStopReason =
   | 'completed'
   | 'no-stable-account'
   | 'missing-device'
+  | 'invalidated'
   | 'retryable-failure'
   | 'conflict'
   | 'permanent-failure'
@@ -52,6 +64,8 @@ export type PullMetadataSyncChangeFeedInput = {
   pageSize?: number
   /** Bounded polling prevents an accidental full-history loop in one UI tick. */
   maxPages?: number
+  /** See `MetadataSyncFlushInput.shouldContinue`. */
+  shouldContinue?: () => boolean
   /**
    * The application validates and applies each sanitized server change.  This
    * engine deliberately does not interpret entity payloads: new entity types
@@ -64,6 +78,7 @@ export type PullMetadataSyncChangeFeedStopReason =
   | 'completed'
   | 'no-stable-account'
   | 'page-limit'
+  | 'invalidated'
   | 'invalid-feed'
   | 'handler-failure'
   | 'remote-failure'
@@ -118,12 +133,46 @@ function pageHasStrictlyIncreasingSequences(page: PulledMetadataSyncChange[], af
   })
 }
 
+function acknowledgedMutation(
+  response: AppliedMetadataSyncChange[],
+  operation: MetadataSyncOutboxEntry['operation'],
+): AppliedMetadataSyncChange {
+  const receipt = response[0]
+  if (
+    !Array.isArray(response)
+    || response.length !== 1
+    || !receipt
+    || receipt.operation !== operation
+    || typeof receipt.applied !== 'boolean'
+    || !Number.isSafeInteger(receipt.sequence)
+    || receipt.sequence < 1
+    || !Number.isSafeInteger(receipt.entity_revision)
+    || receipt.entity_revision < 1
+  ) {
+    throw new Error('同步服务返回了无效的 mutation 回执')
+  }
+  return receipt
+}
+
+async function releaseClaimAfterFailure(
+  outbox: MetadataSyncOutboxStore,
+  userId: string,
+  operationId: string,
+  claimId: string,
+): Promise<void> {
+  // A false result means another holder legitimately reclaimed or completed
+  // the lease. Either way this flush must stop instead of deleting anything.
+  await outbox.release(userId, operationId, claimId)
+}
+
 /**
- * Flush metadata intents strictly in creation order.  A successful RPC (also
- * an idempotent `applied: false` replay) is the only condition that removes an
- * outbox entry.  Any failure leaves the failed entry and every later entry in
- * place so another device's change cannot be skipped or silently overwritten.
- * This module intentionally has no file/blob input or storage API.
+ * Flush metadata intents strictly in creation order. Each operation is
+ * atomically claimed before its RPC leaves the browser. A newer edit made
+ * during that request therefore becomes a separate pending intent; the exact
+ * claim acknowledgement deletes only the sent operation and rebases the new
+ * one to the returned server revision. Any failure releases only its matching
+ * claim for idempotent retry. This module intentionally has no file/blob input
+ * or storage API.
  */
 export async function flushMetadataSyncOutbox(input: MetadataSyncFlushInput): Promise<MetadataSyncFlushResult> {
   if (!isStableSession(input.session)) {
@@ -132,15 +181,30 @@ export async function flushMetadataSyncOutbox(input: MetadataSyncFlushInput): Pr
   if (!isValidDeviceId(input.serverDeviceId)) {
     return { reason: 'missing-device', attempted: 0, confirmed: 0 }
   }
+  if (input.shouldContinue?.() === false) {
+    return { reason: 'invalidated', attempted: 0, confirmed: 0 }
+  }
 
   const entries = await input.outbox.list(input.session.user.id)
   let attempted = 0
   let confirmed = 0
 
-  for (const entry of entries) {
+  for (const listedEntry of entries) {
+    if (input.shouldContinue?.() === false) {
+      return { reason: 'invalidated', attempted, confirmed }
+    }
     // A defensive account check makes an injected/misbehaving storage adapter
     // unable to send another account's intent through this session.
-    if (entry.userId !== input.session.user.id) continue
+    if (listedEntry.userId !== input.session.user.id) continue
+    const claimId = crypto.randomUUID()
+    const entry = await input.outbox.claim(input.session.user.id, listedEntry.operationId, claimId)
+    // A second local flush may have an active lease. Do not send or confirm an
+    // unclaimed snapshot: it might have been superseded by a newer edit.
+    if (!entry) continue
+    if (input.shouldContinue?.() === false) {
+      await releaseClaimAfterFailure(input.outbox, input.session.user.id, entry.operationId, claimId)
+      return { reason: 'invalidated', attempted, confirmed }
+    }
     attempted += 1
     try {
       const response = await input.remote.rpc('apply_metadata_sync_change', {
@@ -152,15 +216,33 @@ export async function flushMetadataSyncOutbox(input: MetadataSyncFlushInput): Pr
         p_base_revision: entry.baseRevision,
         p_payload: entry.payload,
       })
-      if (!Array.isArray(response) || response.length !== 1) {
-        throw new Error('同步服务返回了无效的 mutation 回执')
+      const receipt = acknowledgedMutation(response, entry.operation)
+      if (input.shouldContinue?.() === false) {
+        await releaseClaimAfterFailure(input.outbox, input.session.user.id, entry.operationId, claimId)
+        return { reason: 'invalidated', attempted, confirmed }
       }
-      const acknowledged = await input.outbox.confirm(input.session.user.id, entry.operationId)
+      const acknowledged = await input.outbox.acknowledge(
+        input.session.user.id,
+        entry.operationId,
+        claimId,
+        receipt.entity_revision,
+      )
       if (!acknowledged) {
         throw new Error('同步操作确认失败；本地队列未删除')
       }
       confirmed += 1
     } catch (error) {
+      try {
+        await releaseClaimAfterFailure(input.outbox, input.session.user.id, entry.operationId, claimId)
+      } catch (releaseError) {
+        return {
+          reason: 'permanent-failure',
+          attempted,
+          confirmed,
+          failedOperationId: entry.operationId,
+          error: releaseError,
+        }
+      }
       const reason: MetadataSyncFlushStopReason = isRetryableSyncError(error)
         ? 'retryable-failure'
         : isConflictError(error)
@@ -184,6 +266,9 @@ export async function pullMetadataSyncChangeFeed(input: PullMetadataSyncChangeFe
   if (!isStableSession(input.session)) {
     return { reason: 'no-stable-account', nextSequence, pages: 0, received: 0, applied: 0 }
   }
+  if (input.shouldContinue?.() === false) {
+    return { reason: 'invalidated', nextSequence, pages: 0, received: 0, applied: 0 }
+  }
 
   const pageSize = boundedPositiveInteger(input.pageSize, 100, 200)
   const maxPages = boundedPositiveInteger(input.maxPages, 20, 1_000)
@@ -193,6 +278,9 @@ export async function pullMetadataSyncChangeFeed(input: PullMetadataSyncChangeFe
   let applied = 0
 
   while (pages < maxPages) {
+    if (input.shouldContinue?.() === false) {
+      return { reason: 'invalidated', nextSequence: cursor, pages, received, applied }
+    }
     let page: PulledMetadataSyncChange[]
     try {
       page = await input.remote.rpc('pull_metadata_sync_changes', {
@@ -203,6 +291,9 @@ export async function pullMetadataSyncChangeFeed(input: PullMetadataSyncChangeFe
       return { reason: 'remote-failure', nextSequence: cursor, pages, received, applied, error }
     }
     pages += 1
+    if (input.shouldContinue?.() === false) {
+      return { reason: 'invalidated', nextSequence: cursor, pages, received, applied }
+    }
     if (!Array.isArray(page) || !pageHasStrictlyIncreasingSequences(page, cursor)) {
       return { reason: 'invalid-feed', nextSequence: cursor, pages, received, applied }
     }
@@ -212,7 +303,12 @@ export async function pullMetadataSyncChangeFeed(input: PullMetadataSyncChangeFe
 
     received += page.length
     try {
-      for (const change of page) await input.onChange(change)
+      for (const change of page) {
+        if (input.shouldContinue?.() === false) {
+          return { reason: 'invalidated', nextSequence: cursor, pages, received, applied }
+        }
+        await input.onChange(change)
+      }
     } catch (error) {
       // Do not advance the durable cursor past a partially handled page.  The
       // caller's handler must therefore be idempotent by operation id.

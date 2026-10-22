@@ -30,11 +30,14 @@ test('metadata sync outbox is an account-scoped metadata-only IndexedDB store', 
   expect(source).toContain("outbox.createIndex(METADATA_SYNC_OUTBOX_BY_USER, 'userId'")
   expect(source).toContain('createMetadataSyncOutboxEntry')
   expect(source).toContain('listMetadataSyncOutbox')
-  expect(source).toContain('confirmMetadataSyncOutboxEntry')
+  expect(source).toContain('claimMetadataSyncOutboxEntry')
+  expect(source).toContain('acknowledgeMetadataSyncOutboxEntry')
+  expect(source).toContain('releaseMetadataSyncOutboxClaim')
   expect(source).toContain('clearMetadataSyncOutbox')
   expect(source).toContain("existing.userId !== entry.userId")
   expect(source).toContain("entry.userId !== userId")
   expect(source).toContain("status: 'pending'")
+  expect(source).toContain("status: 'in-flight'")
   expect(source).toContain('baseRevision: input.baseRevision')
   expect(source).toContain('coalescePendingEditionMetadataSyncEntry')
   expect(source).toContain('store.index(METADATA_SYNC_OUTBOX_BY_USER).getAll(entry.userId)')
@@ -65,6 +68,12 @@ test('edition outbox coalescing never crosses accounts or changes delete/non-edi
   expect(coalescePendingEditionMetadataSyncEntry(earlier, { ...latest, entityId: 'other-edition' })).toBeNull()
   expect(coalescePendingEditionMetadataSyncEntry(earlier, { ...latest, operation: 'delete', payload: {} })).toBeNull()
   expect(coalescePendingEditionMetadataSyncEntry(earlier, { ...latest, entityType: 'highlight' })).toBeNull()
+  expect(coalescePendingEditionMetadataSyncEntry({
+    ...earlier,
+    status: 'in-flight',
+    claimId: 'local-flush-claim',
+    claimExpiresAt: Date.now() + 60_000,
+  }, latest)).toBeNull()
 })
 
 test('metadata sync cursors are durable, account-scoped, monotonic, and metadata-only', async () => {

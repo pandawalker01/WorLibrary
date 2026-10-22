@@ -29,20 +29,45 @@ function entry(operationId: string, createdAt: number): MetadataSyncOutboxEntry 
 function fixture(entries: MetadataSyncOutboxEntry[]) {
   const calls: string[] = []
   const confirmations: string[] = []
+  const claims = new Map<string, string>()
   return {
     calls,
     confirmations,
     outbox: {
       list: async (userId: string) => {
         calls.push(`list:${userId}`)
-        return entries
+        // IndexedDB returns a snapshot array; acknowledgements must not mutate
+        // the iteration list that this test flush is already walking.
+        return entries.map((candidate) => ({ ...candidate }))
       },
-      confirm: async (userId: string, operationId: string) => {
+      claim: async (userId: string, operationId: string, claimId: string) => {
+        const candidate = entries.find((entry) => entry.operationId === operationId && entry.userId === userId)
+        if (!candidate || candidate.status !== 'pending') return null
+        candidate.status = 'in-flight'
+        candidate.claimId = claimId
+        claims.set(operationId, claimId)
+        return { ...candidate }
+      },
+      acknowledge: async (userId: string, operationId: string, claimId: string) => {
         confirmations.push(`${userId}:${operationId}`)
+        const index = entries.findIndex((entry) => entry.operationId === operationId && entry.userId === userId && claims.get(operationId) === claimId)
+        if (index < 0) return false
+        entries.splice(index, 1)
+        return true
+      },
+      release: async (userId: string, operationId: string, claimId: string) => {
+        const candidate = entries.find((entry) => entry.operationId === operationId && entry.userId === userId && candidateClaim(entry) === claimId)
+        if (!candidate) return false
+        candidate.status = 'pending'
+        delete candidate.claimId
         return true
       },
     },
   }
+}
+
+function candidateClaim(entry: MetadataSyncOutboxEntry): string | undefined {
+  return entry.claimId
 }
 
 test('metadata outbox flush is disabled for anonymous sessions before any storage or RPC work', async () => {
@@ -130,6 +155,68 @@ test('metadata outbox flush keeps retryable failures and later operations queued
   expect(result.failedOperationId).toBe('retry')
   expect(rpcOperations).toEqual(['retry'])
   expect(data.confirmations).toEqual([])
+})
+
+test('an acknowledgement never deletes a newer edition edit created while its older operation is in flight', async () => {
+  const older: MetadataSyncOutboxEntry = {
+    ...entry('older-edition', 1),
+    entityType: 'edition',
+    entityId: 'edition-1',
+    payload: { title: 'Earlier title', progress: 12 },
+  }
+  const entries: MetadataSyncOutboxEntry[] = [older]
+  let activeClaim: string | undefined
+  const outbox = {
+    list: async () => entries.filter((candidate) => candidate.status === 'pending').map((candidate) => ({ ...candidate })),
+    claim: async (_userId: string, operationId: string, claimId: string) => {
+      const candidate = entries.find((item) => item.operationId === operationId && item.status === 'pending')
+      if (!candidate) return null
+      candidate.status = 'in-flight'
+      candidate.claimId = claimId
+      activeClaim = claimId
+      return { ...candidate }
+    },
+    acknowledge: async (_userId: string, operationId: string, claimId: string, entityRevision: number) => {
+      const index = entries.findIndex((item) => item.operationId === operationId && item.status === 'in-flight' && item.claimId === claimId)
+      if (index < 0) return false
+      const confirmed = entries[index]
+      entries.splice(index, 1)
+      for (const candidate of entries) {
+        if (candidate.status === 'pending' && candidate.entityType === confirmed.entityType && candidate.entityId === confirmed.entityId) {
+          candidate.baseRevision = entityRevision
+        }
+      }
+      return true
+    },
+    release: async () => false,
+  }
+
+  const result = await flushMetadataSyncOutbox({
+    session,
+    serverDeviceId: 'server-device',
+    outbox,
+    remote: {
+      rpc: async () => {
+        // This represents a local reader progress update that arrives after
+        // the old payload was captured for network transmission.
+        entries.push({
+          ...older,
+          operationId: 'newer-edition',
+          payload: { title: 'Newest title', progress: 48 },
+          baseRevision: 0,
+          status: 'pending',
+          createdAt: 2,
+        })
+        return [{ sequence: 4, entity_revision: 3, operation: 'upsert' as const, applied: true }]
+      },
+    },
+  })
+
+  expect(result).toEqual({ reason: 'completed', attempted: 1, confirmed: 1 })
+  expect(activeClaim).toBeTruthy()
+  expect(entries).toEqual([expect.objectContaining({
+    operationId: 'newer-edition', status: 'pending', baseRevision: 3, payload: { title: 'Newest title', progress: 48 },
+  })])
 })
 
 function pulledChange(sequence: number): PulledMetadataSyncChange {

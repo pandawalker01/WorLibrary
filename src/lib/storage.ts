@@ -51,7 +51,16 @@ export type MetadataSyncOutboxEntry = {
   operation: 'upsert' | 'delete'
   baseRevision: number
   payload: Record<string, unknown>
-  status: 'pending'
+  /**
+   * `in-flight` is a short, local-only lease while one flush owns this exact
+   * operation id.  A newer edition edit must create a fresh pending intent
+   * instead of rewriting the bytes already handed to the RPC client.
+   */
+  status: 'pending' | 'in-flight'
+  /** Never leaves this browser's metadata outbox or crosses the RPC boundary. */
+  claimId?: string
+  /** A crashed tab can be reclaimed after this timestamp and replayed safely. */
+  claimExpiresAt?: number
   createdAt: number
 }
 
@@ -103,6 +112,7 @@ const REMOTE_BOOK_METADATA_SHADOWS_STORE = 'remote-book-metadata-shadows'
 const REMOTE_BOOK_METADATA_SHADOWS_BY_USER = 'by-user-id'
 const METADATA_SYNC_CURSORS_STORE = 'metadata-sync-cursors'
 const METADATA_SYNC_ENTITY_REVISIONS_STORE = 'metadata-sync-entity-revisions'
+const METADATA_SYNC_OUTBOX_CLAIM_LEASE_MS = 60_000
 
 /**
  * The last server sequence safely applied for one stable account.  This is
@@ -428,19 +438,147 @@ export async function createMetadataSyncOutboxEntry(input: CreateMetadataSyncOut
 /** List pending metadata intents for this account only. */
 export async function listMetadataSyncOutbox(userId: string): Promise<MetadataSyncOutboxEntry[]> {
   assertNonEmptyMetadataSyncId(userId, 'user id')
+  const now = Date.now()
   return outboxTransaction('readonly', (store, resolve, reject) => {
     const request = store.index(METADATA_SYNC_OUTBOX_BY_USER).getAll(userId)
     request.onerror = () => reject(request.error)
     request.onsuccess = () => {
       const entries = (request.result as MetadataSyncOutboxEntry[])
-        .filter((entry) => entry.userId === userId && entry.status === 'pending')
+        // An expired lease is intentionally visible for a safe idempotent
+        // replay after a tab/browser crash. A live lease remains hidden from
+        // a concurrent local flush, which prevents a duplicate in-flight RPC.
+        .filter((entry) => entry.userId === userId && (
+          entry.status === 'pending'
+          || (entry.status === 'in-flight'
+            && typeof entry.claimExpiresAt === 'number'
+            && Number.isSafeInteger(entry.claimExpiresAt)
+            && entry.claimExpiresAt <= now)
+        ))
         .sort((left, right) => left.createdAt - right.createdAt)
       resolve(entries)
     }
   })
 }
 
-/** Confirm an operation only when it belongs to the requesting account. */
+/**
+ * Atomically lease one queued operation before it is handed to the RPC
+ * client. A claim token makes a late acknowledgement unable to delete work
+ * that another local flush has safely reclaimed after a crash.
+ */
+export async function claimMetadataSyncOutboxEntry(
+  userId: string,
+  operationId: string,
+  claimId: string,
+): Promise<MetadataSyncOutboxEntry | null> {
+  assertNonEmptyMetadataSyncId(userId, 'user id')
+  assertNonEmptyMetadataSyncId(operationId, 'operation id')
+  assertNonEmptyMetadataSyncId(claimId, 'claim id')
+  const now = Date.now()
+  return outboxTransaction('readwrite', (store, resolve, reject) => {
+    const request = store.get(operationId)
+    request.onerror = () => reject(request.error)
+    request.onsuccess = () => {
+      const entry = request.result as MetadataSyncOutboxEntry | undefined
+      if (!entry || entry.userId !== userId) {
+        resolve(null)
+        return
+      }
+      const canClaim = entry.status === 'pending'
+        || (entry.status === 'in-flight'
+          && typeof entry.claimExpiresAt === 'number'
+          && Number.isSafeInteger(entry.claimExpiresAt)
+          && entry.claimExpiresAt <= now)
+      if (!canClaim) {
+        resolve(null)
+        return
+      }
+      const claimed: MetadataSyncOutboxEntry = {
+        ...entry,
+        status: 'in-flight',
+        claimId,
+        claimExpiresAt: now + METADATA_SYNC_OUTBOX_CLAIM_LEASE_MS,
+      }
+      const put = store.put(claimed)
+      put.onerror = () => reject(put.error)
+      put.onsuccess = () => resolve(claimed)
+    }
+  })
+}
+
+/** Return a matching failed lease to pending status so it can be retried. */
+export async function releaseMetadataSyncOutboxClaim(userId: string, operationId: string, claimId: string): Promise<boolean> {
+  assertNonEmptyMetadataSyncId(userId, 'user id')
+  assertNonEmptyMetadataSyncId(operationId, 'operation id')
+  assertNonEmptyMetadataSyncId(claimId, 'claim id')
+  return outboxTransaction('readwrite', (store, resolve, reject) => {
+    const request = store.get(operationId)
+    request.onerror = () => reject(request.error)
+    request.onsuccess = () => {
+      const entry = request.result as MetadataSyncOutboxEntry | undefined
+      if (!entry || entry.userId !== userId || entry.status !== 'in-flight' || entry.claimId !== claimId) {
+        resolve(false)
+        return
+      }
+      const released: MetadataSyncOutboxEntry = { ...entry, status: 'pending' }
+      delete released.claimId
+      delete released.claimExpiresAt
+      const put = store.put(released)
+      put.onerror = () => reject(put.error)
+      put.onsuccess = () => resolve(true)
+    }
+  })
+}
+
+/**
+ * Acknowledge exactly the lease that was sent to the server. Besides deleting
+ * that operation, atomically rebase later local intents for the same entity
+ * to the returned server revision. This is what preserves a new edit made
+ * while the older operation was in flight.
+ */
+export async function acknowledgeMetadataSyncOutboxEntry(
+  userId: string,
+  operationId: string,
+  claimId: string,
+  entityRevision: number,
+): Promise<boolean> {
+  assertNonEmptyMetadataSyncId(userId, 'user id')
+  assertNonEmptyMetadataSyncId(operationId, 'operation id')
+  assertNonEmptyMetadataSyncId(claimId, 'claim id')
+  if (!Number.isSafeInteger(entityRevision) || entityRevision < 1) throw new Error('Invalid metadata sync entity revision')
+  return outboxTransaction('readwrite', (store, resolve, reject) => {
+    const request = store.get(operationId)
+    request.onerror = () => reject(request.error)
+    request.onsuccess = () => {
+      const entry = request.result as MetadataSyncOutboxEntry | undefined
+      if (!entry || entry.userId !== userId || entry.status !== 'in-flight' || entry.claimId !== claimId) {
+        resolve(false)
+        return
+      }
+      const allRequest = store.index(METADATA_SYNC_OUTBOX_BY_USER).getAll(userId)
+      allRequest.onerror = () => reject(allRequest.error)
+      allRequest.onsuccess = () => {
+        const followUps = (allRequest.result as MetadataSyncOutboxEntry[])
+          .filter((candidate) => candidate.operationId !== operationId
+            && candidate.status === 'pending'
+            && candidate.entityType === entry.entityType
+            && candidate.entityId === entry.entityId)
+          .map((candidate) => ({ ...candidate, baseRevision: entityRevision }))
+        const writes: IDBRequest[] = [store.delete(operationId)]
+        for (const followUp of followUps) writes.push(store.put(followUp))
+        let completed = 0
+        for (const write of writes) {
+          write.onerror = () => reject(write.error)
+          write.onsuccess = () => {
+            completed += 1
+            if (completed === writes.length) resolve(true)
+          }
+        }
+      }
+    }
+  })
+}
+
+/** @deprecated Use claim + acknowledge so in-flight edits cannot be lost. */
 export async function confirmMetadataSyncOutboxEntry(userId: string, operationId: string): Promise<boolean> {
   assertNonEmptyMetadataSyncId(userId, 'user id')
   assertNonEmptyMetadataSyncId(operationId, 'operation id')
@@ -449,7 +587,7 @@ export async function confirmMetadataSyncOutboxEntry(userId: string, operationId
     request.onerror = () => reject(request.error)
     request.onsuccess = () => {
       const entry = request.result as MetadataSyncOutboxEntry | undefined
-      if (!entry || entry.userId !== userId) {
+      if (!entry || entry.userId !== userId || entry.status !== 'pending') {
         resolve(false)
         return
       }
