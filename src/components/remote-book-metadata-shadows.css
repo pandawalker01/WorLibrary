@@ -1,0 +1,18 @@
+.remote-book-metadata-shadows { margin: 28px 0 0; padding-top: 22px; border-top: 1px solid #d8e6f2; }
+.remote-book-metadata-shadows h2 { margin: 0 0 14px; color: #29435d; font: 700 18px 'Noto Serif SC', serif; }
+.remote-book-metadata-shadows__grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(272px, 1fr)); gap: 14px; }
+.remote-book-metadata-shadow { display: grid; grid-template-columns: 72px minmax(0, 1fr); gap: 14px; min-height: 164px; padding: 14px; border: 1px solid #cfe1ef; border-radius: 6px; background: #fbfdff; box-shadow: 0 7px 18px #4775980a; }
+.remote-book-metadata-shadow__cover { display: grid; min-height: 106px; place-items: center; overflow: hidden; color: #fff; font: 700 25px Georgia, serif; }
+.remote-book-metadata-shadow__cover.ink { background: linear-gradient(145deg, #2d536d, #648ba2); }
+.remote-book-metadata-shadow__cover.sun { background: linear-gradient(145deg, #e6b65c, #d88843); }
+.remote-book-metadata-shadow__cover.red { background: linear-gradient(145deg, #bd6b68, #92545c); }
+.remote-book-metadata-shadow__content { min-width: 0; }
+.remote-book-metadata-shadow__status { margin: 0 0 6px; color: #2879b6; font: 700 11px 'Noto Serif SC', serif; }
+.remote-book-metadata-shadow h3 { overflow: hidden; margin: 0 0 4px; color: #1d3850; font: 700 18px/1.32 'Noto Serif SC', serif; text-overflow: ellipsis; white-space: nowrap; }
+.remote-book-metadata-shadow__author, .remote-book-metadata-shadow__language { overflow: hidden; margin: 0 0 3px; color: #658096; font-size: 13px; text-overflow: ellipsis; white-space: nowrap; }
+.remote-book-metadata-shadow__copy { margin: 10px 0 11px; color: #718699; font-size: 12px; line-height: 1.55; }
+.remote-book-metadata-shadow__footer { display: flex; align-items: center; justify-content: space-between; gap: 10px; color: #527089; font: 600 11px 'Noto Serif SC', serif; }
+.remote-book-metadata-shadow__footer button { flex: none; border: 1px solid #2e86c9; border-radius: 4px; padding: 7px 9px; background: #fff; color: #1762a0; font: 600 12px 'Noto Serif SC', serif; cursor: pointer; }
+.remote-book-metadata-shadow__footer button:hover { background: #eaf6ff; }
+.remote-book-metadata-shadow__footer button:focus-visible { outline: 3px solid #b8def6; outline-offset: 2px; }
+@media (max-width: 760px) { .remote-book-metadata-shadows__grid { grid-template-columns: 1fr; }.remote-book-metadata-shadow { grid-template-columns: 64px minmax(0, 1fr); }.remote-book-metadata-shadow__cover { min-height: 100%; } }

@@ -23,6 +23,7 @@
 | src/components/PdfReader.tsx | PDF 阅读器、翻页、OCR、阅读主题标签与划词操作 |
 | src/components/HighlightsView.tsx | 摘录筛选、编辑、删除等可见文案 |
 | src/components/AuthPanel.tsx | 登录、匿名试用和同步状态文案；所有可见文本必须取自 `i18n.ts` |
+| src/components/RemoteBookMetadataShadows.tsx | 第二台设备上“需重新导入原书”的只读元数据卡片；标题、状态、说明、进度与重新导入操作全部取自 `i18n.ts`，不能把原始文件或封面二进制表示为可读内容 |
 | src/components/DataTransfer.tsx | 导入/导出阅读数据文案 |
 | tests/qa/ui-language.spec.ts | 界面语言与 AI 理解语言独立、刷新后持久化的核心回归 |
 

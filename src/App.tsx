@@ -1,4 +1,5 @@
 import { lazy, Suspense, useCallback, useEffect, useRef, useState, type ChangeEvent, type FormEvent } from 'react'
+import RemoteBookMetadataShadows from './components/RemoteBookMetadataShadows'
 import EpubReader from './components/EpubReader'
 import PdfReader from './components/PdfReader'
 import HighlightsView from './components/HighlightsView'
@@ -7,7 +8,7 @@ import './highlights.css'
 import { listHighlights, type Highlight } from './lib/storage'
 import './library.css'
 import './settings.css'
-import { deleteBook, linkBookEditions, listAlignments, listBooks, listEditions, readMetadataSyncEntityRevision, refreshBookCover, saveBook, saveEditionProgress, searchBookTextIndex, updateBookCover, updateBookMetadata, type StoredBook } from './lib/storage'
+import { deleteBook, linkBookEditions, listAlignments, listBooks, listEditions, listRemoteBookMetadataShadows, readMetadataSyncEntityRevision, refreshBookCover, reimportRemoteBookMetadataShadow, saveBook, saveEditionProgress, searchBookTextIndex, updateBookCover, updateBookMetadata, type RemoteBookMetadataShadow, type RemoteBookMetadataShadowReimport, type StoredBook } from './lib/storage'
 import type { Alignment, Edition } from './lib/edition'
 import EditionComparisonReader from './components/EditionComparisonReader'
 import AuthPanel from './components/AuthPanel'
@@ -28,7 +29,7 @@ import { createMetadataSyncRuntime, type MetadataSyncRuntime } from './lib/metad
 const PlatformReader = lazy(() => import('./components/PlatformReader'))
 
 type View = 'library' | 'reader' | 'highlights' | 'profile' | 'settings'
-type DisplayBook = Pick<StoredBook, 'id' | 'title' | 'author' | 'language' | 'progress' | 'cover'> & Partial<Pick<StoredBook, 'fileName' | 'fileType' | 'storage' | 'createdAt' | 'lastReadAt' | 'location' | 'workId' | 'coverImage'>>
+type DisplayBook = Pick<StoredBook, 'id' | 'title' | 'author' | 'language' | 'progress' | 'cover'> & Partial<Pick<StoredBook, 'fileName' | 'fileType' | 'storage' | 'createdAt' | 'lastReadAt' | 'location' | 'workId' | 'editionId' | 'coverImage'>>
 type AppRoute = { view: View; libraryMode: 'mine' | 'world'; bookId?: string; platformEditionId?: string }
 
 function readAppRoute(): AppRoute {
@@ -249,7 +250,10 @@ function App() {
   const [worldLanguage, setWorldLanguage] = useState('')
   const [multiLanguageOnly, setMultiLanguageOnly] = useState(false)
   const [worldHasSearched, setWorldHasSearched] = useState(false)
+  const [remoteShadows, setRemoteShadows] = useState<RemoteBookMetadataShadow[]>([])
+  const [pendingShadowReimport, setPendingShadowReimport] = useState<RemoteBookMetadataShadow | null>(null)
   const fileInput = useRef<HTMLInputElement>(null)
+  const shadowReimportInput = useRef<HTMLInputElement>(null)
   const coverInput = useRef<HTMLInputElement>(null)
   const metadataSyncRuntimeRef = useRef<MetadataSyncRuntime | null>(null)
   const metadataSyncTimerRef = useRef<number | null>(null)
@@ -258,9 +262,22 @@ function App() {
   const ui = copy[uiLocale]
   const account = accountIdentity(session, ui.signIn, ui.guestAccount, ui.profileDefaultName, profileDraft ?? undefined)
 
+  const reloadRemoteShadows = useCallback(async (userId: string) => {
+    try {
+      const next = await listRemoteBookMetadataShadows(userId)
+      if (sessionRef.current?.user.id === userId) setRemoteShadows(next)
+    } catch {
+      if (sessionRef.current?.user.id === userId) setRemoteShadows([])
+    }
+  }, [])
+
   const handleAuthSessionChange = useCallback((next: AuthSession | null) => {
     const previous = sessionRef.current
     if (previous?.user.id && previous.user.id !== next?.user.id) metadataSyncRuntimeRef.current?.invalidate(previous.user.id)
+    if (previous?.user.id !== next?.user.id) {
+      setRemoteShadows([])
+      setPendingShadowReimport(null)
+    }
     sessionRef.current = next
     setSession(next)
     if (next && !next.user.isAnonymous) setAuthDialogOpen(false)
@@ -320,8 +337,10 @@ function App() {
   const syncNow = useCallback(async () => {
     const current = sessionRef.current
     if (!current || current.user.isAnonymous) return undefined
-    return metadataSyncRuntimeRef.current?.run(current)
-  }, [])
+    const result = await metadataSyncRuntimeRef.current?.run(current)
+    if (result?.status === 'completed' && sessionRef.current?.user.id === current.user.id) void reloadRemoteShadows(current.user.id)
+    return result
+  }, [reloadRemoteShadows])
 
   const scheduleSync = useCallback(() => {
     const current = sessionRef.current
@@ -407,8 +426,9 @@ function App() {
   }, [handleAuthSessionChange])
   useEffect(() => {
     if (!session || session.user.isAnonymous) return
+    void reloadRemoteShadows(session.user.id)
     void syncNow()
-  }, [session?.user.id, session?.user.isAnonymous, syncNow])
+  }, [session?.user.id, session?.user.isAnonymous, reloadRemoteShadows, syncNow])
   useEffect(() => {
     const onOnline = () => { setIsOnline(true); void syncNow() }
     const onOffline = () => setIsOnline(false)
@@ -608,6 +628,45 @@ function App() {
     }
   }
 
+  function beginShadowReimport(shadow: RemoteBookMetadataShadow) {
+    setPendingShadowReimport(shadow)
+    shadowReimportInput.current?.click()
+  }
+
+  function safeShadowReimport(shadow: RemoteBookMetadataShadow): RemoteBookMetadataShadowReimport {
+    return {
+      editionId: shadow.editionId,
+      needsReimport: shadow.needsReimport,
+      title: shadow.title,
+      author: shadow.author,
+      language: shadow.language,
+      progress: shadow.progress,
+      location: shadow.location,
+      fileName: shadow.fileName,
+      fileType: shadow.fileType,
+      fileSize: shadow.fileSize,
+      cover: shadow.cover,
+    }
+  }
+
+  async function handleShadowReimport(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0]
+    event.target.value = ''
+    const shadow = pendingShadowReimport
+    setPendingShadowReimport(null)
+    if (!file || !shadow) return
+    toast(ui.remoteShelfReimporting)
+    try {
+      const restored = await reimportRemoteBookMetadataShadow({ file, shadow: safeShadowReimport(shadow) })
+      setBooks((current) => [...current, restored])
+      setEditions(await listEditions())
+      void queueEditionMetadataSync(restored)
+      toast(interpolate(ui.remoteShelfReimported, { title: restored.title }))
+    } catch (error) {
+      toast(error instanceof Error ? error.message : ui.actionFailed)
+    }
+  }
+
   async function linkCurrentEdition() {
     const candidates = books.filter((book) => book.storage && book.fileName && book.id !== selectedBook.id)
     if (candidates.length === 0) { toast('请先导入另一本译本'); return }
@@ -699,6 +758,7 @@ function App() {
     .filter((book) => !normalizedSearch || [book.title, book.author, book.language, book.fileName ?? '', book.fileType ?? ''].some((field) => field.toLowerCase().includes(normalizedSearch)) || Boolean(textMatches[book.id]))
     .filter((book) => libraryFilter === 'all' || (libraryFilter === 'reading' ? book.progress > 0 && book.progress < 100 : Boolean(book.workId && editionCounts[book.workId] > 1)))
     .sort((left, right) => sortNewest ? (right.createdAt ?? 0) - (left.createdAt ?? 0) : left.title.localeCompare(right.title))
+  const visibleRemoteShadows = remoteShadows.filter((shadow) => !books.some((book) => book.editionId === shadow.editionId && book.storage && book.fileName))
   const readingBooks = books.filter((book) => book.progress > 0 && book.progress < 100)
   const completedBooks = books.filter((book) => book.progress >= 100)
   const recentReadingItems = [
@@ -835,6 +895,7 @@ function App() {
               {books.length > 0 && filteredBooks.length === 0 && <div className="library-no-results">{ui.noMatches}</div>}
               <button className="import-card" onClick={importBooks}><span>＋</span><strong>{ui.importMine}</strong><small>EPUB · PDF</small></button>
             </div>
+            <RemoteBookMetadataShadows shadows={visibleRemoteShadows} uiLocale={uiLocale} onReimport={beginShadowReimport} />
             {savedWorldBooks.length > 0 && <section className="saved-world-shelf" aria-labelledby="saved-online-books"><div><h2 id="saved-online-books">{ui.savedOnlineBooks}</h2></div><div className="world-results">{savedWorldBooks.map((book) => { const access = worldAccessPresentation(book); return <article className="world-book-card" key={worldBookIdentity(book)}><div className="world-cover">{book.coverUrl ? <img src={book.coverUrl} referrerPolicy="no-referrer" alt={`${book.title} ${ui.cover}`} /> : <span>{book.title.slice(0, 2)}</span>}</div><div><span className="source-badge">{ui.onlineSaved}</span><h3>{book.title}</h3><p>{book.author || ui.unknownAuthor}{book.year ? ` · ${book.year}` : ''}</p><small>{ui.onlineSource} {book.sourceName} · <span className="world-access-badge">{access.label}</span></small><button onClick={() => openWorldBook(book)}>{access.action}</button></div></article> })}</div></section>}
           </> : <section className="world-library-view" aria-label={ui.worldLibrary}><section className="world-recommendations" aria-labelledby="world-recommendations-title"><div><h3 id="world-recommendations-title">{ui.recommendedReading}</h3><p>{ui.recommendedReadingCopy}</p></div><div className="recommendation-chips"><button onClick={() => useWorldRecommendation('world classics', true)}>{ui.recommendationClassics}</button><button onClick={() => useWorldRecommendation('literature', true)}>{ui.recommendationTranslation}</button><button onClick={() => useWorldRecommendation('public domain')}>{ui.recommendationPublicDomain}</button></div></section><form className="world-search-form" onSubmit={submitWorldSearch}><input value={worldQuery} onChange={(event) => setWorldQuery(event.target.value)} placeholder={ui.searchWorldPlaceholder} aria-label={ui.searchWorld} /><button type="submit">{ui.searchWorld}</button></form><div className="world-filters" aria-label={ui.worldFilters}><WorldLanguagePicker value={worldLanguage} onChange={setWorldLanguage} locale={uiLocale} label={ui.catalogLanguage} allLanguagesLabel={ui.allLanguages} searchLabel={ui.searchCatalogLanguage} searchPlaceholder={ui.searchCatalogLanguagePlaceholder} /><label className="world-multilingual-filter"><input type="checkbox" checked={multiLanguageOnly} onChange={(event) => setMultiLanguageOnly(event.target.checked)} /><span>{ui.multiLanguageOnly}</span><small>{ui.multiLanguageHint}</small></label></div><p className="world-rights-notice">{ui.worldRightsNotice}</p>{worldStatus === 'loading' && <p role="status">{ui.worldLoading}</p>}{worldStatus === 'error' && <p role="alert">{ui.worldUnavailable}</p>}{worldStatus === 'idle' && worldHasSearched && worldResults.length === 0 && <p role="status">{ui.worldEmpty}</p>}<div className="world-results">{worldResults.map((book) => { const saved = savedWorldBooks.some((item) => worldBookIdentity(item) === worldBookIdentity(book)); const access = worldAccessPresentation(book); return <article className="world-book-card" data-source-id={book.sourceId} key={worldBookIdentity(book)}><div className="world-cover">{book.coverUrl ? <img src={book.coverUrl} referrerPolicy="no-referrer" alt={`${book.title} ${ui.cover}`} /> : <span>{book.title.slice(0, 2)}</span>}</div><div><span className="source-badge">{ui.onlineSource} {book.sourceName}</span><h3>{book.title}</h3><p>{book.author || ui.unknownAuthor}{book.year ? ` · ${book.year}` : ''}</p><small><span className="world-access-badge">{access.label}</span>{book.languages.length ? ` · ${interpolate(ui.languagesAvailable, { count: book.languages.length })}` : ''}{book.editionCount ? ` · ${interpolate(ui.editionsAvailable, { count: book.editionCount })}` : ''}</small><div className="world-card-actions"><button onClick={() => addWorldBook(book)} disabled={saved}>{saved ? ui.savedToMyLibrary : ui.addToMyLibrary}</button><button className="text-action" onClick={() => openWorldBook(book)}>{access.action}</button></div></div></article> })}</div></section>}
         </section>}
@@ -867,8 +928,8 @@ function App() {
             const relatedEdition = selectedRelatedEdition
             const relatedBook = relatedEdition ? books.find((book) => book.id === relatedEdition.bookId) : undefined
             const renderReader = (book: DisplayBook) => {
-              if (book.fileName?.toLowerCase().endsWith('.epub') && book.storage) return <EpubReader key={`epub-${book.id}`} book={book as StoredBook} targetLanguage={language} uiLocale={uiLocale} preferences={readerPreferences} onPreferencesChange={setReaderPreferences} onNotice={toast} onProgress={(progress, location) => updateEditionProgress(book.id, progress, location)} />
-              if (book.fileName?.toLowerCase().endsWith('.pdf') && book.storage) return <PdfReader key={`pdf-${book.id}`} book={book as StoredBook} targetLanguage={language} uiLocale={uiLocale} preferences={readerPreferences} onPreferencesChange={setReaderPreferences} onNotice={toast} onProgress={(progress, location) => updateEditionProgress(book.id, progress, location)} />
+              if (book.fileName?.toLowerCase().endsWith('.epub') && book.storage) return <EpubReader key={`epub-${book.id}`} book={book as StoredBook} targetLanguage={language} uiLocale={uiLocale} preferences={readerPreferences} onPreferencesChange={setReaderPreferences} onNotice={toast} onProgress={(progress, location, persistedBook) => updateEditionProgress(book.id, progress, location, persistedBook)} />
+              if (book.fileName?.toLowerCase().endsWith('.pdf') && book.storage) return <PdfReader key={`pdf-${book.id}`} book={book as StoredBook} targetLanguage={language} uiLocale={uiLocale} preferences={readerPreferences} onPreferencesChange={setReaderPreferences} onNotice={toast} onProgress={(progress, location, persistedBook) => updateEditionProgress(book.id, progress, location, persistedBook)} />
               // Imported books are the only readable source. Never fall back to
               // the old showcase passage, especially in a comparison pane.
               return <div className="reader-source-unavailable" role="status">{ui.localFileMissing}</div>
@@ -890,6 +951,7 @@ function App() {
       {updateReady && <div className="update-toast" role="status">{ui.updateReady}<button onClick={() => window.dispatchEvent(new Event('worlibrary:activate-update'))}>{ui.updateNow}</button></div>}
       <DataTransfer uiLocale={uiLocale} onNotice={toast} onImported={() => { void listBooks().then((savedBooks) => setBooks(savedBooks)) }} />
       <input ref={fileInput} onChange={handleFiles} type="file" hidden accept=".epub,.pdf,.mobi,.cbz" multiple />
+      <input ref={shadowReimportInput} onChange={(event) => { void handleShadowReimport(event) }} type="file" hidden accept=".epub,.pdf,application/epub+zip,application/pdf" />
       <input ref={coverInput} onChange={(event) => { void handleCoverFile(event) }} type="file" hidden accept="image/*" />
     </div>
   )
