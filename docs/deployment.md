@@ -259,10 +259,11 @@ curl -sI https://app.example.com/
 
 ## 发布流程
 
-1. PR 通过 typecheck、build 和 Playwright smoke。
-2. 在 staging 导入 EPUB/PDF，阅读、划线、备份恢复，并验证翻译失败提示。
-3. 检查 Sentry 无新增高优先级错误，确认数据库 migration 已按版本执行。
-4. 合并到 `main`，在 GitHub Actions 的 production environment 点批准。
-5. 发布后执行 `docs/runbook.md` 的冒烟与回滚检查。
+1. 功能分支提交 PR；由主 Agent 审核公共契约、迁移、测试和文档后合并。不得把一般功能直接推送到 `main`。
+2. PR 通过 typecheck、build 和 Playwright smoke。
+3. 在 staging 导入 EPUB/PDF，阅读、划线、备份恢复，并验证翻译失败提示。
+4. 检查 Sentry 无新增高优先级错误，确认数据库 migration 已按版本执行。
+5. 合并到 `main`，在 GitHub Actions 的 production environment 点批准。
+6. 发布后执行 `docs/runbook.md` 的冒烟与回滚检查；满足质量门槛后由主 Agent 创建版本标签与 GitHub Release，而不是仅以一次部署作为正式版本。
 
 如果部署失败，先查看 Cloudflare Worker deployment logs 与对应 Environment 的权限范围；不要把 production Token 临时复制到 staging。修复后重新运行相同环境的手动发布，确认上一版本仍可访问再替换。
