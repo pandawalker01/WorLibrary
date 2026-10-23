@@ -11,6 +11,12 @@ export type WorldBook = {
   id: string
   sourceId: string
   sourceRecordId: string
+  /**
+   * A source-provided work identifier which explicitly relates several source
+   * records to one literary work. It is deliberately optional: title/author
+   * similarity is not enough to merge records from a global catalog.
+   */
+  sourceWorkId?: string
   title: string
   author: string
   year?: number
@@ -20,8 +26,39 @@ export type WorldBook = {
   sourceUrl: string
   sourceName: string
   access: WorldBookAccess
+  /** Source-confirmed original-work metadata. Never inferred from a title. */
+  originalTitle?: string
+  originalLanguage?: string
+  isOriginal?: boolean
   /** Platform-only edition identity. This is a policy lookup key, never a file key or URL. */
   platformEditionId?: string
+}
+
+export type WorldWorkEdition = WorldBook
+
+/**
+ * A read-only view model for Work-first search. `editions` are source records,
+ * not a claim that WorLibrary may deliver any of their text.
+ */
+export type WorldWork = {
+  id: string
+  sourceId: string
+  sourceWorkId?: string
+  title: string
+  author: string
+  originalTitle?: string
+  originalLanguage?: string
+  originalEdition?: WorldWorkEdition
+  editions: WorldWorkEdition[]
+}
+
+export type WorkFirstSearchOptions = {
+  /** ISO 639-3 edition language filter. */
+  language?: string
+  /** Only retain a work's explicitly source-confirmed original editions. */
+  originalsOnly?: boolean
+  /** Current interface locale, used only for deterministic edition ordering. */
+  interfaceLocale?: string
 }
 
 export type WorldLibrarySearchOptions = { language?: string; multiLanguageOnly?: boolean }
@@ -77,6 +114,7 @@ function normalizeOpenLibraryBook(doc: OpenLibraryDoc): WorldBook | undefined {
   const sourceUrl = `https://openlibrary.org${doc.key}`
   return {
     id: `open-library:${sourceRecordId}`, sourceId: 'open-library', sourceRecordId, title: doc.title,
+    sourceWorkId: sourceRecordId,
     author: doc.author_name?.[0] ?? '', year: doc.first_publish_year, languages: [...new Set(doc.language ?? [])],
     editionCount: doc.edition_count, coverUrl: doc.cover_i ? `https://covers.openlibrary.org/b/id/${doc.cover_i}-M.jpg` : undefined,
     sourceUrl, sourceName: 'Open Library',
@@ -185,6 +223,97 @@ export function worldBookIdentity(book: Pick<WorldBook, 'sourceId' | 'sourceReco
   return book.sourceId && book.sourceRecordId ? `${book.sourceId}:${book.sourceRecordId}` : book.id
 }
 
+function normalizedCatalogLanguage(language: string | undefined): string | undefined {
+  const value = language?.trim().toLowerCase()
+  return value || undefined
+}
+
+/**
+ * Returns an identity only when the catalog explicitly supplied one. In
+ * particular, a title/author match between independent sources never reaches
+ * this function and therefore can never cause an accidental work merge.
+ */
+export function explicitWorldWorkIdentity(book: Pick<WorldBook, 'sourceId' | 'sourceWorkId'>): string | undefined {
+  const sourceId = book.sourceId.trim()
+  const sourceWorkId = book.sourceWorkId?.trim()
+  return sourceId && sourceWorkId ? `${sourceId}:${sourceWorkId}` : undefined
+}
+
+function editionLanguage(book: WorldBook): string | undefined {
+  return normalizedCatalogLanguage(book.languages[0])
+}
+
+function interfaceCatalogLanguage(locale: string | undefined): string | undefined {
+  const primary = locale?.trim().toLowerCase().split('-')[0]
+  return primary ? GOOGLE_LANGUAGE_TO_ISO_639_3[primary] ?? primary : undefined
+}
+
+function compareWorldEditions(left: WorldBook, right: WorldBook, preferredLanguage: string | undefined): number {
+  const leftPreferred = editionLanguage(left) === preferredLanguage ? 0 : 1
+  const rightPreferred = editionLanguage(right) === preferredLanguage ? 0 : 1
+  if (leftPreferred !== rightPreferred) return leftPreferred - rightPreferred
+
+  const leftOriginal = left.isOriginal === true ? 0 : 1
+  const rightOriginal = right.isOriginal === true ? 0 : 1
+  if (leftOriginal !== rightOriginal) return leftOriginal - rightOriginal
+
+  const languageOrder = (editionLanguage(left) ?? '').localeCompare(editionLanguage(right) ?? '')
+  if (languageOrder !== 0) return languageOrder
+  const titleOrder = left.title.localeCompare(right.title)
+  if (titleOrder !== 0) return titleOrder
+  return worldBookIdentity(left).localeCompare(worldBookIdentity(right))
+}
+
+/**
+ * Build a deterministic Work-first catalog view without guessing literary
+ * relationships. Records share a work only when their own source supplied the
+ * same `sourceWorkId` under the same source namespace. A record without that
+ * identity remains a singleton work, even if its title is identical to another
+ * record.
+ */
+export function groupWorldBooksByWork(books: readonly WorldBook[], options: WorkFirstSearchOptions = {}): WorldWork[] {
+  const requestedLanguage = normalizedCatalogLanguage(options.language)
+  const preferredLanguage = interfaceCatalogLanguage(options.interfaceLocale)
+  const grouped = new Map<string, WorldBook[]>()
+
+  for (const book of books) {
+    const explicitIdentity = explicitWorldWorkIdentity(book)
+    // A missing explicit work ID creates a singleton rather than a fuzzy merge.
+    const key = explicitIdentity ?? `record:${worldBookIdentity(book)}`
+    const records = grouped.get(key) ?? []
+    records.push(book)
+    grouped.set(key, records)
+  }
+
+  const works: WorldWork[] = []
+  for (const [key, records] of grouped.entries()) {
+    const orderedAll = [...records].sort((left, right) => compareWorldEditions(left, right, preferredLanguage))
+    const originalEdition = orderedAll.find((book) => book.isOriginal === true)
+    const filtered = orderedAll.filter((book) => {
+      if (options.originalsOnly && book.isOriginal !== true) return false
+      return !requestedLanguage || book.languages.some((language) => normalizedCatalogLanguage(language) === requestedLanguage)
+    })
+    if (filtered.length === 0) continue
+
+    const representative = originalEdition ?? orderedAll[0]
+    works.push({
+      id: key,
+      sourceId: representative.sourceId,
+      sourceWorkId: representative.sourceWorkId,
+      title: representative.originalTitle ?? originalEdition?.title ?? representative.title,
+      author: representative.author,
+      originalTitle: representative.originalTitle ?? originalEdition?.title,
+      originalLanguage: representative.originalLanguage ?? (originalEdition ? editionLanguage(originalEdition) : undefined),
+      originalEdition,
+      editions: filtered,
+    })
+  }
+  return works.sort((left, right) => {
+    const titleOrder = left.title.localeCompare(right.title)
+    return titleOrder !== 0 ? titleOrder : left.id.localeCompare(right.id)
+  })
+}
+
 function normalizeSavedWorldBook(book: Partial<WorldBook>): WorldBook | undefined {
   if (typeof book?.id !== 'string' || typeof book?.title !== 'string' || typeof book?.sourceUrl !== 'string') return undefined
   const sourceId = typeof book.sourceId === 'string' ? book.sourceId : 'open-library'
@@ -192,11 +321,15 @@ function normalizeSavedWorldBook(book: Partial<WorldBook>): WorldBook | undefine
   const sourceUrl = book.sourceUrl
   return {
     id: book.id || `${sourceId}:${sourceRecordId}`, sourceId, sourceRecordId, title: book.title,
+    sourceWorkId: typeof book.sourceWorkId === 'string' && book.sourceWorkId.trim() ? book.sourceWorkId.trim() : undefined,
     author: typeof book.author === 'string' ? book.author : '', year: typeof book.year === 'number' ? book.year : undefined,
     languages: Array.isArray(book.languages) ? book.languages.filter((language): language is string => typeof language === 'string') : [],
     editionCount: typeof book.editionCount === 'number' ? book.editionCount : undefined, coverUrl: typeof book.coverUrl === 'string' ? book.coverUrl : undefined,
     sourceUrl, sourceName: typeof book.sourceName === 'string' ? book.sourceName : 'Open Library',
     access: book.access?.mode && typeof book.access.url === 'string' ? book.access : { mode: 'catalog_only', url: sourceUrl },
+    originalTitle: typeof book.originalTitle === 'string' && book.originalTitle.trim() ? book.originalTitle.trim() : undefined,
+    originalLanguage: typeof book.originalLanguage === 'string' && book.originalLanguage.trim() ? book.originalLanguage.trim() : undefined,
+    isOriginal: book.isOriginal === true,
     platformEditionId: typeof book.platformEditionId === 'string' && book.platformEditionId.trim() ? book.platformEditionId.trim() : undefined,
   }
 }
