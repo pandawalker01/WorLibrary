@@ -33,7 +33,7 @@ npm run qa
 | PDF OCR 本地校正 | 用户可编辑识别文字并确认；后续翻译请求与保存摘录使用确认后的文字，不会使用未确认草稿 | `tests/qa/pdf-reader.spec.ts` |
 | 阅读位置恢复 | PDF 切换到第二页后，刷新及回到书库重新打开都恢复到第二页 | `tests/qa/reader-position.spec.ts` |
 | 划词翻译与失败反馈 | EPUB/PDF 选区一出现即自动请求目标理解语言译文；译文浮层锚定选区下方并可关闭；翻译本身不自动着色，只有明确点选颜色才会创建 EPUB 高亮；网关超时、限流、不可用和额度耗尽均给出可理解提示，且仅可重试的错误显示重试 | `tests/qa/import-open.spec.ts`、`tests/qa/reader-e2e-flow.spec.ts`、`tests/qa/pdf-reader.spec.ts`、`tests/qa/ai-feedback.spec.ts` |
-| 显式颜色摘录 | 用户在划词浮层选择颜色后，该 EPUB 摘录立刻以该颜色显示并在刷新、重开后保持；未选择颜色或关闭浮层不得创建高亮 | `tests/qa/reader-e2e-flow.spec.ts` |
+| 显式颜色摘录 | 用户在划词浮层选择颜色后，该 EPUB 摘录立刻以所选高对比度填充色和描边显示，并在刷新、重开后保持；不兼容 CFI 必须给出明确提示而不能静默失败。未选择颜色或关闭浮层不得创建高亮 | `tests/qa/reader-e2e-flow.spec.ts` |
 | Worker 翻译部署边界 | `/api/translate`、`/api/explain` 仅用 Worker Secret 调用供应商；选区成功/失败均为 `no-store` 并回显 request id；`/api/translation-status` 只报告配置状态且绝不泄露密钥/模型/供应商细节 | `tests/worker-contract.test.mjs`、`scripts/verify-deployment.test.mjs` |
 | 生产鉴权与用量账本 | 已验证 JWT 在没有持久化额度适配器时必须于供应商调用前拒绝；适配器以请求 ID 去重、额度耗尽不调用供应商，账本和可观察日志都不得包含划词正文、访问令牌或供应商密钥 | `server/usage-ledger.quality.test.mjs` |
 | 界面语言与理解语言分离 | 中/英文界面切换在刷新后保持；切换界面语言绝不修改理解语言，也不会改变翻译请求的 `targetLanguage` | `tests/qa/cover-and-interface-language.spec.ts` |

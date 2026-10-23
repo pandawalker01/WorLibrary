@@ -64,6 +64,8 @@ test('P0: a fresh reader can import, read, translate, save, restore, and switch 
   await page.getByRole('button', { name: '玫红' }).click()
   await expect(page.getByRole('button', { name: '玫红' })).toHaveAttribute('aria-pressed', 'true')
   await expect.poll(() => page.locator('.epub-reader-frame [ref="worlibrary-highlight"]').count()).toBeGreaterThan(0)
+  await expect(page.locator('.epub-reader-frame [ref="worlibrary-highlight"]').first()).toHaveAttribute('fill', '#bf6d76')
+  await expect(page.locator('.epub-reader-frame [ref="worlibrary-highlight"]').first()).toHaveAttribute('fill-opacity', '0.55')
   await page.getByRole('button', { name: '保存摘录' }).click()
   await expect(page.locator('.toast')).toContainText('摘录已保存到本地')
 

@@ -78,16 +78,25 @@ function applyReaderPreferences(rendition: Rendition | undefined, preferences: R
 
 function highlightStyles(color: Highlight['color']): Record<string, string> {
   const fill = color === 'rose' ? '#bf6d76' : color === 'blue' ? '#6886a7' : '#e6b160'
-  return { fill, 'fill-opacity': '0.35', 'mix-blend-mode': 'multiply' }
+  // Marks are rendered in an SVG overlay owned by epub.js. A stronger fill
+  // plus a same-colour outline remains visible on paper, sepia, and night
+  // reader themes instead of looking like an unselected text range.
+  return { fill, 'fill-opacity': '0.55', stroke: fill, 'stroke-opacity': '0.65', 'stroke-width': '0.8', 'mix-blend-mode': 'multiply' }
 }
 
-function renderHighlight(rendition: Rendition | undefined, cfi: string, color: Highlight['color']) {
+function renderHighlight(rendition: Rendition | undefined, cfi: string, color: Highlight['color']): boolean {
   // epub.js expects styles as its fifth argument. Passing them as the second
   // argument only stores metadata and leaves the SVG annotation uncoloured.
   const annotations = rendition?.annotations as unknown as {
     highlight?: (target: string, data?: Record<string, unknown>, callback?: () => void, className?: string, styles?: Record<string, string>) => void
   } | undefined
-  annotations?.highlight?.(cfi, {}, undefined, 'worlibrary-highlight', highlightStyles(color))
+  if (!annotations?.highlight) return false
+  try {
+    annotations.highlight(cfi, {}, undefined, 'worlibrary-highlight', highlightStyles(color))
+    return true
+  } catch {
+    return false
+  }
 }
 
 export default function EpubReader({ book, onNotice, onProgress, onHighlightSaved, targetLanguage = '中文', uiLocale = 'zh-CN', preferences, onPreferencesChange }: EpubReaderProps) {
@@ -293,7 +302,9 @@ export default function EpubReader({ book, onNotice, onProgress, onHighlightSave
         // the provisional entry can leave epub.js with a stale annotation map,
         // so it disappears after the selection popup closes or the chapter reloads.
         clearSelectionHighlight()
-        try { renderHighlight(renditionRef.current, highlight.location, highlight.color) } catch { /* storage still has the excerpt */ }
+        if (!renderHighlight(renditionRef.current, highlight.location, highlight.color)) {
+          onNotice(en ? 'The excerpt was saved, but this EPUB could not show its on-page highlight.' : '摘录已保存，但这本 EPUB 无法显示页内高亮。')
+        }
       }
       activeSelectionHighlightRef.current = undefined
       onHighlightSaved?.(highlight)
@@ -327,10 +338,11 @@ export default function EpubReader({ book, onNotice, onProgress, onHighlightSave
     clearSelectionHighlight()
     // Do not mark a selection merely because it was translated. The explicit
     // color choice is the user's request to create a visible EPUB annotation.
-    try {
-      renderHighlight(renditionRef.current, pendingSelection.cfi, color)
+    if (renderHighlight(renditionRef.current, pendingSelection.cfi, color)) {
       activeSelectionHighlightRef.current = pendingSelection.cfi
-    } catch { /* saving the excerpt below remains available for malformed CFIs */ }
+    } else {
+      onNotice(en ? 'This EPUB cannot show an on-page highlight for the selected text.' : '这本 EPUB 无法为当前选区显示页内高亮。')
+    }
     setSelectionColor(color)
   }
 
