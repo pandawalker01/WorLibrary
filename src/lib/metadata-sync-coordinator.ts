@@ -1,6 +1,7 @@
 import type { AuthSession } from './auth'
 import type { DeviceRegistrationSessionResult } from './device-registration-session'
 import { projectRemoteEditionChangeToShadow, type RemoteBookMetadataShadowStore } from './metadata-sync-edition-shadow'
+import { projectRemoteHighlightChangeToShadow, type RemoteHighlightMetadataShadowStore } from './metadata-sync-highlight-shadow'
 import {
   flushMetadataSyncOutbox,
   pullMetadataSyncChangeFeed,
@@ -17,7 +18,7 @@ import {
 export type MetadataSyncEntityRevisionStore = {
   write(input: {
     userId: string
-    entityType: 'edition'
+    entityType: 'edition' | 'highlight'
     entityId: string
     revision: number
     lastSequence: number
@@ -40,6 +41,8 @@ export type MetadataSyncCoordinatorInput = {
   remote?: MetadataSyncRpcClient
   outbox: MetadataSyncOutboxStore
   shadows: RemoteBookMetadataShadowStore
+  /** Required by the browser runtime; omitted test/embedding hosts reject rather than skip remote excerpts. */
+  highlights?: RemoteHighlightMetadataShadowStore
   cursors: MetadataSyncCursorStore
   revisions: MetadataSyncEntityRevisionStore
   /** Inject the registration session to keep browser localStorage outside this coordinator. */
@@ -89,8 +92,9 @@ function sessionIsCurrent(input: MetadataSyncCoordinatorInput): boolean {
  * Bounded MVP assembly of the safe sync primitives.  It deliberately does
  * not know about `StoredBook`, book bytes, object URLs, or App state.  It is
  * inert for anonymous trials, then registers the device, flushes existing
- * metadata intents, projects only safe remote edition metadata into shadows,
- * and persists an opaque cursor after accepted pages.
+ * metadata intents, projects safe remote edition metadata and private excerpt
+ * fields into separate account-scoped shadows, and persists an opaque cursor
+ * after accepted pages. Neither projection can carry file bytes or locators.
  */
 export async function coordinateMetadataSync(input: MetadataSyncCoordinatorInput): Promise<MetadataSyncCoordinatorResult> {
   if (!isStableSession(input.session)) return { status: 'no-stable-account' }
@@ -131,11 +135,23 @@ export async function coordinateMetadataSync(input: MetadataSyncCoordinatorInput
     maxPages: input.maxPages,
     onChange: async (change) => {
       if (!sessionIsCurrent(input)) throw new Error('sync session invalidated')
-      const projection = await projectRemoteEditionChangeToShadow({
-        userId: input.session!.user.id,
-        change,
-        shadows: input.shadows,
-      })
+      if (change.entity_type !== 'edition' && change.entity_type !== 'highlight') {
+        throw new Error(`unsupported sync entity: ${change.entity_type}`)
+      }
+      if (change.entity_type === 'highlight' && !input.highlights) {
+        throw new Error('highlight shadow store is unavailable')
+      }
+      const projection = change.entity_type === 'edition'
+        ? await projectRemoteEditionChangeToShadow({
+          userId: input.session!.user.id,
+          change,
+          shadows: input.shadows,
+        })
+        : await projectRemoteHighlightChangeToShadow({
+          userId: input.session!.user.id,
+          change,
+          highlights: input.highlights!,
+        })
       // The caller should not advance a cursor through data it cannot safely
       // interpret.  This makes the limited MVP support explicit instead of
       // silently losing highlights, settings, or future entity types.
@@ -147,7 +163,7 @@ export async function coordinateMetadataSync(input: MetadataSyncCoordinatorInput
       // the pull engine aborts the page and leaves its cursor unchanged.
       await input.revisions.write({
         userId: input.session!.user.id,
-        entityType: 'edition',
+        entityType: change.entity_type,
         entityId: change.entity_id,
         revision: change.entity_revision,
         lastSequence: change.sequence,

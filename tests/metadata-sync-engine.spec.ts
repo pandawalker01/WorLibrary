@@ -26,6 +26,15 @@ function entry(operationId: string, createdAt: number): MetadataSyncOutboxEntry 
   }
 }
 
+function highlightEntry(operationId: string, createdAt: number): MetadataSyncOutboxEntry {
+  return {
+    ...entry(operationId, createdAt),
+    entityType: 'highlight',
+    entityId: '3ce61155-bf0a-4a47-9b0c-f6d8d9f07f9e',
+    payload: { edition_id: '4ce61155-bf0a-4a47-9b0c-f6d8d9f07f9e', text: 'Private excerpt', location: 'epubcfi(/6/4)', color: 'gold', is_highlighted: true },
+  }
+}
+
 function fixture(entries: MetadataSyncOutboxEntry[]) {
   const calls: string[] = []
   const confirmations: string[] = []
@@ -106,6 +115,26 @@ test('metadata outbox flush applies and confirms stable-account operations seque
   expect(result).toEqual({ reason: 'completed', attempted: 2, confirmed: 2 })
   expect(rpcOperations).toEqual(['first', 'second'])
   expect(data.confirmations).toEqual(['stable-user:first', 'stable-user:second'])
+})
+
+test('highlight outbox entries use the dedicated private excerpt RPC with no generic payload', async () => {
+  const data = fixture([highlightEntry('highlight-one', 1)])
+  const calls: Array<{ name: string; request: Record<string, unknown> }> = []
+  const result = await flushMetadataSyncOutbox({
+    session,
+    serverDeviceId: 'server-device',
+    outbox: data.outbox,
+    remote: { rpc: async (name, request) => {
+      calls.push({ name, request: request as Record<string, unknown> })
+      return [{ sequence: 1, entity_revision: 1, operation: 'upsert', applied: true }]
+    } },
+  })
+  expect(result).toEqual({ reason: 'completed', attempted: 1, confirmed: 1 })
+  expect(calls).toEqual([{ name: 'apply_private_highlight_sync_change', request: {
+    p_device_id: 'server-device', p_operation_id: 'highlight-one', p_highlight_id: '3ce61155-bf0a-4a47-9b0c-f6d8d9f07f9e',
+    p_operation: 'upsert', p_base_revision: 0, p_edition_id: '4ce61155-bf0a-4a47-9b0c-f6d8d9f07f9e',
+    p_text: 'Private excerpt', p_location: 'epubcfi(/6/4)', p_color: 'gold', p_is_highlighted: true,
+  } }])
 })
 
 test('metadata outbox flush stops at a conflict without confirming the failed or later entries', async () => {

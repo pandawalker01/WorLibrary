@@ -8,7 +8,7 @@ import './highlights.css'
 import { listHighlights, type Highlight } from './lib/storage'
 import './library.css'
 import './settings.css'
-import { deleteBook, linkBookEditions, listAlignments, listBooks, listEditions, listRemoteBookMetadataShadows, readMetadataSyncEntityRevision, refreshBookCover, reimportRemoteBookMetadataShadow, saveBook, saveEditionProgress, searchBookTextIndex, updateBookCover, updateBookMetadata, type RemoteBookMetadataShadow, type RemoteBookMetadataShadowReimport, type StoredBook } from './lib/storage'
+import { deleteBook, linkBookEditions, listAlignments, listBooks, listEditions, listRemoteBookMetadataShadows, listRemoteHighlightMetadataShadows, readMetadataSyncEntityRevision, refreshBookCover, reimportRemoteBookMetadataShadow, saveBook, saveEditionProgress, searchBookTextIndex, updateBookCover, updateBookMetadata, type RemoteBookMetadataShadow, type RemoteBookMetadataShadowReimport, type RemoteHighlightMetadataShadow, type StoredBook } from './lib/storage'
 import type { Alignment, Edition } from './lib/edition'
 import EditionComparisonReader from './components/EditionComparisonReader'
 import AuthPanel from './components/AuthPanel'
@@ -22,6 +22,7 @@ import ReadingLanguagePicker, { displayReadingLanguage } from './components/Read
 import InterfaceLanguagePicker from './components/InterfaceLanguagePicker'
 import { interfaceLocaleDirection, presentInterfaceLocales } from './lib/interface-locale-registry'
 import { enqueueLocalEditionMetadataSyncIntent } from './lib/metadata-sync-edition-intent'
+import { enqueueLocalHighlightMetadataSyncIntent } from './lib/metadata-sync-highlight-intent'
 import { createMetadataSyncRuntime, type MetadataSyncRuntime } from './lib/metadata-sync-runtime'
 
 // Platform rendering pulls in EPUB.js/PDF.js integration. Keep it out of the
@@ -251,6 +252,7 @@ function App() {
   const [multiLanguageOnly, setMultiLanguageOnly] = useState(false)
   const [worldHasSearched, setWorldHasSearched] = useState(false)
   const [remoteShadows, setRemoteShadows] = useState<RemoteBookMetadataShadow[]>([])
+  const [remoteHighlightShadows, setRemoteHighlightShadows] = useState<RemoteHighlightMetadataShadow[]>([])
   const [pendingShadowReimport, setPendingShadowReimport] = useState<RemoteBookMetadataShadow | null>(null)
   const fileInput = useRef<HTMLInputElement>(null)
   const shadowReimportInput = useRef<HTMLInputElement>(null)
@@ -271,11 +273,21 @@ function App() {
     }
   }, [])
 
+  const reloadRemoteHighlightShadows = useCallback(async (userId: string) => {
+    try {
+      const next = await listRemoteHighlightMetadataShadows(userId)
+      if (sessionRef.current?.user.id === userId) setRemoteHighlightShadows(next)
+    } catch {
+      if (sessionRef.current?.user.id === userId) setRemoteHighlightShadows([])
+    }
+  }, [])
+
   const handleAuthSessionChange = useCallback((next: AuthSession | null) => {
     const previous = sessionRef.current
     if (previous?.user.id && previous.user.id !== next?.user.id) metadataSyncRuntimeRef.current?.invalidate(previous.user.id)
     if (previous?.user.id !== next?.user.id) {
       setRemoteShadows([])
+      setRemoteHighlightShadows([])
       setPendingShadowReimport(null)
     }
     sessionRef.current = next
@@ -338,9 +350,12 @@ function App() {
     const current = sessionRef.current
     if (!current || current.user.isAnonymous) return undefined
     const result = await metadataSyncRuntimeRef.current?.run(current)
-    if (result?.status === 'completed' && sessionRef.current?.user.id === current.user.id) void reloadRemoteShadows(current.user.id)
+    if (result?.status === 'completed' && sessionRef.current?.user.id === current.user.id) {
+      void reloadRemoteShadows(current.user.id)
+      void reloadRemoteHighlightShadows(current.user.id)
+    }
     return result
-  }, [reloadRemoteShadows])
+  }, [reloadRemoteHighlightShadows, reloadRemoteShadows])
 
   const scheduleSync = useCallback(() => {
     const current = sessionRef.current
@@ -371,6 +386,35 @@ function App() {
       // an otherwise successful import, edit, or page turn into a UI failure.
     }
   }, [scheduleSync])
+
+  /**
+   * Highlights sync only after their local transaction succeeded. Resolve the
+   * stable edition from the currently loaded local shelf; `Highlight.bookId`
+   * is deliberately never sent to the service because it is browser-local.
+   */
+  const queueHighlightMetadataSync = useCallback(async (highlight: Highlight, operation: 'upsert' | 'delete' = 'upsert', explicitEditionId?: string) => {
+    const current = sessionRef.current
+    if (!current || current.user.isAnonymous) return
+    const editionId = explicitEditionId ?? books.find((book) => book.id === highlight.bookId)?.editionId
+    if (!editionId) return
+    try {
+      const revision = await readMetadataSyncEntityRevision(current.user.id, 'highlight', highlight.id)
+      // Do not leak a prior account's excerpt after a sign-out/account swap
+      // happens while IndexedDB resolves the server revision.
+      if (sessionRef.current?.user.id !== current.user.id) return
+      const result = await enqueueLocalHighlightMetadataSyncIntent({
+        session: current,
+        highlight,
+        editionId,
+        operation,
+        baseRevision: revision?.revision ?? 0,
+      })
+      if (result.status === 'queued') scheduleSync()
+    } catch {
+      // Highlighting remains local-first even when an account queue is
+      // unavailable. The reading action has already completed safely.
+    }
+  }, [books, scheduleSync])
 
   useEffect(() => {
     void Promise.all([listBooks(), listEditions(), listAlignments(), listHighlights()]).then(([savedBooks, savedEditions, savedAlignments, savedHighlights]) => { setBooks(savedBooks); setEditions(savedEditions); setAlignments(savedAlignments); setHighlightCount(savedHighlights.length); setBooksLoaded(true) })
@@ -427,8 +471,9 @@ function App() {
   useEffect(() => {
     if (!session || session.user.isAnonymous) return
     void reloadRemoteShadows(session.user.id)
+    void reloadRemoteHighlightShadows(session.user.id)
     void syncNow()
-  }, [session?.user.id, session?.user.isAnonymous, reloadRemoteShadows, syncNow])
+  }, [session?.user.id, session?.user.isAnonymous, reloadRemoteHighlightShadows, reloadRemoteShadows, syncNow])
   useEffect(() => {
     const onOnline = () => { setIsOnline(true); void syncNow() }
     const onOffline = () => setIsOnline(false)
@@ -694,7 +739,12 @@ function App() {
   async function removeBook(book: DisplayBook) {
     if (!book.storage || !book.fileName) return
     if (!window.confirm(`确定从本地书库删除《${book.title}》吗？`)) return
+    // The book deletion cascades its local excerpts. Capture their durable
+    // records first so a successful local delete can enqueue private delete
+    // tombstones without ever reading or sending the original file.
+    const deletedHighlights = await listHighlights(book.id)
     await deleteBook(book as StoredBook)
+    if (book.editionId) deletedHighlights.forEach((highlight) => { void queueHighlightMetadataSync(highlight, 'delete', book.editionId) })
     setBooks((current) => current.filter((item) => item.id !== book.id))
     if (selectedBook.id === book.id) setSelectedBook(sampleBooks[0])
     toast('书籍、阅读进度和摘录已从本地删除')
@@ -900,7 +950,7 @@ function App() {
           </> : <section className="world-library-view" aria-label={ui.worldLibrary}><section className="world-recommendations" aria-labelledby="world-recommendations-title"><div><h3 id="world-recommendations-title">{ui.recommendedReading}</h3><p>{ui.recommendedReadingCopy}</p></div><div className="recommendation-chips"><button onClick={() => useWorldRecommendation('world classics', true)}>{ui.recommendationClassics}</button><button onClick={() => useWorldRecommendation('literature', true)}>{ui.recommendationTranslation}</button><button onClick={() => useWorldRecommendation('public domain')}>{ui.recommendationPublicDomain}</button></div></section><form className="world-search-form" onSubmit={submitWorldSearch}><input value={worldQuery} onChange={(event) => setWorldQuery(event.target.value)} placeholder={ui.searchWorldPlaceholder} aria-label={ui.searchWorld} /><button type="submit">{ui.searchWorld}</button></form><div className="world-filters" aria-label={ui.worldFilters}><WorldLanguagePicker value={worldLanguage} onChange={setWorldLanguage} locale={uiLocale} label={ui.catalogLanguage} allLanguagesLabel={ui.allLanguages} searchLabel={ui.searchCatalogLanguage} searchPlaceholder={ui.searchCatalogLanguagePlaceholder} /><label className="world-multilingual-filter"><input type="checkbox" checked={multiLanguageOnly} onChange={(event) => setMultiLanguageOnly(event.target.checked)} /><span>{ui.multiLanguageOnly}</span><small>{ui.multiLanguageHint}</small></label></div><p className="world-rights-notice">{ui.worldRightsNotice}</p>{worldStatus === 'loading' && <p role="status">{ui.worldLoading}</p>}{worldStatus === 'error' && <p role="alert">{ui.worldUnavailable}</p>}{worldStatus === 'idle' && worldHasSearched && worldResults.length === 0 && <p role="status">{ui.worldEmpty}</p>}<div className="world-results">{worldResults.map((book) => { const saved = savedWorldBooks.some((item) => worldBookIdentity(item) === worldBookIdentity(book)); const access = worldAccessPresentation(book); return <article className="world-book-card" data-source-id={book.sourceId} key={worldBookIdentity(book)}><div className="world-cover">{book.coverUrl ? <img src={book.coverUrl} referrerPolicy="no-referrer" alt={`${book.title} ${ui.cover}`} /> : <span>{book.title.slice(0, 2)}</span>}</div><div><span className="source-badge">{ui.onlineSource} {book.sourceName}</span><h3>{book.title}</h3><p>{book.author || ui.unknownAuthor}{book.year ? ` · ${book.year}` : ''}</p><small><span className="world-access-badge">{access.label}</span>{book.languages.length ? ` · ${interpolate(ui.languagesAvailable, { count: book.languages.length })}` : ''}{book.editionCount ? ` · ${interpolate(ui.editionsAvailable, { count: book.editionCount })}` : ''}</small><div className="world-card-actions"><button onClick={() => addWorldBook(book)} disabled={saved}>{saved ? ui.savedToMyLibrary : ui.addToMyLibrary}</button><button className="text-action" onClick={() => openWorldBook(book)}>{access.action}</button></div></div></article> })}</div></section>}
         </section>}
 
-        {view === 'highlights' && <HighlightsView uiLocale={uiLocale} books={books.filter((book): book is StoredBook => Boolean(book.storage && book.fileName))} onNotice={toast} onChanged={() => { scheduleSync(); void listHighlights().then((items) => setHighlightCount(items.length)) }} onDeleted={() => { void listHighlights().then((items) => setHighlightCount(items.length)) }} onOpenHighlight={(highlight: Highlight) => {
+        {view === 'highlights' && <HighlightsView uiLocale={uiLocale} books={books.filter((book): book is StoredBook => Boolean(book.storage && book.fileName))} remoteHighlights={remoteHighlightShadows} onNotice={toast} onChanged={() => { void listHighlights().then((items) => setHighlightCount(items.length)) }} onHighlightChanged={(highlight) => { void queueHighlightMetadataSync(highlight); void listHighlights().then((items) => setHighlightCount(items.length)) }} onHighlightDeleted={(highlight) => { void queueHighlightMetadataSync(highlight, 'delete'); void listHighlights().then((items) => setHighlightCount(items.length)) }} onOpenHighlight={(highlight: Highlight) => {
           const book = books.find((item) => item.id === highlight.bookId)
           if (!book?.storage || !book.fileName) {
             toast('找不到这本本地书籍，请重新导入')
@@ -928,8 +978,8 @@ function App() {
             const relatedEdition = selectedRelatedEdition
             const relatedBook = relatedEdition ? books.find((book) => book.id === relatedEdition.bookId) : undefined
             const renderReader = (book: DisplayBook) => {
-              if (book.fileName?.toLowerCase().endsWith('.epub') && book.storage) return <EpubReader key={`epub-${book.id}`} book={book as StoredBook} targetLanguage={language} uiLocale={uiLocale} preferences={readerPreferences} onPreferencesChange={setReaderPreferences} onNotice={toast} onProgress={(progress, location, persistedBook) => updateEditionProgress(book.id, progress, location, persistedBook)} />
-              if (book.fileName?.toLowerCase().endsWith('.pdf') && book.storage) return <PdfReader key={`pdf-${book.id}`} book={book as StoredBook} targetLanguage={language} uiLocale={uiLocale} preferences={readerPreferences} onPreferencesChange={setReaderPreferences} onNotice={toast} onProgress={(progress, location, persistedBook) => updateEditionProgress(book.id, progress, location, persistedBook)} />
+              if (book.fileName?.toLowerCase().endsWith('.epub') && book.storage) return <EpubReader key={`epub-${book.id}`} book={book as StoredBook} targetLanguage={language} uiLocale={uiLocale} preferences={readerPreferences} onPreferencesChange={setReaderPreferences} onNotice={toast} onProgress={(progress, location, persistedBook) => updateEditionProgress(book.id, progress, location, persistedBook)} onHighlightSaved={(highlight) => { void queueHighlightMetadataSync(highlight) }} />
+              if (book.fileName?.toLowerCase().endsWith('.pdf') && book.storage) return <PdfReader key={`pdf-${book.id}`} book={book as StoredBook} targetLanguage={language} uiLocale={uiLocale} preferences={readerPreferences} onPreferencesChange={setReaderPreferences} onNotice={toast} onProgress={(progress, location, persistedBook) => updateEditionProgress(book.id, progress, location, persistedBook)} onHighlightSaved={(highlight) => { void queueHighlightMetadataSync(highlight) }} />
               // Imported books are the only readable source. Never fall back to
               // the old showcase passage, especially in a comparison pane.
               return <div className="reader-source-unavailable" role="status">{ui.localFileMissing}</div>

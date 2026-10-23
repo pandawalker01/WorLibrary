@@ -1,5 +1,5 @@
 import type { AuthSession } from './auth'
-import type { AppliedMetadataSyncChange, PulledMetadataSyncChange, RemoteClient, RemoteRequestError } from './remote'
+import type { AppliedMetadataSyncChange, ApplyPrivateHighlightSyncChangeInput, PulledMetadataSyncChange, RemoteClient, RemoteRequestError } from './remote'
 import type { MetadataSyncOutboxEntry } from './storage'
 
 /**
@@ -165,6 +165,50 @@ async function releaseClaimAfterFailure(
   await outbox.release(userId, operationId, claimId)
 }
 
+function privateHighlightRequest(entry: MetadataSyncOutboxEntry, serverDeviceId: string): ApplyPrivateHighlightSyncChangeInput {
+  const payload = entry.payload
+  const allowed = new Set(['edition_id', 'text', 'location', 'note', 'color', 'is_highlighted'])
+  if (Object.keys(payload).some((key) => !allowed.has(key))) throw new Error('私有摘录同步包含未允许字段')
+  const base = {
+    p_device_id: serverDeviceId,
+    p_operation_id: entry.operationId,
+    p_highlight_id: entry.entityId,
+    p_operation: entry.operation,
+    p_base_revision: entry.baseRevision,
+  } as const
+  if (entry.operation === 'delete') {
+    if (Object.keys(payload).length > 0) throw new Error('删除摘录不能携带内容')
+    return base
+  }
+  const editionId = payload.edition_id
+  const text = payload.text
+  const location = payload.location
+  const note = payload.note
+  const color = payload.color
+  const isHighlighted = payload.is_highlighted
+  if (typeof editionId !== 'string' || typeof text !== 'string' || typeof location !== 'string' || typeof isHighlighted !== 'boolean') {
+    throw new Error('私有摘录同步字段无效')
+  }
+  if (note !== undefined && typeof note !== 'string') throw new Error('私有摘录笔记无效')
+  if (color !== undefined && color !== 'gold' && color !== 'rose' && color !== 'blue') throw new Error('私有摘录颜色无效')
+  return { ...base, p_edition_id: editionId, p_text: text, p_location: location, ...(note !== undefined ? { p_note: note } : {}), ...(color !== undefined ? { p_color: color } : {}), p_is_highlighted: isHighlighted }
+}
+
+async function applyOutboxEntry(remote: MetadataSyncRpcClient, entry: MetadataSyncOutboxEntry, serverDeviceId: string): Promise<AppliedMetadataSyncChange[]> {
+  if (entry.entityType === 'highlight') {
+    return remote.rpc('apply_private_highlight_sync_change', privateHighlightRequest(entry, serverDeviceId))
+  }
+  return remote.rpc('apply_metadata_sync_change', {
+    p_device_id: serverDeviceId,
+    p_operation_id: entry.operationId,
+    p_entity_type: entry.entityType,
+    p_entity_id: entry.entityId,
+    p_operation: entry.operation,
+    p_base_revision: entry.baseRevision,
+    p_payload: entry.payload,
+  })
+}
+
 /**
  * Flush metadata intents strictly in creation order. Each operation is
  * atomically claimed before its RPC leaves the browser. A newer edit made
@@ -207,15 +251,7 @@ export async function flushMetadataSyncOutbox(input: MetadataSyncFlushInput): Pr
     }
     attempted += 1
     try {
-      const response = await input.remote.rpc('apply_metadata_sync_change', {
-        p_device_id: input.serverDeviceId,
-        p_operation_id: entry.operationId,
-        p_entity_type: entry.entityType,
-        p_entity_id: entry.entityId,
-        p_operation: entry.operation,
-        p_base_revision: entry.baseRevision,
-        p_payload: entry.payload,
-      })
+      const response = await applyOutboxEntry(input.remote, entry, input.serverDeviceId)
       const receipt = acknowledgedMutation(response, entry.operation)
       if (input.shouldContinue?.() === false) {
         await releaseClaimAfterFailure(input.outbox, input.session.user.id, entry.operationId, claimId)

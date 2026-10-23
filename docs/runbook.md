@@ -9,7 +9,7 @@
 ## 发布前检查清单
 
 - [ ] 本地与 CI 均使用 Node.js 24（最低兼容版本为 22.13）；若 `npm ci` 出现 `EBADENGINE` 或 `Exit handler never called`，先检查 Node 版本，不能继续把后续 typecheck/build/Playwright 的连带失败当作产品问题。
-- [ ] 若启用登录用户的内测元数据同步，已依序执行 `0008_metadata_sync_foundation.sql` 与 `0009_controlled_metadata_sync_rpc.sql`，且客户端页面已实际接入账户隔离 outbox、顺序 flush 与 revision pull；它们不上传 EPUB/PDF。第二设备中的本地书必须要求重新导入原书，不能打开。
+- [ ] 若启用登录用户的内测元数据同步，已依序执行 `0008_metadata_sync_foundation.sql`、`0009_controlled_metadata_sync_rpc.sql` 与 `0012_private_highlight_sync_rpc.sql`，且客户端页面已实际接入账户隔离 outbox、顺序 flush 与 revision pull；摘录必须经专用 RPC 以同账号、未撤销设备同步 `edition_id`、选区文本、位置、笔记、颜色与是否显示高亮。它们不上传 EPUB/PDF、封面二进制、对象键、文件元数据或 URL。第二设备中的本地书必须要求重新导入原书，不能打开。
 - [ ] `npm ci && npm run typecheck && npm run build` 全部通过。
 - [ ] `npm run quality` 生成 `test-results/release-report.json`；只有 `releaseReady: true` 才可发布。`blocked` 需要补齐部署配置，`failed` 需要修复代码或测试。
 - [ ] 在 Cloudflare Dashboard 核对 Preview/Production 使用不同的部署环境；CI Token 仅授予该项目所需的 Workers 编辑权限，绝不复制生产 Token 到预览环境或前端变量。

@@ -1,6 +1,12 @@
 import { expect, test } from '@playwright/test'
 import { coordinateMetadataSync } from '../src/lib/metadata-sync-coordinator'
-import type { MetadataSyncOutboxEntry, RemoteBookMetadataShadow, UpsertRemoteBookMetadataShadow } from '../src/lib/storage'
+import type {
+  MetadataSyncOutboxEntry,
+  RemoteBookMetadataShadow,
+  RemoteHighlightMetadataShadow,
+  UpsertRemoteBookMetadataShadow,
+  UpsertRemoteHighlightMetadataShadow,
+} from '../src/lib/storage'
 
 const session = {
   accessToken: 'jwt',
@@ -33,6 +39,23 @@ function safeEdition(sequence = 1) {
     payload: {
       title: 'A local EPUB', author: 'Reader', language: 'en', progress: 22,
       location: 'epubcfi(/6/2)', file_name: 'reader.epub', file_type: 'epub', file_size: 2048, cover: 'ink',
+    },
+    occurred_at: '2026-10-22T00:00:00.000Z',
+  }
+}
+
+function safeHighlight(sequence = 1) {
+  return {
+    sequence,
+    device_id: registration.device.id,
+    operation_id: `a4d4b228-7258-4f7f-a53d-${String(sequence).padStart(12, '0')}`,
+    entity_type: 'highlight' as const,
+    entity_id: '4f7c8ac9-25a9-473e-9e9c-a06345613418',
+    operation: 'upsert' as const,
+    entity_revision: 2,
+    payload: {
+      edition_id: editionId, text: 'A private excerpt.', location: 'epubcfi(/6/8!/4/2/10)',
+      note: 'A private note.', color: 'rose', is_highlighted: true,
     },
     occurred_at: '2026-10-22T00:00:00.000Z',
   }
@@ -148,6 +171,46 @@ test('metadata coordinator leaves cursor untouched when the feed contains an uns
   expect(data.shadows).toEqual([])
   expect(data.cursorWrites).toEqual([])
   expect(data.revisionWrites).toEqual([])
+})
+
+test('metadata coordinator routes accepted private highlights to their separate account-scoped store', async () => {
+  const data = dependencies()
+  const highlights: UpsertRemoteHighlightMetadataShadow[] = []
+  const pages = [[safeHighlight()], []]
+  const result = await coordinateMetadataSync({
+    session,
+    remote: { rpc: async () => pages.shift() ?? [] },
+    outbox: data.outbox,
+    shadows: data.shadowStore,
+    highlights: {
+      upsert: async (shadow: UpsertRemoteHighlightMetadataShadow): Promise<RemoteHighlightMetadataShadow> => {
+        highlights.push(shadow)
+        return { key: `${shadow.userId}:${shadow.highlightId}`, ...shadow }
+      },
+      delete: async () => true,
+    },
+    cursors: data.cursors,
+    revisions: data.revisions,
+    registerDevice: async () => registration,
+  })
+
+  expect(result.status).toBe('completed')
+  expect(highlights).toEqual([{
+    userId: session.user.id,
+    highlightId: '4f7c8ac9-25a9-473e-9e9c-a06345613418',
+    editionId,
+    revision: 2,
+    sequence: 1,
+    text: 'A private excerpt.',
+    location: 'epubcfi(/6/8!/4/2/10)',
+    note: 'A private note.',
+    color: 'rose',
+    isHighlighted: true,
+  }])
+  expect(data.cursorWrites).toEqual([1])
+  expect(data.revisionWrites).toEqual([{
+    entityId: '4f7c8ac9-25a9-473e-9e9c-a06345613418', revision: 2, lastSequence: 1,
+  }])
 })
 
 test('metadata coordinator does not pull or advance a cursor when the outbox is blocked', async () => {

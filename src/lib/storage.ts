@@ -94,6 +94,30 @@ export type RemoteBookMetadataShadow = {
 export type UpsertRemoteBookMetadataShadow = Omit<RemoteBookMetadataShadow, 'key' | 'needsReimport'>
 
 /**
+ * A private account's remote excerpt projection. Unlike a `Highlight`, this
+ * record is never tied to a local `bookId` or file: a second device may show
+ * the excerpt and its note, but it cannot infer that the original EPUB/PDF is
+ * present or readable. The only reader locator retained is the excerpt's
+ * logical EPUB/PDF location.
+ */
+export type RemoteHighlightMetadataShadow = {
+  key: string
+  userId: string
+  highlightId: string
+  editionId: string
+  revision: number
+  sequence: number
+  text: string
+  location: string
+  note?: string
+  color: Highlight['color']
+  isHighlighted: boolean
+}
+
+/** The controlled feed may persist only these private excerpt fields. */
+export type UpsertRemoteHighlightMetadataShadow = Omit<RemoteHighlightMetadataShadow, 'key'>
+
+/**
  * The narrow, metadata-only portion of a remote shadow that a local file
  * picker may use to restore an already-known edition. Account identity,
  * server revisions, feed sequence and the shadow key deliberately do not
@@ -117,7 +141,7 @@ export type LibraryBackup = { version: 2; exportedAt: string; books: StoredBook[
 import type { Alignment, Edition, Work } from './edition'
 
 const DB_NAME = 'wor-library'
-const DB_VERSION = 8
+const DB_VERSION = 9
 const BOOKS_STORE = 'books'
 const BLOBS_STORE = 'book-blobs'
 const HIGHLIGHTS_STORE = 'highlights'
@@ -129,6 +153,8 @@ const METADATA_SYNC_OUTBOX_STORE = 'metadata-sync-outbox'
 const METADATA_SYNC_OUTBOX_BY_USER = 'by-user-id'
 const REMOTE_BOOK_METADATA_SHADOWS_STORE = 'remote-book-metadata-shadows'
 const REMOTE_BOOK_METADATA_SHADOWS_BY_USER = 'by-user-id'
+const REMOTE_HIGHLIGHT_METADATA_SHADOWS_STORE = 'remote-highlight-metadata-shadows'
+const REMOTE_HIGHLIGHT_METADATA_SHADOWS_BY_USER = 'by-user-id'
 const METADATA_SYNC_CURSORS_STORE = 'metadata-sync-cursors'
 const METADATA_SYNC_ENTITY_REVISIONS_STORE = 'metadata-sync-entity-revisions'
 const METADATA_SYNC_OUTBOX_CLAIM_LEASE_MS = 60_000
@@ -197,6 +223,15 @@ function openDatabase(): Promise<IDBDatabase> {
         const shadows = request.transaction?.objectStore(REMOTE_BOOK_METADATA_SHADOWS_STORE)
         if (shadows && !shadows.indexNames.contains(REMOTE_BOOK_METADATA_SHADOWS_BY_USER)) {
           shadows.createIndex(REMOTE_BOOK_METADATA_SHADOWS_BY_USER, 'userId', { unique: false })
+        }
+      }
+      if (!db.objectStoreNames.contains(REMOTE_HIGHLIGHT_METADATA_SHADOWS_STORE)) {
+        const shadows = db.createObjectStore(REMOTE_HIGHLIGHT_METADATA_SHADOWS_STORE, { keyPath: 'key' })
+        shadows.createIndex(REMOTE_HIGHLIGHT_METADATA_SHADOWS_BY_USER, 'userId', { unique: false })
+      } else {
+        const shadows = request.transaction?.objectStore(REMOTE_HIGHLIGHT_METADATA_SHADOWS_STORE)
+        if (shadows && !shadows.indexNames.contains(REMOTE_HIGHLIGHT_METADATA_SHADOWS_BY_USER)) {
+          shadows.createIndex(REMOTE_HIGHLIGHT_METADATA_SHADOWS_BY_USER, 'userId', { unique: false })
         }
       }
       if (!db.objectStoreNames.contains(METADATA_SYNC_CURSORS_STORE)) {
@@ -649,6 +684,12 @@ function remoteBookMetadataShadowKey(userId: string, editionId: string) {
   return `${userId}:${editionId}`
 }
 
+function remoteHighlightMetadataShadowKey(userId: string, highlightId: string) {
+  // Length-prefix avoids treating a user id or excerpt id containing ':' as a
+  // different account/entity pair.
+  return `${userId.length}:${userId}${highlightId.length}:${highlightId}`
+}
+
 function assertMetadataSyncCursorSequence(sequence: number): void {
   if (!Number.isSafeInteger(sequence) || sequence < 0) {
     throw new Error('Invalid metadata sync cursor sequence')
@@ -1012,6 +1053,124 @@ export async function deleteRemoteBookMetadataShadow(userId: string, editionId: 
     request.onsuccess = () => {
       const shadow = request.result as RemoteBookMetadataShadow | undefined
       if (!shadow || shadow.userId !== userId || shadow.editionId !== editionId) {
+        resolve(false)
+        return
+      }
+      const remove = store.delete(key)
+      remove.onerror = () => reject(remove.error)
+      remove.onsuccess = () => resolve(true)
+    }
+  })
+}
+
+function assertSafeRemoteHighlightMetadataString(
+  value: string | undefined,
+  label: string,
+  maximum: number,
+  optional = false,
+): asserts value is string | undefined {
+  if (value === undefined && optional) return
+  if (typeof value !== 'string' || !value.trim() || value.length > maximum || /^\s*(?:https?:|data:|blob:)/i.test(value)) {
+    throw new Error(`Invalid remote highlight metadata ${label}`)
+  }
+}
+
+function remoteHighlightMetadataShadowTransaction<T>(
+  mode: IDBTransactionMode,
+  action: (store: IDBObjectStore, resolve: (value: T) => void, reject: (reason: unknown) => void) => void,
+): Promise<T> {
+  return openDatabase().then((db) => new Promise<T>((resolve, reject) => {
+    const tx = db.transaction(REMOTE_HIGHLIGHT_METADATA_SHADOWS_STORE, mode)
+    let settled = false
+    const finish = (value: T) => {
+      if (!settled) {
+        settled = true
+        resolve(value)
+      }
+    }
+    const fail = (reason: unknown) => {
+      if (!settled) {
+        settled = true
+        reject(reason)
+      }
+    }
+    tx.oncomplete = () => db.close()
+    tx.onabort = () => { db.close(); fail(tx.error ?? new Error('Remote highlight metadata shadow transaction aborted')) }
+    tx.onerror = () => { db.close(); fail(tx.error ?? new Error('Remote highlight metadata shadow transaction failed')) }
+    try {
+      action(tx.objectStore(REMOTE_HIGHLIGHT_METADATA_SHADOWS_STORE), finish, fail)
+    } catch (error) {
+      tx.abort()
+      fail(error)
+    }
+  }))
+}
+
+/**
+ * Persist a private remote excerpt projection for precisely one account. It
+ * has no local book id, file id, original-file bytes, cover binary, object
+ * key, URL, or download capability; a reader UI must separately establish
+ * that a matching local edition is actually readable before linking to it.
+ */
+export async function upsertRemoteHighlightMetadataShadow(
+  input: UpsertRemoteHighlightMetadataShadow,
+): Promise<RemoteHighlightMetadataShadow> {
+  assertNonEmptyMetadataSyncId(input.userId, 'user id')
+  assertNonEmptyMetadataSyncId(input.highlightId, 'highlight id')
+  assertNonEmptyMetadataSyncId(input.editionId, 'edition id')
+  assertSafeRemoteHighlightMetadataString(input.text, 'text', 32_768)
+  assertSafeRemoteHighlightMetadataString(input.location, 'location', 4_096)
+  assertSafeRemoteHighlightMetadataString(input.note, 'note', 16_384, true)
+  if (input.color !== 'gold' && input.color !== 'rose' && input.color !== 'blue') {
+    throw new Error('Invalid remote highlight metadata color')
+  }
+  if (typeof input.isHighlighted !== 'boolean') throw new Error('Invalid remote highlight metadata presentation state')
+  if (!Number.isSafeInteger(input.revision) || input.revision < 1) throw new Error('Invalid remote highlight metadata revision')
+  if (!Number.isSafeInteger(input.sequence) || input.sequence < 1) throw new Error('Invalid remote highlight metadata sequence')
+
+  const shadow: RemoteHighlightMetadataShadow = {
+    key: remoteHighlightMetadataShadowKey(input.userId, input.highlightId),
+    userId: input.userId,
+    highlightId: input.highlightId,
+    editionId: input.editionId,
+    revision: input.revision,
+    sequence: input.sequence,
+    text: input.text,
+    location: input.location,
+    note: input.note,
+    color: input.color,
+    isHighlighted: input.isHighlighted,
+  }
+  return remoteHighlightMetadataShadowTransaction('readwrite', (store, resolve, reject) => {
+    const request = store.put(shadow)
+    request.onerror = () => reject(request.error)
+    request.onsuccess = () => resolve(shadow)
+  })
+}
+
+/** Read only the current stable account's private remote excerpt projections. */
+export async function listRemoteHighlightMetadataShadows(userId: string): Promise<RemoteHighlightMetadataShadow[]> {
+  assertNonEmptyMetadataSyncId(userId, 'user id')
+  return remoteHighlightMetadataShadowTransaction('readonly', (store, resolve, reject) => {
+    const request = store.index(REMOTE_HIGHLIGHT_METADATA_SHADOWS_BY_USER).getAll(userId)
+    request.onerror = () => reject(request.error)
+    request.onsuccess = () => resolve((request.result as RemoteHighlightMetadataShadow[])
+      .filter((shadow) => shadow.userId === userId)
+      .sort((left, right) => right.sequence - left.sequence))
+  })
+}
+
+/** Delete exactly one private remote excerpt projection; never another account's. */
+export async function deleteRemoteHighlightMetadataShadow(userId: string, highlightId: string): Promise<boolean> {
+  assertNonEmptyMetadataSyncId(userId, 'user id')
+  assertNonEmptyMetadataSyncId(highlightId, 'highlight id')
+  const key = remoteHighlightMetadataShadowKey(userId, highlightId)
+  return remoteHighlightMetadataShadowTransaction('readwrite', (store, resolve, reject) => {
+    const request = store.get(key)
+    request.onerror = () => reject(request.error)
+    request.onsuccess = () => {
+      const shadow = request.result as RemoteHighlightMetadataShadow | undefined
+      if (!shadow || shadow.userId !== userId || shadow.highlightId !== highlightId) {
         resolve(false)
         return
       }
@@ -1485,20 +1644,37 @@ export async function listHighlights(bookId?: string): Promise<Highlight[]> {
   return highlights.filter((highlight) => !bookId || highlight.bookId === bookId).sort((a, b) => b.createdAt - a.createdAt)
 }
 
-export async function updateHighlightNote(id: string, note: string): Promise<void> {
+/**
+ * Return the exact durable record so callers can safely enqueue a private
+ * metadata sync intent after this local-first write succeeds.
+ */
+export async function updateHighlightNote(id: string, note: string): Promise<Highlight | null> {
   const current = await transaction<Highlight | undefined>(HIGHLIGHTS_STORE, 'readonly', (store) => store.get(id))
-  if (!current) return
-  await transaction(HIGHLIGHTS_STORE, 'readwrite', (store) => store.put({ ...current, note, updatedAt: Date.now() }))
+  if (!current) return null
+  const next = { ...current, note, updatedAt: Date.now() }
+  await transaction(HIGHLIGHTS_STORE, 'readwrite', (store) => store.put(next))
+  return next
 }
 
-export async function updateHighlightColor(id: string, color: Highlight['color']): Promise<void> {
+/** See `updateHighlightNote`; the sync layer must not rebuild optimistic copies. */
+export async function updateHighlightColor(id: string, color: Highlight['color']): Promise<Highlight | null> {
   const current = await transaction<Highlight | undefined>(HIGHLIGHTS_STORE, 'readonly', (store) => store.get(id))
-  if (!current) return
-  await transaction(HIGHLIGHTS_STORE, 'readwrite', (store) => store.put({ ...current, color, updatedAt: Date.now() }))
+  if (!current) return null
+  const next = { ...current, color, updatedAt: Date.now() }
+  await transaction(HIGHLIGHTS_STORE, 'readwrite', (store) => store.put(next))
+  return next
 }
 
-export async function deleteHighlight(id: string): Promise<void> {
+/**
+ * Return the removed local record so the application can enqueue a tombstone
+ * only after deletion is durable. The returned record remains local metadata
+ * and is never used to upload files or book identifiers.
+ */
+export async function deleteHighlight(id: string): Promise<Highlight | null> {
+  const current = await transaction<Highlight | undefined>(HIGHLIGHTS_STORE, 'readonly', (store) => store.get(id))
+  if (!current) return null
   await transaction(HIGHLIGHTS_STORE, 'readwrite', (store) => store.delete(id))
+  return current
 }
 
 export async function deleteBook(book: StoredBook): Promise<void> {

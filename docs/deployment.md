@@ -165,7 +165,7 @@ npm run validate:env -- --production --json
 
 ### 首次生产配置：最小操作清单
 
-1. 创建 Supabase 项目；在 SQL Editor 或 CLI 按编号顺序执行已有 migration（当前至少包括 `0001_initial_sync.sql` 至 `0011_account_profile_and_avatar_foundation.sql`），再按 `supabase/verify_rls.sql` 用两个真实测试用户验证隔离。`0008`/`0009` 只提供受控元数据同步底座，`0011` 只提供账户资料与私有头像桶基础；执行 migration 本身不等于客户端已完成同步或头像上传。只有准备接入平台自有/获授权正文时，才继续完成 `0006`/`0007` 对应的受控运营流程和下方“首个合规内容来源接入清单”；不要为试用书目搜索虚构许可或内容资产。
+1. 创建 Supabase 项目；在 SQL Editor 或 CLI 按编号顺序执行已有 migration（当前至少包括 `0001_initial_sync.sql` 至 `0012_private_highlight_sync_rpc.sql`），再按 `supabase/verify_rls.sql` 用两个真实测试用户验证隔离。`0008`/`0009` 提供受控元数据同步底座，`0012` 增加只允许本人活跃设备提交摘录文本、位置、笔记与颜色的专用 RPC，`0011` 只提供账户资料与私有头像桶基础；执行 migration 本身不等于客户端已完成同步或头像上传。只有准备接入平台自有/获授权正文时，才继续完成 `0006`/`0007` 对应的受控运营流程和下方“首个合规内容来源接入清单”；不要为试用书目搜索虚构许可或内容资产。
 2. 在 Cloudflare Worker 项目配置 `VITE_SUPABASE_URL` 与 `VITE_SUPABASE_ANON_KEY`。它们是浏览器公开配置；不要放 service-role key。
 3. 在 **AI/OCR 网关的服务端环境** 配置 `AI_*`、`OCR_*`、`SUPABASE_JWT_SECRET`、`SUPABASE_URL`、`SUPABASE_ANON_KEY` 与一个精确的 `ALLOWED_ORIGIN=https://你的域名`；两个 `*_ENV` 均为 `production`，`AI_REQUIRE_AUTH=true`、`OCR_REQUIRE_AUTH=true`。不要把这些 Secret 放入前端部署环境或仓库。
 4. 依次执行 `0003_ai_usage_ledger.sql` 和 `0004_ai_usage_quota_release.sql`。网关会使用已验证用户的 JWT 调用 `consume_ai_quota`，并在供应商失败时调用 `release_ai_quota`；生产环境缺少 `SUPABASE_URL` / `SUPABASE_ANON_KEY` 会在调用供应商前拒绝请求。该账本只记录用户、请求 ID、操作种类与状态，不保存原书、正文、图像或模型输出。

@@ -50,6 +50,28 @@ test('controlled sync RPC posts only to the typed Supabase RPC endpoint with ses
   }
 })
 
+test('private highlight sync can only send the reviewed same-account excerpt fields', async () => {
+  const originalFetch = globalThis.fetch
+  let request: Request | undefined
+  const highlight = {
+    p_device_id: mutation.p_device_id, p_operation_id: mutation.p_operation_id, p_highlight_id: '3ce61155-bf0a-4a47-9b0c-f6d8d9f07f9e',
+    p_operation: 'upsert' as const, p_base_revision: 0, p_edition_id: '4ce61155-bf0a-4a47-9b0c-f6d8d9f07f9e',
+    p_text: 'Private excerpt', p_location: 'epubcfi(/6/4)', p_note: 'My note', p_color: 'gold' as const, p_is_highlighted: true,
+  }
+  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    request = new Request(input, init)
+    return new Response(JSON.stringify([{ sequence: 8, entity_revision: 1, operation: 'upsert', applied: true }]), { status: 200, headers: { 'content-type': 'application/json' } })
+  }) as typeof fetch
+  try {
+    const client = createRemoteClient(session, { url: 'https://sync.example.com/', anonKey: 'public-anon-key', retryDelayMs: 0 })
+    await client.rpc('apply_private_highlight_sync_change', { ...highlight, file_name: 'must-not-send.epub' } as never)
+    expect(request?.url).toBe('https://sync.example.com/rest/v1/rpc/apply_private_highlight_sync_change')
+    expect(await request?.json()).toEqual(highlight)
+  } finally {
+    globalThis.fetch = originalFetch
+  }
+})
+
 test('device registration is allowlisted, sends only its minimal input, and projects a safe response', async () => {
   const originalFetch = globalThis.fetch
   let request: Request | undefined

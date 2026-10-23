@@ -11,16 +11,19 @@ import {
   type MetadataSyncEntityRevisionStore,
 } from './metadata-sync-coordinator'
 import type { RemoteBookMetadataShadowStore } from './metadata-sync-edition-shadow'
+import type { RemoteHighlightMetadataShadowStore } from './metadata-sync-highlight-shadow'
 import type { MetadataSyncOutboxStore, MetadataSyncRpcClient } from './metadata-sync-engine'
 import { createRemoteClient } from './remote'
 import {
   acknowledgeMetadataSyncOutboxEntry,
   claimMetadataSyncOutboxEntry,
   deleteRemoteBookMetadataShadow,
+  deleteRemoteHighlightMetadataShadow,
   listMetadataSyncOutbox,
   readMetadataSyncCursor,
   releaseMetadataSyncOutboxClaim,
   upsertRemoteBookMetadataShadow,
+  upsertRemoteHighlightMetadataShadow,
   writeMetadataSyncEntityRevision,
   writeMetadataSyncCursor,
 } from './storage'
@@ -38,6 +41,7 @@ export type MetadataSyncRuntimeDependencies = {
   isConfigured?: () => boolean
   outbox?: MetadataSyncOutboxStore
   shadows?: RemoteBookMetadataShadowStore
+  highlights?: RemoteHighlightMetadataShadowStore
   cursors?: MetadataSyncCursorStore
   revisions?: MetadataSyncEntityRevisionStore
   deviceStorage?: ClientInstanceStorage | null
@@ -106,6 +110,13 @@ function defaultShadowStore(): RemoteBookMetadataShadowStore {
   }
 }
 
+function defaultHighlightShadowStore(): RemoteHighlightMetadataShadowStore {
+  return {
+    upsert: upsertRemoteHighlightMetadataShadow,
+    delete: deleteRemoteHighlightMetadataShadow,
+  }
+}
+
 /**
  * Compose the controlled metadata primitives into one narrow application
  * service. The application may call `run` after a stable session becomes
@@ -145,6 +156,7 @@ export function createMetadataSyncRuntime(
 
     const outbox = dependencies.outbox ?? defaultOutboxStore()
     const shadows = dependencies.shadows ?? defaultShadowStore()
+    const highlights = dependencies.highlights ?? defaultHighlightShadowStore()
     const cursors = dependencies.cursors ?? defaultCursorStore()
     const revisions = dependencies.revisions ?? defaultEntityRevisionStore()
     const registerDevice = dependencies.registerDevice
@@ -159,6 +171,7 @@ export function createMetadataSyncRuntime(
       remote,
       outbox,
       shadows,
+      highlights,
       cursors,
       revisions,
       registerDevice,

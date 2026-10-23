@@ -23,6 +23,25 @@ export type AppliedMetadataSyncChange = {
   applied: boolean
 }
 
+/**
+ * Private same-account excerpt replication.  This deliberately uses named
+ * fields rather than a generic JSON payload so a browser cannot add a book
+ * file, cover, object locator, or other unreviewed field to a highlight.
+ */
+export type ApplyPrivateHighlightSyncChangeInput = {
+  p_device_id: string
+  p_operation_id: string
+  p_highlight_id: string
+  p_operation: ControlledMetadataSyncOperation
+  p_base_revision: number
+  p_edition_id?: string
+  p_text?: string
+  p_location?: string
+  p_note?: string
+  p_color?: 'gold' | 'rose' | 'blue'
+  p_is_highlighted?: boolean
+}
+
 export type PullMetadataSyncChangesInput = {
   p_after_sequence?: number
   p_limit?: number
@@ -69,6 +88,10 @@ export type ControlledMetadataSyncRpc = {
   }
   apply_metadata_sync_change: {
     input: ApplyMetadataSyncChangeInput
+    output: AppliedMetadataSyncChange[]
+  }
+  apply_private_highlight_sync_change: {
+    input: ApplyPrivateHighlightSyncChangeInput
     output: AppliedMetadataSyncChange[]
   }
   pull_metadata_sync_changes: {
@@ -120,6 +143,7 @@ const forbiddenPayloadKeys = new Set([
 const controlledRpcNames = new Set<keyof ControlledMetadataSyncRpc>([
   'register_sync_device',
   'apply_metadata_sync_change',
+  'apply_private_highlight_sync_change',
   'pull_metadata_sync_changes',
 ])
 const syncDevicePlatforms = new Set<SyncDevicePlatform>(['web', 'desktop', 'ios', 'android'])
@@ -200,6 +224,37 @@ function safeRegisterSyncDeviceInput(input: RegisterSyncDeviceInput): RegisterSy
   }
 }
 
+function safePrivateHighlightSyncInput(input: ApplyPrivateHighlightSyncChangeInput): ApplyPrivateHighlightSyncChangeInput {
+  if (!uuidPattern.test(input.p_device_id) || !uuidPattern.test(input.p_operation_id) || !uuidPattern.test(input.p_highlight_id)) {
+    throw new TypeError('私有摘录同步 ID 必须是 UUID')
+  }
+  if (input.p_operation !== 'upsert' && input.p_operation !== 'delete') throw new TypeError('私有摘录同步操作无效')
+  if (!Number.isSafeInteger(input.p_base_revision) || input.p_base_revision < 0) throw new TypeError('私有摘录同步版本无效')
+  if (input.p_operation === 'delete') {
+    if (Object.keys(input).some((key) => !['p_device_id', 'p_operation_id', 'p_highlight_id', 'p_operation', 'p_base_revision'].includes(key))) {
+      throw new TypeError('删除摘录不能携带内容')
+    }
+    return {
+      p_device_id: input.p_device_id, p_operation_id: input.p_operation_id, p_highlight_id: input.p_highlight_id,
+      p_operation: input.p_operation, p_base_revision: input.p_base_revision,
+    }
+  }
+  if (!uuidPattern.test(input.p_edition_id ?? '') || typeof input.p_text !== 'string' || typeof input.p_location !== 'string'
+    || typeof input.p_is_highlighted !== 'boolean') throw new TypeError('私有摘录同步字段无效')
+  if (input.p_text.length === 0 || input.p_text.length > 32_768 || input.p_location.length === 0 || input.p_location.length > 4_096
+    || (input.p_note !== undefined && (typeof input.p_note !== 'string' || input.p_note.length > 16_384))
+    || (input.p_color !== undefined && !['gold', 'rose', 'blue'].includes(input.p_color))) throw new TypeError('私有摘录同步内容无效')
+  for (const value of [input.p_text, input.p_location, input.p_note]) {
+    if (typeof value === 'string' && isUrlOrDataValue(value)) throw new TypeError('私有摘录同步不能包含 URL 或数据地址')
+  }
+  return {
+    p_device_id: input.p_device_id, p_operation_id: input.p_operation_id, p_highlight_id: input.p_highlight_id,
+    p_operation: input.p_operation, p_base_revision: input.p_base_revision, p_edition_id: input.p_edition_id,
+    p_text: input.p_text, p_location: input.p_location, ...(input.p_note !== undefined ? { p_note: input.p_note } : {}),
+    ...(input.p_color !== undefined ? { p_color: input.p_color } : {}), p_is_highlighted: input.p_is_highlighted,
+  }
+}
+
 function asRegisteredSyncDevice(value: unknown): RegisteredSyncDevice {
   const record = (Array.isArray(value) ? value[0] : value) as Record<string, unknown> | undefined
   if (!record || typeof record.id !== 'string' || typeof record.client_instance_id !== 'string' || typeof record.platform !== 'string') {
@@ -274,6 +329,9 @@ export function createRemoteClient(session: AuthSession, config: RemoteClientCon
       if (name === 'apply_metadata_sync_change') {
         const payload = (input as ApplyMetadataSyncChangeInput).p_payload ?? {}
         assertMetadataOnlySyncPayload(payload)
+      }
+      if (name === 'apply_private_highlight_sync_change') {
+        safeInput = safePrivateHighlightSyncInput(input as ApplyPrivateHighlightSyncChangeInput) as ControlledMetadataSyncRpc[TName]['input']
       }
       const output = await request<unknown>(`rpc/${name}`, {
         method: 'POST',
