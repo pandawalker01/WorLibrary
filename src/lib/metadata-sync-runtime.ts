@@ -12,6 +12,7 @@ import {
 } from './metadata-sync-coordinator'
 import type { RemoteBookMetadataShadowStore } from './metadata-sync-edition-shadow'
 import type { RemoteHighlightMetadataShadowStore } from './metadata-sync-highlight-shadow'
+import type { RemoteReaderPreferenceStore } from './metadata-sync-preference-shadow'
 import type { MetadataSyncOutboxStore, MetadataSyncRpcClient } from './metadata-sync-engine'
 import { createRemoteClient } from './remote'
 import {
@@ -42,6 +43,8 @@ export type MetadataSyncRuntimeDependencies = {
   outbox?: MetadataSyncOutboxStore
   shadows?: RemoteBookMetadataShadowStore
   highlights?: RemoteHighlightMetadataShadowStore
+  /** The app owns account-scoped durable preference storage and UI updates. */
+  preferences?: RemoteReaderPreferenceStore
   cursors?: MetadataSyncCursorStore
   revisions?: MetadataSyncEntityRevisionStore
   deviceStorage?: ClientInstanceStorage | null
@@ -172,6 +175,7 @@ export function createMetadataSyncRuntime(
       outbox,
       shadows,
       highlights,
+      preferences: dependencies.preferences,
       cursors,
       revisions,
       registerDevice,

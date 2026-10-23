@@ -77,6 +77,44 @@ test('a stable local edition queues only whitelisted metadata with the device re
   expect(JSON.stringify(entries)).not.toContain('work_id')
 })
 
+test('a stable local edition deletion queues an identity-only tombstone without a book payload', async () => {
+  const entries: CreateMetadataSyncOutboxEntry[] = []
+  const result = await enqueueLocalEditionMetadataSyncIntent({
+    session,
+    editionId,
+    operation: 'delete',
+    baseRevision: 7,
+    deviceStorage: storage(clientInstanceId),
+    enqueue: captureEnqueue(entries),
+    operationId: 'b005f008-79a8-49f0-bdaa-0c9c468add46',
+  })
+
+  expect(result.status).toBe('queued')
+  expect(entries).toEqual([{
+    operationId: 'b005f008-79a8-49f0-bdaa-0c9c468add46', userId: 'stable-user', deviceClientId: clientInstanceId,
+    entityType: 'edition', entityId: editionId, operation: 'delete', baseRevision: 7, payload: {},
+  }])
+  const serialized = JSON.stringify(entries)
+  for (const forbidden of ['file_name', 'file_type', 'file_size', 'cover', 'location', 'title', 'author', 'bookId', 'blob']) {
+    expect(serialized).not.toContain(forbidden)
+  }
+})
+
+test('edition deletion rejects an absent or unstable server identity before reaching the outbox', async () => {
+  for (const candidate of [undefined, 'not-a-uuid']) {
+    const entries: CreateMetadataSyncOutboxEntry[] = []
+    const result = await enqueueLocalEditionMetadataSyncIntent({
+      session,
+      editionId: candidate,
+      operation: 'delete',
+      deviceStorage: storage(clientInstanceId),
+      enqueue: captureEnqueue(entries),
+    })
+    expect(result.status).toBe('invalid-book')
+    expect(entries).toEqual([])
+  }
+})
+
 test('edition-only intent has a closed payload boundary even when the local record carries unsynced file-related fields', async () => {
   const entries: CreateMetadataSyncOutboxEntry[] = []
   const localRecord = Object.assign(book({

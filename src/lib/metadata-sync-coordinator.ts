@@ -2,6 +2,7 @@ import type { AuthSession } from './auth'
 import type { DeviceRegistrationSessionResult } from './device-registration-session'
 import { projectRemoteEditionChangeToShadow, type RemoteBookMetadataShadowStore } from './metadata-sync-edition-shadow'
 import { projectRemoteHighlightChangeToShadow, type RemoteHighlightMetadataShadowStore } from './metadata-sync-highlight-shadow'
+import { projectRemoteReaderPreferenceChange, type RemoteReaderPreferenceStore } from './metadata-sync-preference-shadow'
 import {
   flushMetadataSyncOutbox,
   pullMetadataSyncChangeFeed,
@@ -18,7 +19,7 @@ import {
 export type MetadataSyncEntityRevisionStore = {
   write(input: {
     userId: string
-    entityType: 'edition' | 'highlight'
+    entityType: 'edition' | 'highlight' | 'setting'
     entityId: string
     revision: number
     lastSequence: number
@@ -43,6 +44,7 @@ export type MetadataSyncCoordinatorInput = {
   shadows: RemoteBookMetadataShadowStore
   /** Required by the browser runtime; omitted test/embedding hosts reject rather than skip remote excerpts. */
   highlights?: RemoteHighlightMetadataShadowStore
+  preferences?: RemoteReaderPreferenceStore
   cursors: MetadataSyncCursorStore
   revisions: MetadataSyncEntityRevisionStore
   /** Inject the registration session to keep browser localStorage outside this coordinator. */
@@ -135,11 +137,14 @@ export async function coordinateMetadataSync(input: MetadataSyncCoordinatorInput
     maxPages: input.maxPages,
     onChange: async (change) => {
       if (!sessionIsCurrent(input)) throw new Error('sync session invalidated')
-      if (change.entity_type !== 'edition' && change.entity_type !== 'highlight') {
+      if (change.entity_type !== 'edition' && change.entity_type !== 'highlight' && change.entity_type !== 'setting') {
         throw new Error(`unsupported sync entity: ${change.entity_type}`)
       }
       if (change.entity_type === 'highlight' && !input.highlights) {
         throw new Error('highlight shadow store is unavailable')
+      }
+      if (change.entity_type === 'setting' && !input.preferences) {
+        throw new Error('reader preference store is unavailable')
       }
       const projection = change.entity_type === 'edition'
         ? await projectRemoteEditionChangeToShadow({
@@ -147,10 +152,14 @@ export async function coordinateMetadataSync(input: MetadataSyncCoordinatorInput
           change,
           shadows: input.shadows,
         })
-        : await projectRemoteHighlightChangeToShadow({
+        : change.entity_type === 'highlight' ? await projectRemoteHighlightChangeToShadow({
           userId: input.session!.user.id,
           change,
           highlights: input.highlights!,
+        }) : await projectRemoteReaderPreferenceChange({
+          userId: input.session!.user.id,
+          change,
+          preferences: input.preferences!,
         })
       // The caller should not advance a cursor through data it cannot safely
       // interpret.  This makes the limited MVP support explicit instead of

@@ -15,7 +15,7 @@ import AuthPanel from './components/AuthPanel'
 import { getSession, signOut, type AuthSession } from './lib/auth'
 import { createAccountProfileClient, PROFILE_AVATAR_MAX_BYTES, PROFILE_BIO_MAX_LENGTH, PROFILE_DISPLAY_NAME_MAX_LENGTH } from './lib/account-profile'
 import { copy, interpolate, loadReadingLanguage, loadUiLocale, saveReadingLanguage, saveUiLocale, type ReadingLanguage } from './lib/i18n'
-import { clampFontScale, loadReaderPreferences, type ReaderPreferences } from './lib/reader'
+import { clampFontScale, DEFAULT_READER_PREFERENCES, loadReaderPreferences, saveReaderPreferences, type ReaderPreferences } from './lib/reader'
 import { loadSavedWorldBooks, saveWorldBook, searchWorldLibrary, worldBookIdentity, type WorldBook } from './lib/world-library'
 import WorldLanguagePicker from './components/WorldLanguagePicker'
 import ReadingLanguagePicker, { displayReadingLanguage } from './components/ReadingLanguagePicker'
@@ -23,6 +23,8 @@ import InterfaceLanguagePicker from './components/InterfaceLanguagePicker'
 import { interfaceLocaleDirection, presentInterfaceLocales } from './lib/interface-locale-registry'
 import { enqueueLocalEditionMetadataSyncIntent } from './lib/metadata-sync-edition-intent'
 import { enqueueLocalHighlightMetadataSyncIntent } from './lib/metadata-sync-highlight-intent'
+import { enqueueLocalReaderPreferenceSyncIntent, READER_LAYOUT_SETTING_KEY, READING_LANGUAGE_SETTING_KEY, type SyncedReaderPreference } from './lib/metadata-sync-preference-intent'
+import { clearAccountReaderPreference, persistAccountReaderPreference } from './lib/metadata-sync-preference-shadow'
 import { createMetadataSyncRuntime, type MetadataSyncRuntime } from './lib/metadata-sync-runtime'
 
 // Platform rendering pulls in EPUB.js/PDF.js integration. Keep it out of the
@@ -260,7 +262,40 @@ function App() {
   const metadataSyncRuntimeRef = useRef<MetadataSyncRuntime | null>(null)
   const metadataSyncTimerRef = useRef<number | null>(null)
   const sessionRef = useRef<AuthSession | null>(null)
-  if (!metadataSyncRuntimeRef.current) metadataSyncRuntimeRef.current = createMetadataSyncRuntime()
+  const readerPreferencesRef = useRef(readerPreferences)
+  const languageRef = useRef(language)
+  if (!metadataSyncRuntimeRef.current) {
+    metadataSyncRuntimeRef.current = createMetadataSyncRuntime({
+      preferences: {
+        apply: async ({ userId, preference, revision, sequence }) => {
+          if (!persistAccountReaderPreference({ userId, preference, revision, sequence })) throw new Error('reader preference could not be persisted')
+          if (sessionRef.current?.user.id !== userId) return
+          if (preference.key === READER_LAYOUT_SETTING_KEY) {
+            readerPreferencesRef.current = preference.value
+            saveReaderPreferences(preference.value)
+            setReaderPreferences(preference.value)
+          } else {
+            languageRef.current = preference.value.language
+            saveReadingLanguage(preference.value.language)
+            setLanguage(preference.value.language)
+          }
+        },
+        clear: async ({ userId, key, sequence }) => {
+          if (!clearAccountReaderPreference({ userId, key, sequence })) throw new Error('reader preference could not be cleared')
+          if (sessionRef.current?.user.id !== userId) return
+          if (key === READER_LAYOUT_SETTING_KEY) {
+            readerPreferencesRef.current = DEFAULT_READER_PREFERENCES
+            saveReaderPreferences(DEFAULT_READER_PREFERENCES)
+            setReaderPreferences(DEFAULT_READER_PREFERENCES)
+          } else {
+            languageRef.current = '中文'
+            saveReadingLanguage('中文')
+            setLanguage('中文')
+          }
+        },
+      },
+    })
+  }
   const ui = copy[uiLocale]
   const account = accountIdentity(session, ui.signIn, ui.guestAccount, ui.profileDefaultName, profileDraft ?? undefined)
 
@@ -367,6 +402,38 @@ function App() {
     }, 900)
   }, [syncNow])
 
+  const queueReaderPreferenceSync = useCallback(async (preference: SyncedReaderPreference) => {
+    const current = sessionRef.current
+    if (!current || current.user.isAnonymous) return
+    try {
+      const revision = await readMetadataSyncEntityRevision(current.user.id, 'setting', preference.key)
+      if (sessionRef.current?.user.id !== current.user.id) return
+      const result = await enqueueLocalReaderPreferenceSyncIntent({
+        session: current,
+        preference,
+        baseRevision: revision?.revision ?? 0,
+      })
+      if (result.status === 'queued') scheduleSync()
+    } catch {
+      // Reader settings remain available locally if background preference sync
+      // cannot queue or the account changes while IndexedDB resolves.
+    }
+  }, [scheduleSync])
+
+  const applyReaderPreferences = useCallback((next: ReaderPreferences) => {
+    const normalized: ReaderPreferences = {
+      theme: next.theme,
+      fontScale: clampFontScale(next.fontScale),
+      pdfZoom: Math.max(0.75, Math.min(2.5, Number(next.pdfZoom.toFixed(2)))),
+    }
+    const current = readerPreferencesRef.current
+    if (current.theme === normalized.theme && current.fontScale === normalized.fontScale && current.pdfZoom === normalized.pdfZoom) return
+    readerPreferencesRef.current = normalized
+    saveReaderPreferences(normalized)
+    setReaderPreferences(normalized)
+    void queueReaderPreferenceSync({ key: READER_LAYOUT_SETTING_KEY, value: normalized })
+  }, [queueReaderPreferenceSync])
+
   const queueEditionMetadataSync = useCallback(async (book: StoredBook) => {
     const current = sessionRef.current
     if (!current || current.user.isAnonymous || !book.editionId) return
@@ -384,6 +451,30 @@ function App() {
     } catch {
       // The shelf remains local-first. Background metadata sync must not turn
       // an otherwise successful import, edit, or page turn into a UI failure.
+    }
+  }, [scheduleSync])
+
+  /**
+   * Queue an identity-only edition tombstone only after local deletion has
+   * succeeded. This deliberately accepts no StoredBook: the sync boundary
+   * must not inspect a deleted EPUB/PDF, cover, filename, or local book id.
+   */
+  const queueEditionMetadataDeleteSync = useCallback(async (editionId: string) => {
+    const current = sessionRef.current
+    if (!current || current.user.isAnonymous) return
+    try {
+      const revision = await readMetadataSyncEntityRevision(current.user.id, 'edition', editionId)
+      if (sessionRef.current?.user.id !== current.user.id) return
+      const result = await enqueueLocalEditionMetadataSyncIntent({
+        session: current,
+        editionId,
+        operation: 'delete',
+        baseRevision: revision?.revision ?? 0,
+      })
+      if (result.status === 'queued') scheduleSync()
+    } catch {
+      // Local deletion remains successful even if its future cross-device
+      // tombstone cannot be queued. No local file is ever read or uploaded.
     }
   }, [scheduleSync])
 
@@ -651,8 +742,13 @@ function App() {
   }
 
   function changeReadingLanguage(nextLanguage: ReadingLanguage) {
-    setLanguage(nextLanguage)
-    toast(`${ui.readingLanguageSaved}${displayReadingLanguage(nextLanguage, uiLocale)}`)
+    const normalized = nextLanguage.trim().slice(0, 64)
+    if (!normalized || languageRef.current === normalized) return
+    languageRef.current = normalized
+    saveReadingLanguage(normalized)
+    setLanguage(normalized)
+    void queueReaderPreferenceSync({ key: READING_LANGUAGE_SETTING_KEY, value: { language: normalized } })
+    toast(`${ui.readingLanguageSaved}${displayReadingLanguage(normalized, uiLocale)}`)
   }
 
   function importBooks() { fileInput.current?.click() }
@@ -744,7 +840,13 @@ function App() {
     // tombstones without ever reading or sending the original file.
     const deletedHighlights = await listHighlights(book.id)
     await deleteBook(book as StoredBook)
-    if (book.editionId) deletedHighlights.forEach((highlight) => { void queueHighlightMetadataSync(highlight, 'delete', book.editionId) })
+    if (book.editionId) {
+      // Keep the local deletion first, then enqueue excerpt tombstones before
+      // the edition tombstone. The queues are metadata-only; `deleteBook`
+      // has already removed the local EPUB/PDF and blob records.
+      for (const highlight of deletedHighlights) await queueHighlightMetadataSync(highlight, 'delete', book.editionId)
+      await queueEditionMetadataDeleteSync(book.editionId)
+    }
     setBooks((current) => current.filter((item) => item.id !== book.id))
     if (selectedBook.id === book.id) setSelectedBook(sampleBooks[0])
     toast('书籍、阅读进度和摘录已从本地删除')
@@ -972,14 +1074,14 @@ function App() {
 
         {view === 'reader' && (selectedPlatformBook ? <Suspense fallback={<section className="reader-view" role="status">正在打开平台阅读器…</section>}><PlatformReader editionId={selectedPlatformBook.platformEditionId!} title={selectedPlatformBook.title} author={selectedPlatformBook.author} uiLocale={uiLocale} accessToken={session?.accessToken} onBack={() => { setRoutedPlatformEditionId(undefined); setView('library') }} /></Suspense> : <section className="reader-view">
           <div className="reader-header"><button className="back-button" onClick={() => { setReaderLayoutOpen(false); setView('library') }}>← <span>{ui.backToLibrary}</span></button><div className="reader-title"><strong>{selectedBook.title}</strong><small>{selectedBook.author}{selectedBook.fileName ? ` · ${ui.localReading}` : ''}</small></div><div className="reader-tools"><button onClick={importBooks}>{ui.importBook}</button><button onClick={() => { if (!selectedRelatedEdition) { toast(uiLocale === 'en' ? 'Import and link another edition before comparing.' : '请先导入并关联另一个译本，再进行对照阅读'); return } setCompare(!compare) }}>{compare ? ui.exitCompare : ui.compare}</button><button onClick={() => setView('settings')}>{language.slice(0, 1)}</button><button onClick={() => setReaderLayoutOpen((current) => !current)} aria-expanded={readerLayoutOpen} aria-controls="reader-layout-panel">Aa</button></div></div>
-          {readerLayoutOpen && <aside id="reader-layout-panel" className="reader-layout-panel" role="dialog" aria-label={ui.readerLayout}><div><h2>{ui.readerLayout}</h2></div><div className="reader-layout-row"><span>{ui.fontSize}</span><div><button onClick={() => setReaderPreferences((current) => ({ ...current, fontScale: clampFontScale(current.fontScale - 0.05) }))} aria-label={ui.decreaseFont}>A−</button><strong>{Math.round(readerPreferences.fontScale * 100)}%</strong><button onClick={() => setReaderPreferences((current) => ({ ...current, fontScale: clampFontScale(current.fontScale + 0.05) }))} aria-label={ui.increaseFont}>A＋</button></div></div><div className="reader-layout-row"><span>{ui.readerTheme}</span><div className="reader-theme-choices"><button className={readerPreferences.theme === 'paper' ? 'active' : ''} aria-pressed={readerPreferences.theme === 'paper'} onClick={() => setReaderPreferences((current) => ({ ...current, theme: 'paper' }))}>{ui.paperTheme}</button><button className={readerPreferences.theme === 'sepia' ? 'active' : ''} aria-pressed={readerPreferences.theme === 'sepia'} onClick={() => setReaderPreferences((current) => ({ ...current, theme: 'sepia' }))}>{ui.sepiaTheme}</button><button className={readerPreferences.theme === 'night' ? 'active' : ''} aria-pressed={readerPreferences.theme === 'night'} onClick={() => setReaderPreferences((current) => ({ ...current, theme: 'night' }))}>{ui.nightTheme}</button></div></div></aside>}
+          {readerLayoutOpen && <aside id="reader-layout-panel" className="reader-layout-panel" role="dialog" aria-label={ui.readerLayout}><div><h2>{ui.readerLayout}</h2></div><div className="reader-layout-row"><span>{ui.fontSize}</span><div><button onClick={() => applyReaderPreferences({ ...readerPreferences, fontScale: clampFontScale(readerPreferences.fontScale - 0.05) })} aria-label={ui.decreaseFont}>A−</button><strong>{Math.round(readerPreferences.fontScale * 100)}%</strong><button onClick={() => applyReaderPreferences({ ...readerPreferences, fontScale: clampFontScale(readerPreferences.fontScale + 0.05) })} aria-label={ui.increaseFont}>A＋</button></div></div><div className="reader-layout-row"><span>{ui.readerTheme}</span><div className="reader-theme-choices"><button className={readerPreferences.theme === 'paper' ? 'active' : ''} aria-pressed={readerPreferences.theme === 'paper'} onClick={() => applyReaderPreferences({ ...readerPreferences, theme: 'paper' })}>{ui.paperTheme}</button><button className={readerPreferences.theme === 'sepia' ? 'active' : ''} aria-pressed={readerPreferences.theme === 'sepia'} onClick={() => applyReaderPreferences({ ...readerPreferences, theme: 'sepia' })}>{ui.sepiaTheme}</button><button className={readerPreferences.theme === 'night' ? 'active' : ''} aria-pressed={readerPreferences.theme === 'night'} onClick={() => applyReaderPreferences({ ...readerPreferences, theme: 'night' })}>{ui.nightTheme}</button></div></div></aside>}
           {(() => {
             const currentEdition = selectedEdition
             const relatedEdition = selectedRelatedEdition
             const relatedBook = relatedEdition ? books.find((book) => book.id === relatedEdition.bookId) : undefined
             const renderReader = (book: DisplayBook) => {
-              if (book.fileName?.toLowerCase().endsWith('.epub') && book.storage) return <EpubReader key={`epub-${book.id}`} book={book as StoredBook} targetLanguage={language} uiLocale={uiLocale} preferences={readerPreferences} onPreferencesChange={setReaderPreferences} onNotice={toast} onProgress={(progress, location, persistedBook) => updateEditionProgress(book.id, progress, location, persistedBook)} onHighlightSaved={(highlight) => { void queueHighlightMetadataSync(highlight) }} />
-              if (book.fileName?.toLowerCase().endsWith('.pdf') && book.storage) return <PdfReader key={`pdf-${book.id}`} book={book as StoredBook} targetLanguage={language} uiLocale={uiLocale} preferences={readerPreferences} onPreferencesChange={setReaderPreferences} onNotice={toast} onProgress={(progress, location, persistedBook) => updateEditionProgress(book.id, progress, location, persistedBook)} onHighlightSaved={(highlight) => { void queueHighlightMetadataSync(highlight) }} />
+              if (book.fileName?.toLowerCase().endsWith('.epub') && book.storage) return <EpubReader key={`epub-${book.id}`} book={book as StoredBook} targetLanguage={language} uiLocale={uiLocale} preferences={readerPreferences} onPreferencesChange={applyReaderPreferences} onNotice={toast} onProgress={(progress, location, persistedBook) => updateEditionProgress(book.id, progress, location, persistedBook)} onHighlightSaved={(highlight) => { void queueHighlightMetadataSync(highlight) }} />
+              if (book.fileName?.toLowerCase().endsWith('.pdf') && book.storage) return <PdfReader key={`pdf-${book.id}`} book={book as StoredBook} targetLanguage={language} uiLocale={uiLocale} preferences={readerPreferences} onPreferencesChange={applyReaderPreferences} onNotice={toast} onProgress={(progress, location, persistedBook) => updateEditionProgress(book.id, progress, location, persistedBook)} onHighlightSaved={(highlight) => { void queueHighlightMetadataSync(highlight) }} />
               // Imported books are the only readable source. Never fall back to
               // the old showcase passage, especially in a comparison pane.
               return <div className="reader-source-unavailable" role="status">{ui.localFileMissing}</div>

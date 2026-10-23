@@ -14,7 +14,11 @@ const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}
 
 export type EditionMetadataSyncIntentInput = {
   session: AuthSession | null
-  book: StoredBook
+  /** Required for an upsert. A delete must never inspect or serialize it. */
+  book?: StoredBook
+  operation?: 'upsert' | 'delete'
+  /** Stable server-facing version identity required for a delete. */
+  editionId?: string
   /** The local revision last accepted for this edition; new local books start at zero. */
   baseRevision?: number
   operationId?: string
@@ -92,7 +96,19 @@ export async function enqueueLocalEditionMetadataSyncIntent(input: EditionMetada
   if (resolvedClient.status !== 'ready') return resolvedClient
 
   try {
-    const payload = buildEditionPayload(input.book)
+    const operation = input.operation ?? 'upsert'
+    if (operation !== 'upsert' && operation !== 'delete') throw new Error('edition operation is invalid')
+    const editionId = operation === 'delete' ? input.editionId : input.book?.editionId
+    if (!editionId || !uuidPattern.test(editionId)) throw new Error('local edition requires a stable UUID')
+    // A deletion must stay an identity-only tombstone. In particular, do not
+    // inspect the local book record: that record can carry an EPUB/PDF blob,
+    // a cover image, or browser-only routing fields that must never leave the
+    // device through the metadata channel.
+    const payload = operation === 'delete'
+      ? {}
+      : input.book
+        ? buildEditionPayload(input.book)
+        : (() => { throw new Error('local edition upsert requires a book') })()
     const baseRevision = input.baseRevision ?? 0
     if (!Number.isSafeInteger(baseRevision) || baseRevision < 0) throw new Error('local edition base revision is invalid')
     const entry = await (input.enqueue ?? createMetadataSyncOutboxEntry)({
@@ -100,8 +116,8 @@ export async function enqueueLocalEditionMetadataSyncIntent(input: EditionMetada
       userId: input.session.user.id,
       deviceClientId: resolvedClient.clientInstanceId,
       entityType: 'edition',
-      entityId: input.book.editionId!,
-      operation: 'upsert',
+      entityId: editionId,
+      operation,
       baseRevision,
       payload,
     })
