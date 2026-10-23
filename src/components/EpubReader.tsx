@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type CSSProperties } from 'react'
 import ePub from 'epubjs'
-import { getBookFile, listHighlights, saveBookTextIndex, saveHighlight, saveReadingProgress, type Highlight, type StoredBook } from '../lib/storage'
+import { getBookFile, listHighlights, saveBookTextIndex, saveHighlight, saveReadingProgress, updateHighlightColor, type Highlight, type StoredBook } from '../lib/storage'
 import { translateSelection } from '../lib/translation'
 import { explainSelection } from '../lib/explanation'
 import { clampFontScale, cycleTheme, loadReaderPreferences, saveReaderPreferences, type ReaderPreferences } from '../lib/reader'
@@ -116,6 +116,10 @@ export default function EpubReader({ book, onNotice, onProgress, onHighlightSave
   const activeSelectionCfiRef = useRef<string | undefined>(undefined)
   const [selectionColor, setSelectionColor] = useState<Highlight['color']>()
   const activeSelectionHighlightRef = useRef<string | undefined>(undefined)
+  // A colour click is an explicit annotation action, so it becomes durable
+  // immediately. This ref keeps it separate from the short-lived SVG preview.
+  const persistedSelectionHighlightRef = useRef<Highlight | undefined>(undefined)
+  const [savingSelectionHighlight, setSavingSelectionHighlight] = useState(false)
   const [translation, setTranslation] = useState('')
   const [explanation, setExplanation] = useState('')
   const [translating, setTranslating] = useState(false)
@@ -208,6 +212,7 @@ export default function EpubReader({ book, onNotice, onProgress, onHighlightSave
           setExplanation('')
           setAiFeedback(undefined)
           setSelectionColor(undefined)
+          persistedSelectionHighlightRef.current = undefined
           setSelectionAnchor(anchorForSelection(contents))
           activeSelectionCfiRef.current = cfi
           setPendingSelection({ text, cfi })
@@ -294,6 +299,10 @@ export default function EpubReader({ book, onNotice, onProgress, onHighlightSave
 
   async function persistSelection() {
     if (!pendingSelection) return
+    if (persistedSelectionHighlightRef.current) {
+      dismissSelection()
+      return
+    }
     try {
       const color = selectionColor ?? 'gold'
       const highlight = await saveHighlight({ bookId: book.id, text: pendingSelection.text, location: pendingSelection.cfi, color, isHighlighted: Boolean(selectionColor) })
@@ -333,17 +342,40 @@ export default function EpubReader({ book, onNotice, onProgress, onHighlightSave
     activeSelectionHighlightRef.current = undefined
   }
 
-  function chooseSelectionColor(color: Highlight['color']) {
-    if (!pendingSelection) return
+  async function chooseSelectionColor(color: Highlight['color']) {
+    if (!pendingSelection || savingSelectionHighlight) return
+    const selection = pendingSelection
     clearSelectionHighlight()
     // Do not mark a selection merely because it was translated. The explicit
-    // color choice is the user's request to create a visible EPUB annotation.
-    if (renderHighlight(renditionRef.current, pendingSelection.cfi, color)) {
-      activeSelectionHighlightRef.current = pendingSelection.cfi
+    // color choice is the user's request to create a durable EPUB annotation.
+    if (renderHighlight(renditionRef.current, selection.cfi, color)) {
+      activeSelectionHighlightRef.current = selection.cfi
     } else {
       onNotice(en ? 'This EPUB cannot show an on-page highlight for the selected text.' : '这本 EPUB 无法为当前选区显示页内高亮。')
     }
     setSelectionColor(color)
+    setSavingSelectionHighlight(true)
+    try {
+      const previous = persistedSelectionHighlightRef.current
+      const highlight = previous
+        ? await updateHighlightColor(previous.id, color)
+        : await saveHighlight({ bookId: book.id, text: selection.text, location: selection.cfi, color, isHighlighted: true })
+      if (!highlight) throw new Error(en ? 'The saved excerpt could not be found.' : '找不到刚保存的摘录。')
+
+      // Replace the preview with the durable annotation before a popup close,
+      // a new selection, or a chapter redraw gets a chance to remove it.
+      clearSelectionHighlight()
+      if (!renderHighlight(renditionRef.current, highlight.location, highlight.color)) {
+        onNotice(en ? 'The excerpt was saved, but this EPUB could not show its on-page highlight.' : '摘录已保存，但这本 EPUB 无法显示页内高亮。')
+      }
+      persistedSelectionHighlightRef.current = highlight
+      onHighlightSaved?.(highlight)
+      onNotice(en ? 'Highlight saved.' : '颜色摘录已保存到本地')
+    } catch (error) {
+      onNotice(error instanceof Error ? error.message : (en ? 'Could not save the highlight.' : '颜色摘录保存失败，请稍后重试'))
+    } finally {
+      setSavingSelectionHighlight(false)
+    }
   }
 
   function anchorForSelection(contents: { window?: Window }): SelectionAnchor | undefined {
@@ -427,7 +459,7 @@ export default function EpubReader({ book, onNotice, onProgress, onHighlightSave
       {translating ? <p className="reader-translation-loading" aria-live="polite">{ui.translationLoading}</p> : translation && <div className="reader-translation-result" data-testid="translation-result" aria-live="polite">{translation}</div>}
       {explanation && <div className="reader-explanation-result"><span>{ui.explanation}</span>{explanation}</div>}
       {aiFeedback && <div className="ai-request-feedback" role="status"><strong>{aiFeedback.title}</strong><span>{aiFeedback.detail}</span>{aiFeedback.retryable && <button onClick={retryTranslation}>{ui.retryTranslation}</button>}</div>}
-      <div className="reader-translation-actions"><button onClick={() => { void explainPendingSelection() }} disabled={explaining}>{explaining ? ui.explanationLoading : ui.explanation}</button><div className="selection-colors" aria-label={ui.highlightColors}><button className={`gold ${selectionColor === 'gold' ? 'active' : ''}`} aria-label={ui.gold} aria-pressed={selectionColor === 'gold'} onClick={() => chooseSelectionColor('gold')} /><button className={`rose ${selectionColor === 'rose' ? 'active' : ''}`} aria-label={ui.rose} aria-pressed={selectionColor === 'rose'} onClick={() => chooseSelectionColor('rose')} /><button className={`blue ${selectionColor === 'blue' ? 'active' : ''}`} aria-label={ui.blue} aria-pressed={selectionColor === 'blue'} onClick={() => chooseSelectionColor('blue')} /></div><button onClick={() => { void persistSelection() }}>{ui.saveHighlight}</button></div>
+      <div className="reader-translation-actions"><button onClick={() => { void explainPendingSelection() }} disabled={explaining}>{explaining ? ui.explanationLoading : ui.explanation}</button><div className="selection-colors" aria-label={ui.highlightColors}><button className={`gold ${selectionColor === 'gold' ? 'active' : ''}`} aria-label={ui.gold} aria-pressed={selectionColor === 'gold'} onClick={() => { void chooseSelectionColor('gold') }} disabled={savingSelectionHighlight} /><button className={`rose ${selectionColor === 'rose' ? 'active' : ''}`} aria-label={ui.rose} aria-pressed={selectionColor === 'rose'} onClick={() => { void chooseSelectionColor('rose') }} disabled={savingSelectionHighlight} /><button className={`blue ${selectionColor === 'blue' ? 'active' : ''}`} aria-label={ui.blue} aria-pressed={selectionColor === 'blue'} onClick={() => { void chooseSelectionColor('blue') }} disabled={savingSelectionHighlight} /></div><button onClick={() => { void persistSelection() }}>{ui.saveHighlight}</button></div>
     </section>}
   </div>
 }

@@ -66,8 +66,10 @@ test('P0: a fresh reader can import, read, translate, save, restore, and switch 
   await expect.poll(() => page.locator('.epub-reader-frame [ref="worlibrary-highlight"]').count()).toBeGreaterThan(0)
   await expect(page.locator('.epub-reader-frame [ref="worlibrary-highlight"]').first()).toHaveAttribute('fill', '#bf6d76')
   await expect(page.locator('.epub-reader-frame [ref="worlibrary-highlight"]').first()).toHaveAttribute('fill-opacity', '0.55')
-  await page.getByRole('button', { name: '保存摘录' }).click()
-  await expect(page.locator('.toast')).toContainText('摘录已保存到本地')
+  await expect(page.locator('.toast')).toContainText('颜色摘录已保存到本地')
+  await page.getByRole('button', { name: '关闭选区操作' }).click()
+  await expect(page.getByTestId('translation-popover')).toHaveCount(0)
+  await expect(page.locator('.epub-reader-frame [ref="worlibrary-highlight"]')).toHaveCount(1)
 
   await page.waitForTimeout(500)
   await page.reload()
