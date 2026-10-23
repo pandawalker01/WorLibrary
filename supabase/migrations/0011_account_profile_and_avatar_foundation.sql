@@ -81,7 +81,9 @@ begin
   from storage.objects o
   where o.bucket_id = 'profile-avatars'
     and o.name = new.avatar_path
-    and o.owner_id = new.id;
+    -- Storage uses a text owner_id in the hosted schema, while profiles.id is
+    -- a UUID. Compare their canonical text representations explicitly.
+    and o.owner_id = new.id::text;
 
   if not found then
     raise exception 'owned avatar object is required before saving its reference';
@@ -134,28 +136,28 @@ drop policy if exists "published profile avatar read" on storage.objects;
 
 create policy "profile avatar owner read" on storage.objects
   for select to authenticated
-  using (bucket_id = 'profile-avatars' and owner_id = auth.uid());
+  using (bucket_id = 'profile-avatars' and owner_id = auth.uid()::text);
 
 create policy "profile avatar owner insert" on storage.objects
   for insert to authenticated
   with check (
     bucket_id = 'profile-avatars'
-    and owner_id = auth.uid()
+    and owner_id = auth.uid()::text
     and name ~ ('^' || auth.uid()::text || '/avatar/[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\\.(png|jpe?g|webp)$')
   );
 
 create policy "profile avatar owner update" on storage.objects
   for update to authenticated
-  using (bucket_id = 'profile-avatars' and owner_id = auth.uid())
+  using (bucket_id = 'profile-avatars' and owner_id = auth.uid()::text)
   with check (
     bucket_id = 'profile-avatars'
-    and owner_id = auth.uid()
+    and owner_id = auth.uid()::text
     and name ~ ('^' || auth.uid()::text || '/avatar/[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\\.(png|jpe?g|webp)$')
   );
 
 create policy "profile avatar owner delete" on storage.objects
   for delete to authenticated
-  using (bucket_id = 'profile-avatars' and owner_id = auth.uid());
+  using (bucket_id = 'profile-avatars' and owner_id = auth.uid()::text);
 
 create policy "published profile avatar read" on storage.objects
   for select to anon, authenticated
@@ -163,7 +165,7 @@ create policy "published profile avatar read" on storage.objects
     bucket_id = 'profile-avatars'
     and exists (
       select 1 from public.profiles p
-      where p.id = storage.objects.owner_id
+      where p.id::text = storage.objects.owner_id
         and p.is_public = true
         and p.is_anonymous = false
         and p.avatar_path = storage.objects.name
