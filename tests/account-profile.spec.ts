@@ -68,6 +68,7 @@ test('account profile migration keeps email and roles out of browser-editable pr
   expect(migration).toContain('anonymous accounts cannot publish a profile')
   expect(migration).toContain('for update to authenticated')
   expect(migration).toContain('owner_id::text = auth.uid()::text')
+  expect(migration).toContain('id::text = auth.uid()::text')
   expect(migration).toContain("p.avatar_path = storage.objects.name")
   expect(migration).toContain('this migration only creates Storage policy and metadata checks')
   expect(migration).not.toContain('email text')

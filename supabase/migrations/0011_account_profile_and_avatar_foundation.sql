@@ -117,7 +117,7 @@ drop policy if exists "read published profile" on public.profiles;
 
 create policy "read own profile" on public.profiles
   for select to authenticated
-  using (id = auth.uid());
+  using (id::text = auth.uid()::text);
 
 create policy "read published profile" on public.profiles
   for select to anon, authenticated
@@ -125,8 +125,8 @@ create policy "read published profile" on public.profiles
 
 create policy "write own profile" on public.profiles
   for update to authenticated
-  using (id = auth.uid())
-  with check (id = auth.uid());
+  using (id::text = auth.uid()::text)
+  with check (id::text = auth.uid()::text);
 
 drop policy if exists "profile avatar owner read" on storage.objects;
 drop policy if exists "profile avatar owner insert" on storage.objects;
