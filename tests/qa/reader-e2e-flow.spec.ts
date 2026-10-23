@@ -25,7 +25,7 @@ test('P0: a fresh reader can import, read, translate, save, restore, and switch 
   // localStorage setting, or IndexedDB record may be required for this flow.
   await page.goto('/')
   await expect(page.getByRole('heading', { name: 'Reader E2E Fixture' })).toHaveCount(0)
-  await page.locator('input[type=file][accept*=".epub"]').setInputFiles({
+  await page.locator('input[type=file][accept*=".epub"]').first().setInputFiles({
     name: 'reader-e2e-fixture.epub',
     mimeType: 'application/epub+zip',
     buffer: await createTwoPageEpub(),
