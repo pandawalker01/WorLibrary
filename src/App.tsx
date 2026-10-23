@@ -232,6 +232,9 @@ function App() {
   const [profileDraft, setProfileDraft] = useState<LocalProfileDraft | null>(null)
   const [profileDraftStatus, setProfileDraftStatus] = useState('')
   const [profileRemoteReady, setProfileRemoteReady] = useState(false)
+  const [profileAvatarFile, setProfileAvatarFile] = useState<File | null>(null)
+  const [profileAvatarPath, setProfileAvatarPath] = useState<string | null>(null)
+  const [profileAvatarPendingRemoval, setProfileAvatarPendingRemoval] = useState(false)
   const accountButtonRef = useRef<HTMLButtonElement>(null)
   const accountMenuRef = useRef<HTMLDivElement>(null)
   const [metadataDraft, setMetadataDraft] = useState<StoredBook | null>(null)
@@ -336,6 +339,9 @@ function App() {
       setProfileDraft(null)
       setProfileDraftStatus('')
       setProfileRemoteReady(false)
+      setProfileAvatarFile(null)
+      setProfileAvatarPath(null)
+      setProfileAvatarPendingRemoval(false)
       return
     }
     const localDraft = loadLocalProfileDraft(session.user.id, ui.profileDefaultName)
@@ -348,11 +354,14 @@ function App() {
         const remoteProfile = await createAccountProfileClient(session).getOwnProfile()
         if (cancelled) return
         setProfileRemoteReady(true)
-        if (remoteProfile) setProfileDraft((current) => ({
-          nickname: remoteProfile.displayName ?? current?.nickname ?? localDraft.nickname,
-          bio: remoteProfile.bio ?? current?.bio ?? localDraft.bio,
-          avatarDataUrl: current?.avatarDataUrl,
-        }))
+        if (remoteProfile) {
+          setProfileAvatarPath(remoteProfile.avatarPath)
+          setProfileDraft((current) => ({
+            nickname: remoteProfile.displayName ?? current?.nickname ?? localDraft.nickname,
+            bio: remoteProfile.bio ?? current?.bio ?? localDraft.bio,
+            avatarDataUrl: current?.avatarDataUrl,
+          }))
+        }
       } catch {
         if (!cancelled) setProfileRemoteReady(false)
       }
@@ -956,12 +965,34 @@ function App() {
       return
     }
     setProfileDraftStatus(ui.profileSaving)
-    void createAccountProfileClient(session).updateOwnProfile({ displayName: next.nickname, bio: next.bio || null }).then(() => {
-      setProfileDraftStatus(next.avatarDataUrl ? ui.profileSavedRemoteAvatarLocal : ui.profileSavedRemote)
-    }).catch(() => {
-      setProfileRemoteReady(false)
-      setProfileDraftStatus(ui.profileSavedLocal)
-    })
+    void (async () => {
+      const client = createAccountProfileClient(session)
+      let uploadedPath: string | null = null
+      try {
+        let avatarPath = profileAvatarPath
+        if (profileAvatarFile) {
+          setProfileDraftStatus(ui.profileUploadingAvatar)
+          uploadedPath = (await client.uploadOwnAvatar(profileAvatarFile)).path
+          avatarPath = uploadedPath
+        } else if (profileAvatarPendingRemoval) {
+          avatarPath = null
+        }
+        const saved = await client.updateOwnProfile({
+          displayName: next.nickname,
+          bio: next.bio || null,
+          ...(avatarPath !== profileAvatarPath || profileAvatarPendingRemoval ? { avatarPath } : {}),
+        })
+        if (profileAvatarPath && profileAvatarPath !== saved.avatarPath) void client.deleteOwnAvatar(profileAvatarPath).catch(() => undefined)
+        setProfileAvatarPath(saved.avatarPath)
+        setProfileAvatarFile(null)
+        setProfileAvatarPendingRemoval(false)
+        setProfileDraftStatus(saved.avatarPath ? ui.profileSavedRemoteAvatar : ui.profileSavedRemote)
+      } catch {
+        if (uploadedPath) void client.deleteOwnAvatar(uploadedPath).catch(() => undefined)
+        setProfileRemoteReady(false)
+        setProfileDraftStatus(ui.profileSavedLocal)
+      }
+    })()
   }
   const chooseProfileAvatar = (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0]
@@ -979,6 +1010,8 @@ function App() {
       setProfileDraftStatus(ui.profileAvatarTooLarge)
       return
     }
+    setProfileAvatarFile(file)
+    setProfileAvatarPendingRemoval(false)
     const reader = new FileReader()
     reader.onload = () => {
       const dataUrl = reader.result
@@ -994,6 +1027,8 @@ function App() {
   }
   const removeProfileAvatar = () => {
     setProfileDraft((current) => current ? { ...current, avatarDataUrl: undefined } : current)
+    setProfileAvatarFile(null)
+    setProfileAvatarPendingRemoval(Boolean(profileAvatarPath))
     setProfileDraftStatus(ui.profileAvatarRemoved)
   }
   const renderAccountAvatar = (className?: string) => account.avatarDataUrl

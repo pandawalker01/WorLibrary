@@ -54,6 +54,30 @@ test('profile service rejects invalid text, untrusted avatar paths, anonymous us
   await expect(validateAvatarImageFile(Object.assign(new Blob([new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])], { type: 'image/png' }), { name: 'avatar.png' }))).resolves.toBeUndefined()
 })
 
+test('private avatar upload uses the authenticated owner path and only allows owned-object cleanup', async () => {
+  const originalFetch = globalThis.fetch
+  const requests: Request[] = []
+  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    requests.push(new Request(input, init))
+    return new Response('{}', { status: 200, headers: { 'content-type': 'application/json' } })
+  }) as typeof fetch
+  try {
+    const client = createAccountProfileClient(session, { url: 'https://profile.example.com/', anonKey: 'public-anon-key' })
+    const png = new File([new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])], 'avatar.png', { type: 'image/png' })
+    const uploaded = await client.uploadOwnAvatar(png)
+    expect(uploaded.path).toMatch(new RegExp(`^${session.user.id}/avatar/[0-9a-f-]+\\.png$`))
+    expect(requests[0]?.url).toContain(`/storage/v1/object/profile-avatars/${session.user.id}/avatar/`)
+    expect(requests[0]?.method).toBe('POST')
+    expect(requests[0]?.headers.get('authorization')).toBe('Bearer session-jwt')
+    expect(requests[0]?.headers.get('x-upsert')).toBe('false')
+    await client.deleteOwnAvatar(uploaded.path)
+    expect(requests[1]?.method).toBe('DELETE')
+    await expect(client.deleteOwnAvatar('another-account/avatar/00000000-0000-4000-8000-000000000000.png')).rejects.toThrow('头像引用格式无效')
+  } finally {
+    globalThis.fetch = originalFetch
+  }
+})
+
 test('account profile migration keeps email and roles out of browser-editable profiles and locks avatar objects to their owner', async () => {
   const migration = await readFile('supabase/migrations/0011_account_profile_and_avatar_foundation.sql', 'utf8')
 

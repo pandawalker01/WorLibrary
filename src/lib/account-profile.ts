@@ -44,6 +44,7 @@ export type AccountProfileClientConfig = {
 
 const env = (import.meta as ImportMeta & { env?: Record<string, string | undefined> }).env ?? {}
 const pathPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\/avatar\/[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\.(png|jpe?g|webp)$/i
+const avatarBucket = 'profile-avatars'
 
 function normalizeOptionalText(value: string | null | undefined, maxLength: number, label: string): string | null | undefined {
   if (value === undefined) return undefined
@@ -58,6 +59,15 @@ function normalizeOptionalText(value: string | null | undefined, maxLength: numb
 
 function extensionForContentType(type: ProfileAvatarContentType): 'jpg' | 'png' | 'webp' {
   return type === 'image/jpeg' ? 'jpg' : type.slice('image/'.length) as 'png' | 'webp'
+}
+
+function storageObjectUrl(baseUrl: string, path: string): string {
+  const encodedPath = path.split('/').map((part) => encodeURIComponent(part)).join('/')
+  return `${baseUrl}/storage/v1/object/${avatarBucket}/${encodedPath}`
+}
+
+function assertOwnAvatarPath(userId: string, path: string): void {
+  if (!pathPattern.test(path) || !path.startsWith(`${userId}/avatar/`)) throw new TypeError('头像引用格式无效')
 }
 
 function validateAvatarCandidate(candidate: AvatarUploadCandidate): asserts candidate is AvatarUploadCandidate & { type: ProfileAvatarContentType } {
@@ -178,6 +188,27 @@ export function createAccountProfileClient(session: AuthSession, config: Account
         body: JSON.stringify(body),
       })
       return asProfile(await readResponse(response))
+    },
+    /** Upload only into this user's private Storage prefix. */
+    async uploadOwnAvatar(file: File): Promise<PreparedAvatarUpload> {
+      await validateAvatarImageFile(file)
+      const prepared = prepareAvatarUpload(session.user.id, file)
+      const response = await request(storageObjectUrl(url, prepared.path), {
+        method: 'POST',
+        headers: { apikey: anonKey, Authorization: `Bearer ${session.accessToken}`, 'Content-Type': prepared.contentType, 'x-upsert': 'false' },
+        body: file,
+      })
+      if (!response.ok) throw new Error('头像上传失败')
+      return prepared
+    },
+    /** Delete only a private object owned by the current session user. */
+    async deleteOwnAvatar(path: string): Promise<void> {
+      assertOwnAvatarPath(session.user.id, path)
+      const response = await request(storageObjectUrl(url, path), {
+        method: 'DELETE',
+        headers: { apikey: anonKey, Authorization: `Bearer ${session.accessToken}` },
+      })
+      if (!response.ok && response.status !== 404) throw new Error('旧头像清理失败')
     },
   }
 }
