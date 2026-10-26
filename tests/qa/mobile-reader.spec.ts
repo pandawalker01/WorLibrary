@@ -34,7 +34,7 @@ test.use({ viewport: { width: 390, height: 844 } })
 test('P1 mobile: imported EPUB reader keeps pagination and reading controls usable at 390px', async ({ page }) => {
   const encoded = await readFile(fixturePath, 'utf8')
   await page.goto('/')
-  await page.locator('input[type=file][accept*=".epub"]').setInputFiles({
+  await page.locator('input[data-testid="library-import"]').setInputFiles({
     name: 'mobile-reader-fixture.epub',
     mimeType: 'application/epub+zip',
     buffer: Buffer.from(encoded.trim(), 'base64'),
@@ -58,7 +58,7 @@ test('P1 mobile: imported EPUB reader keeps pagination and reading controls usab
 
 test('P1 mobile: imported PDF reader keeps toolbar and page controls usable at 390px', async ({ page }) => {
   await page.goto('/')
-  await page.locator('input[type=file][accept*=".pdf"]').setInputFiles({
+  await page.locator('input[data-testid="library-import"]').setInputFiles({
     name: 'mobile-pdf-fixture.pdf',
     mimeType: 'application/pdf',
     buffer: twoPagePdfFixture(),

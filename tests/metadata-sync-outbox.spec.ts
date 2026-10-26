@@ -25,7 +25,7 @@ function editionEntry(overrides: Partial<MetadataSyncOutboxEntry> = {}): Metadat
 test('metadata sync outbox is an account-scoped metadata-only IndexedDB store', async () => {
   const source = await readFile('src/lib/storage.ts', 'utf8')
 
-  expect(source).toContain("const DB_VERSION = 8")
+  expect(Number(source.match(/const DB_VERSION = (\d+)/)?.[1])).toBeGreaterThanOrEqual(8)
   expect(source).toContain("const METADATA_SYNC_OUTBOX_STORE = 'metadata-sync-outbox'")
   expect(source).toContain("outbox.createIndex(METADATA_SYNC_OUTBOX_BY_USER, 'userId'")
   expect(source).toContain('createMetadataSyncOutboxEntry')

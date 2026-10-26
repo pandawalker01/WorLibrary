@@ -72,7 +72,7 @@ test('P0: a reviewed platform result from the world catalog opens the WorLibrary
   })
 
   await page.goto('/?scope=world')
-  await page.getByRole('searchbox', { name: '搜索世界书库' }).fill('reviewed')
+  await page.getByRole('textbox', { name: '搜索世界书库' }).fill('reviewed')
   await page.getByRole('button', { name: '搜索世界书库' }).click()
   await expect(page.getByRole('heading', { name: 'Reviewed Open Edition' })).toBeVisible()
   await page.getByRole('button', { name: '在 WorLibrary 中阅读' }).click()

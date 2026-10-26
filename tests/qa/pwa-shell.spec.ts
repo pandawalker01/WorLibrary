@@ -22,8 +22,13 @@ test('production shell exposes an installable manifest and registers a service w
 
 test('offline event keeps the local-reader boundary visible to users', async ({ page, context }) => {
   await page.goto('/')
+  await expect(page.getByText('离线可读')).toBeVisible()
   await context.setOffline(true)
+  // Playwright's network emulation does not consistently dispatch the DOM
+  // event that browsers emit when the platform connectivity state changes.
+  await page.evaluate(() => window.dispatchEvent(new Event('offline')))
   await expect(page.getByRole('status')).toContainText('当前离线：已导入的本地书籍仍可阅读')
   await context.setOffline(false)
+  await page.evaluate(() => window.dispatchEvent(new Event('online')))
   await expect(page.getByText('离线可读')).toBeVisible()
 })
