@@ -1,9 +1,5 @@
-import { lazy, Suspense, useCallback, useEffect, useRef, useState, type ChangeEvent, type FormEvent } from 'react'
+import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useRef, useState, type ChangeEvent, type FormEvent } from 'react'
 import RemoteBookMetadataShadows from './components/RemoteBookMetadataShadows'
-import EpubReader from './components/EpubReader'
-import PdfReader from './components/PdfReader'
-import HighlightsView from './components/HighlightsView'
-import DataTransfer from './components/DataTransfer'
 import './highlights.css'
 import { listHighlights, type Highlight } from './lib/storage'
 import './library.css'
@@ -11,25 +7,30 @@ import './settings.css'
 import { deleteBook, linkBookEditions, listAlignments, listBooks, listEditions, listRemoteBookMetadataShadows, listRemoteHighlightMetadataShadows, readMetadataSyncEntityRevision, refreshBookCover, reimportRemoteBookMetadataShadow, saveBook, saveEditionProgress, searchBookTextIndex, updateBookCover, updateBookMetadata, type RemoteBookMetadataShadow, type RemoteBookMetadataShadowReimport, type RemoteHighlightMetadataShadow, type StoredBook } from './lib/storage'
 import type { Alignment, Edition } from './lib/edition'
 import EditionComparisonReader from './components/EditionComparisonReader'
-import AuthPanel from './components/AuthPanel'
 import { getSession, signOut, type AuthSession } from './lib/auth'
-import { createAccountProfileClient, PROFILE_AVATAR_MAX_BYTES, PROFILE_BIO_MAX_LENGTH, PROFILE_DISPLAY_NAME_MAX_LENGTH } from './lib/account-profile'
+import { PROFILE_AVATAR_MAX_BYTES, PROFILE_BIO_MAX_LENGTH, PROFILE_DISPLAY_NAME_MAX_LENGTH } from './lib/account-profile-limits'
 import { copy, interpolate, loadReadingLanguage, loadUiLocale, saveReadingLanguage, saveUiLocale, type ReadingLanguage } from './lib/i18n'
 import { clampFontScale, DEFAULT_READER_PREFERENCES, loadReaderPreferences, saveReaderPreferences, type ReaderPreferences } from './lib/reader'
 import { loadSavedWorldBooks, saveWorldBook, searchWorldLibrary, worldBookIdentity, type WorldBook } from './lib/world-library'
-import WorldLanguagePicker from './components/WorldLanguagePicker'
 import ReadingLanguagePicker, { displayReadingLanguage } from './components/ReadingLanguagePicker'
-import InterfaceLanguagePicker from './components/InterfaceLanguagePicker'
 import { interfaceLocaleDirection, presentInterfaceLocales } from './lib/interface-locale-registry'
 import { enqueueLocalEditionMetadataSyncIntent } from './lib/metadata-sync-edition-intent'
 import { enqueueLocalHighlightMetadataSyncIntent } from './lib/metadata-sync-highlight-intent'
 import { enqueueLocalReaderPreferenceSyncIntent, READER_LAYOUT_SETTING_KEY, READING_LANGUAGE_SETTING_KEY, type SyncedReaderPreference } from './lib/metadata-sync-preference-intent'
 import { clearAccountReaderPreference, persistAccountReaderPreference } from './lib/metadata-sync-preference-shadow'
-import { createMetadataSyncRuntime, type MetadataSyncRuntime } from './lib/metadata-sync-runtime'
+import type { MetadataSyncRuntime } from './lib/metadata-sync-runtime'
+import { createLazyMetadataSyncRuntime } from './lib/lazy-metadata-sync-runtime'
 
 // Platform rendering pulls in EPUB.js/PDF.js integration. Keep it out of the
 // personal-library shell until a user explicitly opens an authorised title.
 const PlatformReader = lazy(() => import('./components/PlatformReader'))
+const AuthPanel = lazy(() => import('./components/AuthPanel'))
+const DataTransfer = lazy(() => import('./components/DataTransfer'))
+const EpubReader = lazy(() => import('./components/EpubReader'))
+const PdfReader = lazy(() => import('./components/PdfReader'))
+const HighlightsView = lazy(() => import('./components/HighlightsView'))
+const WorldLanguagePicker = lazy(() => import('./components/WorldLanguagePicker'))
+const InterfaceLanguagePicker = lazy(() => import('./components/InterfaceLanguagePicker'))
 
 type View = 'library' | 'reader' | 'highlights' | 'profile' | 'settings'
 type DisplayBook = Pick<StoredBook, 'id' | 'title' | 'author' | 'language' | 'progress' | 'cover'> & Partial<Pick<StoredBook, 'fileName' | 'fileType' | 'storage' | 'createdAt' | 'lastReadAt' | 'location' | 'workId' | 'editionId' | 'coverImage'>>
@@ -268,7 +269,7 @@ function App() {
   const readerPreferencesRef = useRef(readerPreferences)
   const languageRef = useRef(language)
   if (!metadataSyncRuntimeRef.current) {
-    metadataSyncRuntimeRef.current = createMetadataSyncRuntime({
+    metadataSyncRuntimeRef.current = createLazyMetadataSyncRuntime({
       preferences: {
         apply: async ({ userId, preference, revision, sequence }) => {
           if (!persistAccountReaderPreference({ userId, preference, revision, sequence })) throw new Error('reader preference could not be persisted')
@@ -351,6 +352,7 @@ function App() {
     let cancelled = false
     void (async () => {
       try {
+        const { createAccountProfileClient } = await import('./lib/account-profile')
         const remoteProfile = await createAccountProfileClient(session).getOwnProfile()
         if (cancelled) return
         setProfileRemoteReady(true)
@@ -542,7 +544,7 @@ function App() {
   }, [books, booksLoaded, routedBookId, routedPlatformEditionId, view])
 
   const selectedPlatformBook = routedPlatformEditionId
-    ? savedWorldBooks.find((book) => book.platformEditionId === routedPlatformEditionId)
+    ? [...savedWorldBooks, ...worldResults].find((book) => book.platformEditionId === routedPlatformEditionId)
     : undefined
   const activeReadingBookKey = selectedPlatformBook?.platformEditionId
     ? `platform:${selectedPlatformBook.platformEditionId}`
@@ -574,7 +576,8 @@ function App() {
     void reloadRemoteHighlightShadows(session.user.id)
     void syncNow()
   }, [session?.user.id, session?.user.isAnonymous, reloadRemoteHighlightShadows, reloadRemoteShadows, syncNow])
-  useEffect(() => {
+  useLayoutEffect(() => {
+    setIsOnline(navigator.onLine)
     const onOnline = () => { setIsOnline(true); void syncNow() }
     const onOffline = () => setIsOnline(false)
     const onVisibilityChange = () => {
@@ -966,6 +969,7 @@ function App() {
     }
     setProfileDraftStatus(ui.profileSaving)
     void (async () => {
+      const { createAccountProfileClient } = await import('./lib/account-profile')
       const client = createAccountProfileClient(session)
       let uploadedPath: string | null = null
       try {
@@ -1067,6 +1071,7 @@ function App() {
 
       <main className="content">
         {!isOnline && <div className="offline-banner" role="status">{ui.offlineBanner}</div>}
+        <Suspense fallback={<div role="status" aria-busy="true">…</div>}>
         {!(view === 'library' && libraryMode === 'mine') && <header className="topbar">{accountControls}</header>}
 
         {view === 'library' && <section className={`library-view ${libraryMode === 'world' ? 'is-world-library' : ''}`}>
@@ -1130,6 +1135,7 @@ function App() {
         </section>)}
 
         {view === 'settings' && <section className="settings-view"><div className="settings-wrap"><h1>{ui.settingsTitle}</h1><section className="account-center-card" aria-labelledby="account-center-title"><div><h2 id="account-center-title">{ui.accountCenter}</h2><p>{session && !session.user.isAnonymous ? ui.accountCenterSignedIn : ui.accountCenterSignedOut}</p></div><button type="button" onClick={() => session ? setAccountMenuOpen(true) : setAuthDialogOpen(true)}>{session ? ui.accountMenuManage : ui.signIn}</button></section>{session && !session.user.isAnonymous && profileDraft && <section className="profile-editor" aria-labelledby="profile-editor-title"><div className="profile-editor-heading"><div><h2 id="profile-editor-title">{ui.publicProfile}</h2><p>{profileRemoteReady ? ui.publicProfileRemote : ui.publicProfileLocalOnly}</p></div><div className="profile-editor-avatar">{renderAccountAvatar('profile-editor-avatar-image')}<div><label className="profile-file-button">{ui.profileChooseAvatar}<input type="file" accept="image/png,image/jpeg,image/webp" onChange={chooseProfileAvatar} aria-label={ui.profileChooseAvatar} /></label>{profileDraft.avatarDataUrl && <button type="button" className="profile-avatar-remove" onClick={removeProfileAvatar}>{ui.profileRemoveAvatar}</button>}</div></div></div><label className="profile-editor-field"><span>{ui.profilePublicName}</span><input value={profileDraft.nickname} maxLength={80} onChange={(event) => { setProfileDraft({ ...profileDraft, nickname: event.target.value }); setProfileDraftStatus('') }} autoComplete="nickname" /></label><label className="profile-editor-field"><span>{ui.profileBio}</span><textarea value={profileDraft.bio} maxLength={500} rows={3} onChange={(event) => { setProfileDraft({ ...profileDraft, bio: event.target.value }); setProfileDraftStatus('') }} /></label><div className="profile-editor-footer"><p>{profileDraftStatus || (profileRemoteReady ? ui.profileRemoteDraft : ui.profileLocalDraft)}</p><button type="button" onClick={saveProfileDraft}>{profileRemoteReady ? ui.profileSave : ui.profileSaveLocal}</button></div></section>}<AuthPanel uiLocale={uiLocale} onNotice={toast} onSessionChange={handleAuthSessionChange} /><section className="language-section" aria-labelledby="ui-language-title"><div className="language-heading"><h2 id="ui-language-title">{ui.uiLanguageTitle}</h2><p>{ui.uiLanguageCopy}</p></div><InterfaceLanguagePicker value={uiLocale} onChange={changeUiLocale} locale={uiLocale} label={ui.interfaceLanguagePickerLabel} searchLabel={ui.searchInterfaceLanguage} searchPlaceholder={ui.searchInterfaceLanguagePlaceholder} availableLabel={ui.interfaceLanguageAvailable} plannedLabel={ui.interfaceLanguagePlanned} plannedCopy={ui.interfaceLanguagePlannedCopy} emptyLabel={ui.interfaceLanguageEmpty} /></section><section className="language-section" aria-labelledby="reading-language-title"><div className="language-heading"><h2 id="reading-language-title">{ui.readingLanguageTitle}</h2><p>{ui.readingLanguageCopy}</p></div><ReadingLanguagePicker value={language} onChange={changeReadingLanguage} locale={uiLocale} label={ui.readingLanguagePickerLabel} searchLabel={ui.searchReadingLanguage} searchPlaceholder={ui.searchReadingLanguagePlaceholder} /></section><div className="settings-note"><span>◎</span><p><strong>{ui.privacyTitle}</strong><br />{ui.privacyCopy}</p></div></div></section>}
+        </Suspense>
       </main>
       {bookContextMenu && <div className="book-context-menu" role="menu" aria-label={ui.localBooks} style={{ left: bookContextMenu.x, top: bookContextMenu.y }}><strong>{bookContextMenu.book.title}</strong>{bookContextMenu.book.fileName?.toLowerCase().endsWith('.epub') && <button role="menuitem" onClick={() => { void refreshCover(bookContextMenu.book); setBookContextMenu(null) }} disabled={refreshingCoverId === bookContextMenu.book.id}>{refreshingCoverId === bookContextMenu.book.id ? ui.readingCover : ui.manageCover}</button>}<button role="menuitem" onClick={() => { selectCustomCover(bookContextMenu.book); setBookContextMenu(null) }}>{ui.uploadCover}</button><button role="menuitem" onClick={() => { setMetadataDraft(bookContextMenu.book as StoredBook); setBookContextMenu(null) }}>{ui.editInfo}</button><button className="danger" role="menuitem" onClick={() => { void removeBook(bookContextMenu.book); setBookContextMenu(null) }}>{ui.delete}</button></div>}
       {metadataDraft && <div className="metadata-dialog-backdrop"><form className="metadata-dialog" onSubmit={(event) => { void saveMetadata(event) }} role="dialog" aria-modal="true" aria-labelledby="metadata-dialog-title"><div><h2 id="metadata-dialog-title">校正书籍信息</h2><p>只修改书架显示和本地阅读数据，不会改动或上传原始文件。</p></div><label>书名<input name="title" defaultValue={metadataDraft.title} autoFocus /></label><label>作者<input name="author" defaultValue={metadataDraft.author} /></label><div className="metadata-dialog-actions"><button type="button" onClick={() => setMetadataDraft(null)}>取消</button><button type="submit">保存信息</button></div></form></div>}
@@ -1137,7 +1143,7 @@ function App() {
       {notice && <div className="toast" role="status">{notice}</div>}
       {updateReady && <div className="update-toast" role="status">{ui.updateReady}<button onClick={() => window.dispatchEvent(new Event('worlibrary:activate-update'))}>{ui.updateNow}</button></div>}
       <DataTransfer uiLocale={uiLocale} onNotice={toast} onImported={() => { void listBooks().then((savedBooks) => setBooks(savedBooks)) }} />
-      <input ref={fileInput} onChange={handleFiles} type="file" hidden accept=".epub,.pdf,.mobi,.cbz" multiple />
+      <input data-testid="library-import" ref={fileInput} onChange={handleFiles} type="file" hidden accept=".epub,.pdf,.mobi,.cbz" multiple />
       <input ref={shadowReimportInput} onChange={(event) => { void handleShadowReimport(event) }} type="file" hidden accept=".epub,.pdf,application/epub+zip,application/pdf" />
       <input ref={coverInput} onChange={(event) => { void handleCoverFile(event) }} type="file" hidden accept="image/*" />
     </div>

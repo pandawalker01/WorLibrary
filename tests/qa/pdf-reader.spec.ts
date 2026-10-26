@@ -28,7 +28,7 @@ function pdfFixture(pageTexts = ['PDF_FIXTURE_PAGE']) {
 
 test('P1: imported PDF renders, paginates with controls and supports keyboard navigation', async ({ page }) => {
   await page.goto('/')
-  await page.locator('input[type=file][accept*=".pdf"]').setInputFiles({ name: 'pdf-fixture.pdf', mimeType: 'application/pdf', buffer: pdfFixture() })
+  await page.locator('input[data-testid="library-import"]').setInputFiles({ name: 'pdf-fixture.pdf', mimeType: 'application/pdf', buffer: pdfFixture() })
   await expect(page.getByRole('heading', { name: 'pdf fixture' })).toBeVisible()
   await page.getByRole('button', { name: /pdf fixture/i }).click()
   await expect(page.getByText(/PDF 本地阅读 · 第 1 \/ 1 页 ·/)).toBeVisible({ timeout: 15_000 })
@@ -43,7 +43,7 @@ test('P1: imported PDF renders, paginates with controls and supports keyboard na
 
 test('P0: a missing local PDF file gives a recoverable reader error instead of a blank page', async ({ page }) => {
   await page.goto('/')
-  await page.locator('input[type=file][accept*=".pdf"]').setInputFiles({ name: 'pdf-recovery.pdf', mimeType: 'application/pdf', buffer: pdfFixture() })
+  await page.locator('input[data-testid="library-import"]').setInputFiles({ name: 'pdf-recovery.pdf', mimeType: 'application/pdf', buffer: pdfFixture() })
   await expect(page.getByRole('heading', { name: 'pdf recovery' })).toBeVisible()
   await page.evaluate(async () => {
     await new Promise<void>((resolve, reject) => {
@@ -78,7 +78,7 @@ test('P0: a missing local PDF file gives a recoverable reader error instead of a
 
 test('P1: PDF Home and End keys jump to reading boundaries without affecting focused controls', async ({ page }) => {
   await page.goto('/')
-  await page.locator('input[type=file][accept*=".pdf"]').setInputFiles({
+  await page.locator('input[data-testid="library-import"]').setInputFiles({
     name: 'pdf-boundary-keys.pdf', mimeType: 'application/pdf', buffer: pdfFixture(['PDF_PAGE_ONE', 'PDF_PAGE_TWO']),
   })
   await page.getByRole('button', { name: /pdf boundary keys/i }).click()
@@ -99,7 +99,7 @@ test('P1: PDF Home and End keys jump to reading boundaries without affecting foc
 
 test('P1: PDF reading preferences survive refresh and reopening', async ({ page }) => {
   await page.goto('/')
-  await page.locator('input[type=file][accept*=".pdf"]').setInputFiles({ name: 'pdf-preferences.pdf', mimeType: 'application/pdf', buffer: pdfFixture() })
+  await page.locator('input[data-testid="library-import"]').setInputFiles({ name: 'pdf-preferences.pdf', mimeType: 'application/pdf', buffer: pdfFixture() })
   await page.getByRole('button', { name: /pdf preferences/i }).click()
   await expect(page.getByText(/PDF 本地阅读 · 第 1 \/ 1 页 ·/)).toBeVisible({ timeout: 15_000 })
 
@@ -134,7 +134,7 @@ test('P1: PDF OCR result is selectable and reuses translation and excerpt paths'
       body: JSON.stringify({ text: 'PDF_FIXTURE_PAGE OCR', provider: 'test', requestId: 'ocr-ui-once' }),
     })
   })
-  await page.locator('input[type=file][accept*=".pdf"]').setInputFiles({ name: 'pdf-ocr-once.pdf', mimeType: 'application/pdf', buffer: pdfFixture() })
+  await page.locator('input[data-testid="library-import"]').setInputFiles({ name: 'pdf-ocr-once.pdf', mimeType: 'application/pdf', buffer: pdfFixture() })
   await page.getByRole('button', { name: /pdf ocr once/i }).click()
   await expect(page.getByText(/PDF 本地阅读 · 第 1 \/ 1 页 ·/)).toBeVisible({ timeout: 15_000 })
 
@@ -180,7 +180,7 @@ test('P1: PDF OCR failure keeps the page and offers an inline retry', async ({ p
     if (attempt === 1) return route.fulfill({ status: 503, contentType: 'application/json', body: JSON.stringify({ error: { code: 'provider_unavailable', message: '暂不可用', retryable: true } }) })
     return route.fulfill({ contentType: 'application/json', body: JSON.stringify({ text: 'RETRY_SUCCEEDED', provider: 'test', requestId: 'ocr-retry' }) })
   })
-  await page.locator('input[type=file][accept*=".pdf"]').setInputFiles({ name: 'pdf-ocr-retry.pdf', mimeType: 'application/pdf', buffer: pdfFixture(['OCR_RETRY_PAGE_ONE', 'OCR_RETRY_PAGE_TWO']) })
+  await page.locator('input[data-testid="library-import"]').setInputFiles({ name: 'pdf-ocr-retry.pdf', mimeType: 'application/pdf', buffer: pdfFixture(['OCR_RETRY_PAGE_ONE', 'OCR_RETRY_PAGE_TWO']) })
   await page.getByRole('button', { name: /pdf ocr retry/i }).click()
   await expect(page.getByText(/PDF 本地阅读 · 第 1 \/ 2 页 ·/)).toBeVisible({ timeout: 15_000 })
   await page.getByRole('button', { name: '识别当前页' }).click()
@@ -193,7 +193,7 @@ test('P1: PDF OCR failure keeps the page and offers an inline retry', async ({ p
 
 test('P0: two-page PDF restores the latest page after refreshing', async ({ page }) => {
   await page.goto('/')
-  await page.locator('input[type=file][accept*=".pdf"]').setInputFiles({
+  await page.locator('input[data-testid="library-import"]').setInputFiles({
     name: 'pdf-progress.pdf',
     mimeType: 'application/pdf',
     buffer: pdfFixture(['PDF_PAGE_ONE', 'PDF_PAGE_TWO']),

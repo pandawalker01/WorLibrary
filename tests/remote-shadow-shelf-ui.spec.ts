@@ -41,6 +41,7 @@ test('a stable account sees only its remote shadow as a non-reader re-import car
     user: { id: userId, email: 'reader@example.com', isAnonymous: false },
   })), accountId)
   await page.goto('/')
+  await expect(page.getByRole('tab', { name: '我的书库' })).toBeVisible()
   await seedShadow(page)
   await page.reload()
 
@@ -61,6 +62,7 @@ test('a matching local edition hides its own remote shadow without deleting it',
     user: { id: userId, email: 'reader@example.com', isAnonymous: false },
   })), accountId)
   await page.goto('/')
+  await expect(page.getByRole('tab', { name: '我的书库' })).toBeVisible()
   await seedShadow(page)
   await page.evaluate(async (edition) => {
     await new Promise<void>((resolve, reject) => {

@@ -9,7 +9,7 @@ const coverFixturePath = resolve('tests/fixtures/cover-fixture.epub.b64')
 
 async function importFixture(page: Page) {
   const encoded = await readFile(fixturePath, 'utf8')
-  await page.locator('input[type=file][accept*=".epub"]').setInputFiles({
+  await page.locator('input[data-testid="library-import"]').setInputFiles({
     name: 'reader-fixture.epub',
     mimeType: 'application/epub+zip',
     buffer: Buffer.from(encoded.trim(), 'base64'),
@@ -19,7 +19,7 @@ async function importFixture(page: Page) {
 
 async function importNoNavigationFixture(page: Page) {
   const encoded = await readFile(noNavigationFixturePath, 'utf8')
-  await page.locator('input[type=file][accept*=".epub"]').setInputFiles({
+  await page.locator('input[data-testid="library-import"]').setInputFiles({
     name: 'no-navigation-fixture.epub',
     mimeType: 'application/epub+zip',
     buffer: Buffer.from(encoded.trim(), 'base64'),
@@ -29,7 +29,7 @@ async function importNoNavigationFixture(page: Page) {
 
 async function importCoverFixture(page: Page) {
   const encoded = await readFile(coverFixturePath, 'utf8')
-  await page.locator('input[type=file][accept*=".epub"]').setInputFiles({
+  await page.locator('input[data-testid="library-import"]').setInputFiles({
     name: 'cover-fixture.epub',
     mimeType: 'application/epub+zip',
     buffer: Buffer.from(encoded.trim(), 'base64'),

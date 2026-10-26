@@ -33,7 +33,7 @@ async function embeddedCoverEpub() {
 }
 
 async function importEmbeddedCoverFixture(page: Page) {
-  await page.locator('input[type=file][accept*=".epub"]').setInputFiles({
+  await page.locator('input[data-testid="library-import"]').setInputFiles({
     name: 'embedded-cover-fixture.epub',
     mimeType: 'application/epub+zip',
     buffer: await embeddedCoverEpub(),
@@ -43,7 +43,7 @@ async function importEmbeddedCoverFixture(page: Page) {
 
 async function importReaderFixture(page: Page) {
   const fixture = await import('node:fs/promises').then(({ readFile }) => readFile('tests/fixtures/reader-fixture.epub.b64', 'utf8'))
-  await page.locator('input[type=file][accept*=".epub"]').setInputFiles({
+  await page.locator('input[data-testid="library-import"]').setInputFiles({
     name: 'reader-fixture.epub',
     mimeType: 'application/epub+zip',
     buffer: Buffer.from(fixture.trim(), 'base64'),

@@ -8,7 +8,7 @@ const fixturePath = resolve('tests/fixtures/reader-fixture.epub.b64')
 async function openFixtureWithSelection(page: Page) {
   const encoded = await readFile(fixturePath, 'utf8')
   await page.goto('/')
-  await page.locator('input[type=file][accept*=".epub"]').setInputFiles({
+  await page.locator('input[data-testid="library-import"]').setInputFiles({
     name: 'reader-fixture.epub',
     mimeType: 'application/epub+zip',
     buffer: Buffer.from(encoded.trim(), 'base64'),

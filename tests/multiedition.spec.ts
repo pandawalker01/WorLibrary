@@ -4,7 +4,7 @@ test('opens the two-column edition comparison reader', async ({ page }) => {
   await page.goto('/')
   await page.waitForLoadState('networkidle')
   const fixture = Buffer.from(await (await import('node:fs/promises')).readFile('tests/fixtures/reader-fixture.epub.b64'), 'utf8').toString().trim()
-  await page.locator('input[type=file][accept*=".epub"]').setInputFiles([
+  await page.locator('input[data-testid="library-import"]').setInputFiles([
     { name: 'reader-fixture-english.epub', mimeType: 'application/epub+zip', buffer: Buffer.from(fixture, 'base64') },
     { name: 'reader-fixture-chinese.epub', mimeType: 'application/epub+zip', buffer: Buffer.from(fixture, 'base64') },
   ])
@@ -23,7 +23,7 @@ test('P0: comparison renders two imported sources and never falls back to the sh
   await page.goto('/')
   await page.waitForLoadState('networkidle')
   const fixture = Buffer.from(await (await import('node:fs/promises')).readFile('tests/fixtures/reader-fixture.epub.b64'), 'utf8').toString().trim()
-  await page.locator('input[type=file][accept*=".epub"]').setInputFiles([
+  await page.locator('input[data-testid="library-import"]').setInputFiles([
     { name: 'original-edition.epub', mimeType: 'application/epub+zip', buffer: Buffer.from(fixture, 'base64') },
     { name: 'translated-edition.epub', mimeType: 'application/epub+zip', buffer: Buffer.from(fixture, 'base64') },
   ])

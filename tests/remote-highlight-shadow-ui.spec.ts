@@ -29,6 +29,7 @@ test('a remote excerpt is visible only as a private read-only shadow without a l
     user: { id: userId, email: 'reader@example.com', isAnonymous: false },
   })), accountId)
   await page.goto('/?view=highlights')
+  await expect(page.getByRole('heading', { name: '摘录空间' })).toBeVisible()
   await seedRemoteHighlight(page)
   await page.reload()
 

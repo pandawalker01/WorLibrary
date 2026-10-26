@@ -55,7 +55,8 @@ test('IndexedDB sync adapter releases each database connection after a transacti
 
 test('legacy client sync is disabled until account-scoped RPC sync exists', async () => {
   const source = await readFile('src/App.tsx', 'utf8')
-  expect(source).toContain('legacy full-table REST synchronizer')
+  expect(source).toContain('createLazyMetadataSyncRuntime')
+  expect(source).not.toMatch(/import.*from ['"].*\/sync['"]/)
   expect(source).not.toContain('flushQueuedSync(')
   expect(source).not.toContain('enqueueSync(')
   expect(source).not.toContain('deleteRemoteHighlight(')

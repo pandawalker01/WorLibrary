@@ -23,7 +23,7 @@ function twoPagePdfFixture() {
 
 test('P0: PDF reading page is restored after refresh and reopening from the library', async ({ page }) => {
   await page.goto('/')
-  await page.locator('input[type=file][accept*=".pdf"]').setInputFiles({
+  await page.locator('input[data-testid="library-import"]').setInputFiles({
     name: 'pdf-position-fixture.pdf',
     mimeType: 'application/pdf',
     buffer: twoPagePdfFixture(),

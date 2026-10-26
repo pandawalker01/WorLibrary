@@ -31,7 +31,7 @@ test('interface locale persists independently from the AI reading language', asy
 
   await page.locator('.nav-item', { hasText: 'Library' }).click()
   const encoded = await readFile(fixturePath, 'utf8')
-  await page.locator('input[type=file][accept*=".epub"]').setInputFiles({
+  await page.locator('input[data-testid="library-import"]').setInputFiles({
     name: 'reader-fixture.epub', mimeType: 'application/epub+zip', buffer: Buffer.from(encoded.trim(), 'base64'),
   })
   await page.getByRole('button', { name: /Reader Fixture/ }).click()
@@ -70,7 +70,7 @@ test('interface language picker exposes the global roadmap without enabling inco
 
 test('topbar opens the reading-language picker in place and localizes its selection label', async ({ page }) => {
   await page.goto('/')
-  const topbarPicker = page.locator('.topbar .header-reading-language-picker')
+  const topbarPicker = page.locator('.header-reading-language-picker')
   await topbarPicker.getByRole('button', { name: /理解语言：中文/ }).click()
   await expect(topbarPicker.getByRole('searchbox', { name: '搜索全球理解语言' })).toBeVisible()
   await topbarPicker.getByRole('searchbox', { name: '搜索全球理解语言' }).fill('日语')
