@@ -7,6 +7,7 @@ export type ProfileAvatarContentType = typeof PROFILE_AVATAR_CONTENT_TYPES[numbe
 
 export type AccountProfile = {
   id: string
+  publicId: string | null
   displayName: string | null
   bio: string | null
   avatarPath: string | null
@@ -102,6 +103,7 @@ function asProfile(value: unknown): AccountProfile {
   if (!record || typeof record.id !== 'string') throw new TypeError('账户资料响应无效')
   return {
     id: record.id,
+    publicId: typeof record.public_id === 'string' ? record.public_id : null,
     displayName: typeof record.display_name === 'string' ? record.display_name : null,
     bio: typeof record.bio === 'string' ? record.bio : null,
     avatarPath: typeof record.avatar_path === 'string' ? record.avatar_path : null,
@@ -163,7 +165,7 @@ export function createAccountProfileClient(session: AuthSession, config: Account
   if (!url || !anonKey) throw new Error('尚未配置 Supabase')
   const headers = { apikey: anonKey, Authorization: `Bearer ${session.accessToken}`, 'Content-Type': 'application/json' }
   const ownerFilter = `id=eq.${encodeURIComponent(session.user.id)}`
-  const select = 'id,display_name,bio,avatar_path,is_public,is_anonymous,updated_at'
+  const select = 'id,public_id,display_name,bio,avatar_path,is_public,is_anonymous,updated_at'
 
   async function readResponse(response: Response): Promise<unknown> {
     const value = await response.json().catch(() => undefined)

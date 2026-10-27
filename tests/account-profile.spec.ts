@@ -21,13 +21,13 @@ test('profile update uses a narrow public-profile payload and never copies email
   globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
     request = new Request(input, init)
     return new Response(JSON.stringify([{
-      id: session.user.id, display_name: '阅读熊猫', bio: '一本书一段路。', avatar_path: null,
+      id: session.user.id, public_id: '0ca6e921-d25c-45e0-8de2-22acf0512991', display_name: '阅读熊猫', bio: '一本书一段路。', avatar_path: null,
       is_public: true, is_anonymous: false, updated_at: '2026-10-22T00:00:00.000Z',
     }]), { status: 200, headers: { 'content-type': 'application/json' } })
   }) as typeof fetch
   try {
     const client = createAccountProfileClient(session, { url: 'https://profile.example.com/', anonKey: 'public-anon-key' })
-    await expect(client.updateOwnProfile({ displayName: ' 阅读熊猫 ', bio: ' 一本书一段路。 ', isPublic: true })).resolves.toMatchObject({ displayName: '阅读熊猫', isPublic: true })
+    await expect(client.updateOwnProfile({ displayName: ' 阅读熊猫 ', bio: ' 一本书一段路。 ', isPublic: true })).resolves.toMatchObject({ publicId: '0ca6e921-d25c-45e0-8de2-22acf0512991', displayName: '阅读熊猫', isPublic: true })
     expect(request?.url).toContain('/rest/v1/profiles?id=eq.7a62ece5-bab6-41af-b2e5-563507eeed27')
     expect(request?.method).toBe('PATCH')
     expect(request?.headers.get('authorization')).toBe('Bearer session-jwt')
@@ -37,6 +37,23 @@ test('profile update uses a narrow public-profile payload and never copies email
   } finally {
     globalThis.fetch = originalFetch
   }
+})
+
+test('public profile projection never exposes auth ids, email, roles, private avatar paths, or reading data', async () => {
+  const migration = await readFile('supabase/migrations/0013_public_profile_projection.sql', 'utf8')
+
+  expect(migration).toContain('create table if not exists public.public_profiles')
+  expect(migration).toContain('public_id uuid primary key')
+  expect(migration).toContain('owner_id uuid not null unique')
+  expect(migration).toContain('drop policy if exists "read published profile" on public.profiles')
+  expect(migration).toContain('delete from public.public_profiles where owner_id = new.id')
+  expect(migration).toContain('grant select (public_id, display_name, bio, has_avatar, updated_at)')
+  expect(migration).toContain('drop policy if exists "published profile avatar read" on storage.objects')
+  expect(migration).not.toMatch(/grant select[^;]*owner_id/is)
+  expect(migration).not.toMatch(/grant select[^;]*avatar_path/is)
+  expect(migration).not.toContain('email text')
+  expect(migration).not.toContain('account_role_assignments')
+  expect(migration).not.toContain('reading_progress')
 })
 
 test('profile service rejects invalid text, untrusted avatar paths, anonymous users, and unsafe avatar candidates', async () => {
