@@ -300,6 +300,87 @@ test('runtime forwards each accepted edition revision to its injectable durable 
   ])
 })
 
+test('runtime automatically retries a transient network failure and drains the durable outbox', async () => {
+  const data = dependencies()
+  const queued = {
+    operationId: '31e5ed3a-7258-4f7f-a53d-5d43a02f4aec',
+    userId: session.user.id,
+    deviceClientId: registration.clientInstanceId,
+    entityType: 'setting' as const,
+    entityId: 'reader.language',
+    operation: 'upsert' as const,
+    baseRevision: 0,
+    payload: { value: { language: '日本語' } },
+    status: 'pending' as const,
+    createdAt: 1,
+  }
+  let pending = true
+  let applyAttempts = 0
+  let completed = false
+  const runtime = createMetadataSyncRuntime({
+    remote: {
+      rpc: async (name) => {
+        if (name === 'register_sync_device') return registration.device
+        if (name === 'apply_metadata_sync_change') {
+          applyAttempts += 1
+          if (applyAttempts === 1) throw new TypeError('Failed to fetch')
+          return [{ sequence: 1, entity_revision: 1, operation: 'upsert', applied: true }]
+        }
+        return []
+      },
+    },
+    outbox: {
+      list: async () => pending ? [queued] : [],
+      claim: async (_userId, _operationId, claimId) => ({ ...queued, status: 'in-flight', claimId, claimExpiresAt: Date.now() + 60_000 }),
+      acknowledge: async () => { pending = false; return true },
+      release: async () => true,
+    },
+    shadows: data.shadows,
+    cursors: {
+      ...data.cursors,
+      write: async (userId, sequence) => {
+        await data.cursors.write(userId, sequence)
+        completed = true
+      },
+    },
+    revisions: data.revisions,
+    registerDevice: async () => registration,
+  })
+
+  await expect(runtime.run(session)).resolves.toMatchObject({
+    status: 'outbox-blocked',
+    flush: { reason: 'retryable-failure' },
+  })
+  await expect.poll(() => completed).toBe(true)
+  expect(applyAttempts).toBe(2)
+})
+
+test('runtime cancels scheduled retries when an account session is invalidated', async () => {
+  const data = dependencies()
+  let pullAttempts = 0
+  const runtime = createMetadataSyncRuntime({
+    remote: {
+      rpc: async (name) => {
+        if (name === 'pull_metadata_sync_changes') {
+          pullAttempts += 1
+          throw new TypeError('Failed to fetch')
+        }
+        return []
+      },
+    },
+    outbox: data.outbox,
+    shadows: data.shadows,
+    cursors: data.cursors,
+    revisions: data.revisions,
+    registerDevice: async () => registration,
+  })
+
+  await expect(runtime.run(session)).resolves.toMatchObject({ status: 'pull-failed', pull: { reason: 'remote-failure' } })
+  runtime.invalidate(session.user.id)
+  await new Promise((resolve) => setTimeout(resolve, 1_100))
+  expect(pullAttempts).toBe(1)
+})
+
 test('runtime default cursor adapter delegates to the IndexedDB cursor helpers, never localStorage', async () => {
   const source = await readFile(new URL('../src/lib/metadata-sync-runtime.ts', import.meta.url), 'utf8')
 

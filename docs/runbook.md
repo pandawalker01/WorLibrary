@@ -32,6 +32,26 @@
 - [ ] migration 文件名连续且只向前执行；RLS policy 检查通过。
 - [ ] 登录匿名试用/魔法链接、首次同步和翻译成功/失败均有可追踪 request id。
 - [ ] 在两个独立浏览器 profile 和两个测试账号上完成真实 Supabase 验收：匿名试用不创建同步队列；稳定账号只能操作自己的未撤销设备；登出或账户切换会取消旧账户的待同步工作；未知/不安全 payload 或 RPC 错误不推进 pull cursor；离线重放的 mutation 幂等；删除墓碑不会被旧设备复活；远端仅元数据条目明确标为需重新导入且不能打开本地阅读器。没有这项验收，保持客户端同步入口关闭，状态文案不得使用“已同步”或“跨设备恢复”。
+
+> 当前验收记录：本次工作树没有配置 `VITE_SUPABASE_URL`、`VITE_SUPABASE_ANON_KEY` 或真实测试会话，因此只可记录本地 migration/RLS 契约测试与客户端模拟回归结果；不得将其记作真实 Supabase、RLS 或双浏览器验收通过。配置真实 staging 后必须重新执行上面的双 profile 清单，再更新验收记录。
+
+### 真实 Supabase 双 Profile 验收步骤
+
+仅在专用 staging 项目执行，不要使用生产账户或 service-role key。先依序应用 `0008`、`0009`、`0012` migration，部署指向该 staging 的客户端，并准备两个独立浏览器 Profile（A、B）和两个稳定测试账户（账户 A、账户 B）。两个 Profile 必须使用独立浏览器数据目录；记录应用版本、migration 版本和测试时间。测试书籍只能使用自有或明确许可的短小 fixture。浏览器记录只保留 RPC 名称、结果、操作 ID、revision/sequence 与时间，不记录 access token、邮箱、摘录正文或完整 RPC payload。
+
+| 步骤 | 操作 | 通过标准 |
+| --- | --- | --- |
+| 1. 匿名边界 | Profile A 使用匿名试用，导入测试书并改变书目、进度和偏好；检查设备注册、outbox 和 Network。 | 不创建同步设备或 outbox，不调用同步 RPC；数据仍可本地使用。 |
+| 2. 同账户往返 | Profile A 登录账户 A，在线创建/修改书目、阅读进度、摘录（含笔记、颜色、显示状态）及允许的阅读偏好；等待一次同步完成。Profile B 登录同一账户 A 并触发同步。再从 B 修改各类数据，回到 A 同步。 | 两边只恢复本任务允许的元数据；封面色等安全摘要可同步，但不传书籍文件/封面二进制、对象键、URL 或整本正文。远端书籍显示“需重新导入原书”，不能直接打开。 |
+| 3. 顺序与断网重放 | Profile A 断网后，对同一实体连续编辑并创建至少两个不同实体的待同步操作；恢复网络。随后注入一次网络失败，再触发重试；Profile B 拉取结果。 | 按 outbox 创建顺序提交；失败项保留且后续 mutation/pull 不越过阻塞项；重试复用相同 operation ID，服务端幂等，只应用一次。成功回执后才确认精确 claim 并重基后续编辑到回执 revision。 |
+| 4. 账户隔离与 RLS | Profile A 先同步账户 A 数据，再退出并登录账户 B；Profile B 仍登录账户 A。用两个账户各自的浏览器会话读取对方已知记录 ID，并尝试以对方设备 ID 调用受控 mutation；检查 pull 返回与 UI shadow。 | 对方数据只返回空结果/拒绝；不能跨账户写入；mutation 必须绑定当前 `auth.uid()` 拥有且未撤销的设备。账户 B 不得显示或发送账户 A 的 outbox、revision、cursor、书架或摘录。 |
+| 5. 登出与切换中的待处理项 | 账户 A 在断网状态创建待发送项，然后退出或切换到账户 B，再恢复网络；另在 staging 延迟一条请求，在请求进行期间退出。最后重新登录账户 A。 | 失效后不再启动旧账户的后续 flush、pull、revision/cursor 持久化或重试；待处理项仍留在账户 A 队列，B 登录期间不发送，重新登录 A 后可继续。已到达服务端的单个 in-flight RPC 无法撤回，需确认它不会带动该旧运行继续下一步。 |
+| 6. revision 与 cursor 持久化 | 使用自动化故障注入使远端 shadow 或 entity revision 持久化失败，再分别使 cursor IndexedDB 写入失败；随后恢复存储并重试。 | projection/revision 任一步未成功时，整页 cursor 不推进；cursor 写失败返回明确失败状态。修复后重放同页安全且幂等，不能跳过未持久化变更。 |
+| 7. 删除墓碑与旧设备 | Profile A、B 同登录账户 A。A 删除已同步书籍及其摘录并确认墓碑成功；让 B 保留删除前的旧本地版本/离线编辑，再联网尝试旧版本 upsert。 | 服务端拒绝 tombstoned entity 的旧设备复活写入；B 拉取删除状态，不能重新创建同一 ID 的书目或摘录。 |
+| 8. RPC 数据边界 | 在浏览器 Network 面板检查 metadata 与私有摘录 RPC 的字段名和请求体类型；检查 Supabase 中对应同步行/日志，不查看或导出敏感正文。 | 一般 metadata RPC 不含 EPUB/PDF、封面二进制、对象键、URL 或书籍正文；摘录选区文本仅出现在专用私有摘录 RPC。 |
+
+任何步骤失败或证据不完整都记录为 **未通过**，关闭同步入口并保留可阅读的本地模式。通过记录应注明各步 PASS/FAIL、两账户使用的匿名测试标识、应用/migration 版本、RPC 结果摘要和复测日期；不得把 migration 静态断言、模拟 RPC 或本地 Playwright 结果写成真实 Supabase/RLS 通过。
+
 - [ ] 若本次首次发布平台自有/获授权内容，已执行 `0006_platform_content_operations.sql` 与 `0007_platform_delivery_resolution_and_staff_roles.sql`，并由受控后台（不是浏览器）完成许可、来源、SHA-256、私有 R2 对象、地区策略和发布审计的完整接入清单；详见 `docs/deployment.md` 的“首个合规内容来源接入清单”。
 - [ ] 若本次启用社区审核、客服支持或平台管理能力，已执行 `0010_server_owned_account_roles.sql`。普通用户没有提升角色记录；`community_moderator`、`support_agent` 与 `platform_admin` 只能由受控 service-role 调用 `set_server_account_role` 授予或撤销，并必须填写内部操作者/工单引用。不得通过 `profiles`、`user_settings`、前端状态或 JWT claims 配置角色。
 - [ ] 若启用账户资料云端保存，已在目标 Supabase 按顺序执行 `0011_account_profile_and_avatar_foundation.sql` 与 `0013_public_profile_projection.sql`。用两个真实账号验证：只能编辑自己的 `profiles` 行；公开查询只可读取 `public_profiles` 明确授权的 `public_id`、昵称、简介、头像存在状态与更新时间，不能读取 `owner_id`、邮箱、设备、私有书架、阅读位置、摘录、原书、角色或私有头像路径；关闭 `is_public` 后投影立即消失。`profile-avatars` 必须保持私有，只接受本人 UUID 路径下不超过 5 MiB 的 JPEG/PNG/WebP；在按 `public_id` 校验的媒体网关完成前，不得把私有 Storage 路径作为公开头像 URL。

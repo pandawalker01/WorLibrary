@@ -186,6 +186,20 @@ test('metadata outbox flush keeps retryable failures and later operations queued
   expect(data.confirmations).toEqual([])
 })
 
+test('metadata outbox classifies browser network errors as retryable and releases the exact claim', async () => {
+  const data = fixture([entry('network-outage', 1)])
+  const result = await flushMetadataSyncOutbox({
+    session,
+    serverDeviceId: 'server-device',
+    outbox: data.outbox,
+    remote: { rpc: async () => { throw new TypeError('Failed to fetch') } },
+  })
+
+  expect(result.reason).toBe('retryable-failure')
+  expect(data.confirmations).toEqual([])
+  expect(data.calls).toEqual(['list:stable-user'])
+})
+
 test('an acknowledgement never deletes a newer edition edit created while its older operation is in flight', async () => {
   const older: MetadataSyncOutboxEntry = {
     ...entry('older-edition', 1),

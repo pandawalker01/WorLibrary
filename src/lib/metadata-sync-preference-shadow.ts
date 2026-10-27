@@ -16,67 +16,10 @@ export type RemoteReaderPreferenceProjectionResult =
 
 export type ProjectRemoteReaderPreferenceChangeInput = { userId: string; change: PulledMetadataSyncChange; preferences: RemoteReaderPreferenceStore }
 
-type StoredAccountPreference = {
-  preference: SyncedReaderPreference
-  revision: number
-  sequence: number
-}
-
-const ACCOUNT_PREFERENCE_STORAGE_PREFIX = 'worlibrary.remote-reader-preferences:'
-
 function rejected(message: string): RemoteReaderPreferenceProjectionResult { return { outcome: 'rejected', error: new Error(message) } }
 function isPlainObject(value: unknown): value is Record<string, unknown> { if (!value || typeof value !== 'object' || Array.isArray(value)) return false; const prototype = Object.getPrototypeOf(value); return prototype === Object.prototype || prototype === null }
 function validTheme(value: unknown): value is ReaderTheme { return value === 'paper' || value === 'sepia' || value === 'night' }
 function validKey(value: string): value is typeof READER_LAYOUT_SETTING_KEY | typeof READING_LANGUAGE_SETTING_KEY { return value === READER_LAYOUT_SETTING_KEY || value === READING_LANGUAGE_SETTING_KEY }
-
-function accountPreferenceStorageKey(userId: string): string {
-  return `${ACCOUNT_PREFERENCE_STORAGE_PREFIX}${userId}`
-}
-
-function readStoredAccountPreferences(userId: string): Partial<Record<typeof READER_LAYOUT_SETTING_KEY | typeof READING_LANGUAGE_SETTING_KEY, StoredAccountPreference>> {
-  try {
-    const raw = window.localStorage.getItem(accountPreferenceStorageKey(userId))
-    if (!raw) return {}
-    const parsed = JSON.parse(raw)
-    return isPlainObject(parsed) ? parsed as Partial<Record<typeof READER_LAYOUT_SETTING_KEY | typeof READING_LANGUAGE_SETTING_KEY, StoredAccountPreference>> : {}
-  } catch {
-    return {}
-  }
-}
-
-/**
- * Persist a remote setting under the stable account that owned the feed item.
- * The caller applies it to visible UI only after this durable write succeeds.
- */
-export function persistAccountReaderPreference(input: { userId: string; preference: SyncedReaderPreference; revision: number; sequence: number }): boolean {
-  if (!input.userId.trim() || !Number.isSafeInteger(input.revision) || !Number.isSafeInteger(input.sequence)) return false
-  try {
-    const stored = readStoredAccountPreferences(input.userId)
-    const previous = stored[input.preference.key]
-    if (previous && previous.sequence > input.sequence) return false
-    stored[input.preference.key] = { preference: input.preference, revision: input.revision, sequence: input.sequence }
-    window.localStorage.setItem(accountPreferenceStorageKey(input.userId), JSON.stringify(stored))
-    return true
-  } catch {
-    return false
-  }
-}
-
-/** Clear only the named account/key pair; never touch another account's cached setting. */
-export function clearAccountReaderPreference(input: { userId: string; key: typeof READER_LAYOUT_SETTING_KEY | typeof READING_LANGUAGE_SETTING_KEY; sequence: number }): boolean {
-  if (!input.userId.trim() || !Number.isSafeInteger(input.sequence)) return false
-  try {
-    const stored = readStoredAccountPreferences(input.userId)
-    const previous = stored[input.key]
-    if (previous && previous.sequence > input.sequence) return false
-    delete stored[input.key]
-    if (Object.keys(stored).length === 0) window.localStorage.removeItem(accountPreferenceStorageKey(input.userId))
-    else window.localStorage.setItem(accountPreferenceStorageKey(input.userId), JSON.stringify(stored))
-    return true
-  } catch {
-    return false
-  }
-}
 
 function parsePreference(change: PulledMetadataSyncChange): SyncedReaderPreference {
   if (!isPlainObject(change.payload) || Object.keys(change.payload).length !== 1 || !('value' in change.payload) || !isPlainObject(change.payload.value)) throw new Error('reader preference payload must contain only an object value')

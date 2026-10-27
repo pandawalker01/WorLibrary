@@ -15,6 +15,7 @@ import type { RemoteHighlightMetadataShadowStore } from './metadata-sync-highlig
 import type { RemoteReaderPreferenceStore } from './metadata-sync-preference-shadow'
 import type { MetadataSyncOutboxStore, MetadataSyncRpcClient } from './metadata-sync-engine'
 import { createRemoteClient } from './remote'
+import { isRetryableMetadataSyncError, metadataSyncRetryDelayMs, shouldRetryMetadataSync } from './metadata-sync-retry'
 import {
   acknowledgeMetadataSyncOutboxEntry,
   claimMetadataSyncOutboxEntry,
@@ -131,11 +132,21 @@ export function createMetadataSyncRuntime(
 ): MetadataSyncRuntime {
   const flights = new Map<string, Promise<MetadataSyncCoordinatorResult>>()
   const generations = new Map<string, number>()
+  const retryAttempts = new Map<string, number>()
+  const retryTimers = new Map<string, ReturnType<typeof setTimeout>>()
+
+  const clearRetry = (userId: string): void => {
+    const timer = retryTimers.get(userId)
+    if (timer !== undefined) globalThis.clearTimeout(timer)
+    retryTimers.delete(userId)
+  }
 
   const invalidate = (userId?: string): void => {
-    const users = userId ? [userId] : [...generations.keys()]
+    const users = userId ? [userId] : [...new Set([...generations.keys(), ...retryTimers.keys()])]
     for (const id of users) {
       generations.set(id, (generations.get(id) ?? 0) + 1)
+      clearRetry(id)
+      retryAttempts.delete(id)
       // A future stable session must not be held behind the obsolete flight.
       flights.delete(id)
     }
@@ -146,6 +157,7 @@ export function createMetadataSyncRuntime(
     // generation, device registration, and network-client construction.
     if (!stableSession(session)) return Promise.resolve({ status: 'no-stable-account' })
 
+    clearRetry(session.user.id)
     const existing = flights.get(session.user.id)
     if (existing) return existing
 
@@ -182,6 +194,19 @@ export function createMetadataSyncRuntime(
       pageSize: dependencies.pageSize,
       maxPages: dependencies.maxPages,
       shouldContinue,
+    }).then((result) => {
+      if (generations.get(session.user.id) !== generation) return result
+      if (result.status === 'completed') {
+        retryAttempts.delete(session.user.id)
+      } else if (shouldRetryMetadataSync(result)) {
+        scheduleRetry(session, generation)
+      }
+      return result
+    }, (error: unknown) => {
+      if (generations.get(session.user.id) === generation && isRetryableMetadataSyncError(error)) {
+        scheduleRetry(session, generation)
+      }
+      throw error
     })
     flights.set(session.user.id, task)
     // Do not use `finally` without consuming the promise it returns: a
@@ -191,6 +216,20 @@ export function createMetadataSyncRuntime(
       () => { if (flights.get(session.user.id) === task) flights.delete(session.user.id) },
     )
     return task
+  }
+
+  function scheduleRetry(session: AuthSession, generation: number): void {
+    const userId = session.user.id
+    if (retryTimers.has(userId) || (typeof navigator !== 'undefined' && navigator.onLine === false)) return
+    const attempt = retryAttempts.get(userId) ?? 0
+    const delay = metadataSyncRetryDelayMs(attempt)
+    if (delay === null) return
+    retryAttempts.set(userId, attempt + 1)
+    const timer = globalThis.setTimeout(() => {
+      retryTimers.delete(userId)
+      if (generations.get(userId) === generation) void run(session)
+    }, delay)
+    retryTimers.set(userId, timer)
   }
 
   return { run, invalidate }
