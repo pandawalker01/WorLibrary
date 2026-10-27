@@ -33,7 +33,7 @@
 - [ ] 登录匿名试用/魔法链接、首次同步和翻译成功/失败均有可追踪 request id。
 - [ ] 在两个独立浏览器 profile 和两个测试账号上完成真实 Supabase 验收：匿名试用不创建同步队列；稳定账号只能操作自己的未撤销设备；登出或账户切换会取消旧账户的待同步工作；未知/不安全 payload 或 RPC 错误不推进 pull cursor；离线重放的 mutation 幂等；删除墓碑不会被旧设备复活；远端仅元数据条目明确标为需重新导入且不能打开本地阅读器。没有这项验收，保持客户端同步入口关闭，状态文案不得使用“已同步”或“跨设备恢复”。
 
-> 当前验收记录：本次工作树没有配置 `VITE_SUPABASE_URL`、`VITE_SUPABASE_ANON_KEY` 或真实测试会话，因此只可记录本地 migration/RLS 契约测试与客户端模拟回归结果；不得将其记作真实 Supabase、RLS 或双浏览器验收通过。配置真实 staging 后必须重新执行上面的双 profile 清单，再更新验收记录。
+> 验收状态：2026-10-27 本轮开始时检查到工作区未设置 `VITE_SUPABASE_URL`、`VITE_SUPABASE_ANON_KEY`、`SUPABASE_URL` 或 `SUPABASE_SERVICE_ROLE_KEY`，也未提供真实测试会话。因此本轮没有连接 Supabase 或运行双 Profile 验收；只能记录本地自动化结果，不能记为真实 Supabase、RLS 或跨账户验收通过。真实 staging 配置好后必须重新执行上面的双 Profile 清单并更新结果。
 
 ### 真实 Supabase 双 Profile 验收步骤
 
@@ -51,6 +51,23 @@
 | 8. RPC 数据边界 | 在浏览器 Network 面板检查 metadata 与私有摘录 RPC 的字段名和请求体类型；检查 Supabase 中对应同步行/日志，不查看或导出敏感正文。 | 一般 metadata RPC 不含 EPUB/PDF、封面二进制、对象键、URL 或书籍正文；摘录选区文本仅出现在专用私有摘录 RPC。 |
 
 任何步骤失败或证据不完整都记录为 **未通过**，关闭同步入口并保留可阅读的本地模式。通过记录应注明各步 PASS/FAIL、两账户使用的匿名测试标识、应用/migration 版本、RPC 结果摘要和复测日期；不得把 migration 静态断言、模拟 RPC 或本地 Playwright 结果写成真实 Supabase/RLS 通过。
+
+### 元数据同步真实环境验收结果（2026-10-27）
+
+- **状态：未执行 / BLOCKED；不得视为验收通过。**
+- **代码基线：**`origin/main` 合并提交 `63d15fd`；本轮验收分支从该提交创建。
+- **环境证据：**启动检查显示 `VITE_SUPABASE_URL`、`VITE_SUPABASE_ANON_KEY`、`SUPABASE_URL`、`SUPABASE_SERVICE_ROLE_KEY` 均未配置；没有提供两个稳定测试账户或两个已登录的独立浏览器 Profile。
+- **证据附件：**没有 Supabase 请求、RLS 查询或真实浏览器流程发生，因此没有可附的真实截图、request ID 或 Supabase 日志。不得用本地模拟测试/迁移静态断言替代这些证据。
+
+| 验收项 | 结果 | 证据/说明 |
+| --- | --- | --- |
+| 同一账户在两个 Profile 恢复书架元数据、阅读进度、摘录/笔记/颜色和允许的偏好 | 未执行 | 缺少 staging URL/anon key 与两个 Profile；无真实请求日志或截图。 |
+| 第二账户不可读写第一账户数据；匿名账户不能注册设备或同步 | 未执行 | 未执行真实账户/RLS 请求；本地契约测试不等于线上验证。 |
+| 登出/账户切换、断网重放、失败重试与 outbox 顺序 | 未执行 | 未连接 Supabase，也未使用真实浏览器会话进行故障注入。 |
+| revision、shadow 与 cursor 持久化顺序 | 未执行 | 未进行真实远端拉取或存储故障注入。 |
+| 删除墓碑阻止旧设备复活 | 未执行 | 未在 staging 提交删除并由另一 Profile 尝试旧版本写入。 |
+
+解除阻塞后，使用专用 staging、两个独立 Profile 和两个测试账户，按本节上方 1–8 步执行；保留脱敏的操作 ID、revision/sequence、request ID、截图和日志索引，并在表中逐项填写 PASS/FAIL。不得记录邮箱、令牌、摘录正文、密钥或书籍内容。
 
 - [ ] 若本次首次发布平台自有/获授权内容，已执行 `0006_platform_content_operations.sql` 与 `0007_platform_delivery_resolution_and_staff_roles.sql`，并由受控后台（不是浏览器）完成许可、来源、SHA-256、私有 R2 对象、地区策略和发布审计的完整接入清单；详见 `docs/deployment.md` 的“首个合规内容来源接入清单”。
 - [ ] 若本次启用社区审核、客服支持或平台管理能力，已执行 `0010_server_owned_account_roles.sql`。普通用户没有提升角色记录；`community_moderator`、`support_agent` 与 `platform_admin` 只能由受控 service-role 调用 `set_server_account_role` 授予或撤销，并必须填写内部操作者/工单引用。不得通过 `profiles`、`user_settings`、前端状态或 JWT claims 配置角色。
