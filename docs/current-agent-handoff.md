@@ -25,7 +25,7 @@ WorLibrary 是世界图书馆阅读器：让用户发现世界各地的作品和
 
 ## 当前 P0 待办
 
-1. 在 `codex/sync-real-acceptance` 完成元数据同步真实 Supabase 双 Profile/双账户验收。2026-10-27 本工作区缺少 Supabase URL/key 和测试账户，验收未执行；不得把本地自动化当作线上 RLS 证据。
+1. 在 PR #5 分支 `codex/sync-real-acceptance` 完成元数据同步真实 Supabase 双 Profile/双账户验收。2026-10-28 staging 配置已提供，但两个测试账号的 Auth password-token 请求都返回 `Invalid login credentials`；尚未创建认证 Profile 或发出同步/RLS 请求。不得把本地自动化当作线上 RLS 证据。
 2. 用两个独立浏览器 Profile 验证同账户恢复、跨账户隔离、匿名限制、断网重放、账户切换、cursor 持久化和删除墓碑。
 3. 发现同步代码问题时，先添加回归测试并修复，再复测真实 Supabase。
 4. 完成个人云书库后续真实 Supabase/R2 验收及新设备恢复，该功能由 Agent A 负责。
@@ -39,7 +39,7 @@ WorLibrary 是世界图书馆阅读器：让用户发现世界各地的作品和
 
 ### Agent B：同步与真实验收
 
-负责 PR #4：书架元数据、阅读进度、摘录/笔记/颜色、阅读偏好、outbox、revision、重试、账户切换、RLS 和双浏览器验收。不得负责原书上传或对象存储。
+负责已合并的 PR #4 同步实现及 PR #5 staging 真实验收：书架元数据、阅读进度、摘录/笔记/颜色、阅读偏好、outbox、revision、重试、账户切换、RLS 和双浏览器验收。不得负责原书上传或对象存储。
 
 ### 主 Agent
 

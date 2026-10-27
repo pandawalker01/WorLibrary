@@ -33,7 +33,7 @@
 - [ ] 登录匿名试用/魔法链接、首次同步和翻译成功/失败均有可追踪 request id。
 - [ ] 在两个独立浏览器 profile 和两个测试账号上完成真实 Supabase 验收：匿名试用不创建同步队列；稳定账号只能操作自己的未撤销设备；登出或账户切换会取消旧账户的待同步工作；未知/不安全 payload 或 RPC 错误不推进 pull cursor；离线重放的 mutation 幂等；删除墓碑不会被旧设备复活；远端仅元数据条目明确标为需重新导入且不能打开本地阅读器。没有这项验收，保持客户端同步入口关闭，状态文案不得使用“已同步”或“跨设备恢复”。
 
-> 验收状态：2026-10-27 本轮开始时检查到工作区未设置 `VITE_SUPABASE_URL`、`VITE_SUPABASE_ANON_KEY`、`SUPABASE_URL` 或 `SUPABASE_SERVICE_ROLE_KEY`，也未提供真实测试会话。因此本轮没有连接 Supabase 或运行双 Profile 验收；只能记录本地自动化结果，不能记为真实 Supabase、RLS 或跨账户验收通过。真实 staging 配置好后必须重新执行上面的双 Profile 清单并更新结果。
+> 验收状态：2026-10-27 首次检查时 staging 配置和真实测试会话不可用。2026-10-28 staging 配置已提供且 HTTPS Auth endpoint 可达，但账户 A、B 的密码登录都返回 HTTP 400 `Invalid login credentials`；没有建立已认证 Profile，也没有发起同步 RPC、RLS 查询或写入。因此真实双 Profile 验收仍为 **BLOCKED**，不能记为 Supabase、RLS 或跨账户验收通过。请在 Supabase staging 核验/重置两组测试账户凭据后重跑上方 1–8 步。
 
 ### 真实 Supabase 双 Profile 验收步骤
 
@@ -68,6 +68,14 @@
 | 删除墓碑阻止旧设备复活 | 未执行 | 未在 staging 提交删除并由另一 Profile 尝试旧版本写入。 |
 
 解除阻塞后，使用专用 staging、两个独立 Profile 和两个测试账户，按本节上方 1–8 步执行；保留脱敏的操作 ID、revision/sequence、request ID、截图和日志索引，并在表中逐项填写 PASS/FAIL。不得记录邮箱、令牌、摘录正文、密钥或书籍内容。
+
+### staging 认证阻塞记录（2026-10-28）
+
+- **状态：BLOCKED；未进入双 Profile 同步验收。**
+- **环境：**使用本机 Vite `staging` 模式和 Git 忽略的 `.env.staging.local`；仅核验 URL 为 HTTPS，文档不记录项目 URL、项目标识、anon key、邮箱或密码。
+- **步骤与结果：**以 Supabase Auth password-token endpoint 分别验证两个 staging 测试账号；账户 A、B 均返回 HTTP 400 `Invalid login credentials`。未取得 access/refresh token，未创建浏览器认证会话，未调用设备注册、同步 RPC 或 PostgREST 数据表，也未修改 staging 数据。
+- **证据：**脱敏探测结果仅保留两个账号均为 HTTP 400 / `Invalid login credentials`；本次未保留 `x-request-id`、截图或 Supabase 服务端日志。不得将此结果解释为 RLS 通过或应用登录 UI 通过。
+- **下一步：**由 staging 管理员在 Supabase Dashboard 核实测试账号是否存在、已确认且密码有效；更新被忽略的本地凭据后重跑完整清单。不要把密码或令牌粘贴到 PR、日志或截图中。
 
 - [ ] 若本次首次发布平台自有/获授权内容，已执行 `0006_platform_content_operations.sql` 与 `0007_platform_delivery_resolution_and_staff_roles.sql`，并由受控后台（不是浏览器）完成许可、来源、SHA-256、私有 R2 对象、地区策略和发布审计的完整接入清单；详见 `docs/deployment.md` 的“首个合规内容来源接入清单”。
 - [ ] 若本次启用社区审核、客服支持或平台管理能力，已执行 `0010_server_owned_account_roles.sql`。普通用户没有提升角色记录；`community_moderator`、`support_agent` 与 `platform_admin` 只能由受控 service-role 调用 `set_server_account_role` 授予或撤销，并必须填写内部操作者/工单引用。不得通过 `profiles`、`user_settings`、前端状态或 JWT claims 配置角色。
