@@ -98,8 +98,10 @@ function isStableSession(session: AuthSession | null): session is AuthSession {
 }
 
 function isRetryableSyncError(error: unknown): boolean {
-  return typeof error === 'object' && error !== null && 'retryable' in error
-    && (error as RemoteRequestError).retryable === true
+  if (typeof error === 'object' && error !== null && 'retryable' in error) {
+    return (error as RemoteRequestError).retryable === true
+  }
+  return error instanceof TypeError || (error instanceof DOMException && error.name === 'AbortError')
 }
 
 function isConflictError(error: unknown): boolean {

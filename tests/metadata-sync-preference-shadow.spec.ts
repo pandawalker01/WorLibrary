@@ -1,5 +1,7 @@
 import { expect, test } from '@playwright/test'
+import { readFile } from 'node:fs/promises'
 import { READER_LAYOUT_SETTING_KEY, READING_LANGUAGE_SETTING_KEY } from '../src/lib/metadata-sync-preference-intent'
+import { loadAccountReaderPreferences, persistAccountReaderPreference } from '../src/lib/account-reader-preferences'
 import { projectRemoteReaderPreferenceChange } from '../src/lib/metadata-sync-preference-shadow'
 
 const ids = { user: 'stable-user', device: '9c025db3-12bc-4c7b-8be7-b6d0bd658fba', operation: '31e5ed3a-7258-4f7f-a53d-5d43a02f4aec' }
@@ -46,4 +48,52 @@ test('supported deleted setting clears only the current account after an empty-p
   })
   expect(result).toEqual({ outcome: 'cleared', key: READING_LANGUAGE_SETTING_KEY })
   expect(cleared).toEqual([{ userId: ids.user, key: READING_LANGUAGE_SETTING_KEY, revision: 2, sequence: 3 }])
+})
+
+test('cached reader preferences are validated and isolated by stable account', () => {
+  const values = new Map<string, string>()
+  const previousWindow = Object.getOwnPropertyDescriptor(globalThis, 'window')
+  Object.defineProperty(globalThis, 'window', {
+    configurable: true,
+    value: {
+      localStorage: {
+        getItem: (key: string) => values.get(key) ?? null,
+        setItem: (key: string, value: string) => { values.set(key, value) },
+        removeItem: (key: string) => { values.delete(key) },
+      },
+    },
+  })
+
+  try {
+    expect(persistAccountReaderPreference({
+      userId: 'account-a',
+      preference: { key: READER_LAYOUT_SETTING_KEY, value: { theme: 'night', fontScale: 1.2, pdfZoom: 1.5 } },
+      revision: 2,
+      sequence: 7,
+    })).toBe(true)
+    expect(persistAccountReaderPreference({
+      userId: 'account-b',
+      preference: { key: READING_LANGUAGE_SETTING_KEY, value: { language: '日本語' } },
+      revision: 1,
+      sequence: 3,
+    })).toBe(true)
+
+    expect(loadAccountReaderPreferences('account-a')).toEqual({
+      layout: { theme: 'night', fontScale: 1.2, pdfZoom: 1.5 },
+    })
+    expect(loadAccountReaderPreferences('account-b')).toEqual({ language: '日本語' })
+    expect(loadAccountReaderPreferences('')).toEqual({})
+  } finally {
+    if (previousWindow) Object.defineProperty(globalThis, 'window', previousWindow)
+    else Reflect.deleteProperty(globalThis, 'window')
+  }
+})
+
+test('App restores account-scoped preferences and invalidates on account changes and explicit sign-out', async () => {
+  const source = await readFile('src/App.tsx', 'utf8')
+  expect(source).toContain('loadAccountReaderPreferences(next.user.id)')
+  expect(source).toContain('ACTIVE_SYNC_ACCOUNT_KEY')
+  expect(source).toContain('readerPreferencesRef.current = DEFAULT_READER_PREFERENCES')
+  expect(source).toContain('handleAuthSessionChange(null)')
+  expect(source).toContain('metadataSyncRuntimeRef.current?.invalidate(previous.user.id)')
 })

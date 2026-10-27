@@ -17,7 +17,7 @@ import { interfaceLocaleDirection, presentInterfaceLocales } from './lib/interfa
 import { enqueueLocalEditionMetadataSyncIntent } from './lib/metadata-sync-edition-intent'
 import { enqueueLocalHighlightMetadataSyncIntent } from './lib/metadata-sync-highlight-intent'
 import { enqueueLocalReaderPreferenceSyncIntent, READER_LAYOUT_SETTING_KEY, READING_LANGUAGE_SETTING_KEY, type SyncedReaderPreference } from './lib/metadata-sync-preference-intent'
-import { clearAccountReaderPreference, persistAccountReaderPreference } from './lib/metadata-sync-preference-shadow'
+import { clearAccountReaderPreference, loadAccountReaderPreferences, persistAccountReaderPreference } from './lib/account-reader-preferences'
 import type { MetadataSyncRuntime } from './lib/metadata-sync-runtime'
 import { createLazyMetadataSyncRuntime } from './lib/lazy-metadata-sync-runtime'
 
@@ -31,6 +31,7 @@ const PdfReader = lazy(() => import('./components/PdfReader'))
 const HighlightsView = lazy(() => import('./components/HighlightsView'))
 const WorldLanguagePicker = lazy(() => import('./components/WorldLanguagePicker'))
 const InterfaceLanguagePicker = lazy(() => import('./components/InterfaceLanguagePicker'))
+const ACTIVE_SYNC_ACCOUNT_KEY = 'worlibrary.metadata-sync.active-account'
 
 type View = 'library' | 'reader' | 'highlights' | 'profile' | 'settings'
 type DisplayBook = Pick<StoredBook, 'id' | 'title' | 'author' | 'language' | 'progress' | 'cover'> & Partial<Pick<StoredBook, 'fileName' | 'fileType' | 'storage' | 'createdAt' | 'lastReadAt' | 'location' | 'workId' | 'editionId' | 'coverImage'>>
@@ -266,6 +267,7 @@ function App() {
   const coverInput = useRef<HTMLInputElement>(null)
   const metadataSyncRuntimeRef = useRef<MetadataSyncRuntime | null>(null)
   const metadataSyncTimerRef = useRef<number | null>(null)
+  const lastStableAccountIdRef = useRef<string | null>(null)
   const sessionRef = useRef<AuthSession | null>(null)
   const readerPreferencesRef = useRef(readerPreferences)
   const languageRef = useRef(language)
@@ -326,9 +328,45 @@ function App() {
     const previous = sessionRef.current
     if (previous?.user.id && previous.user.id !== next?.user.id) metadataSyncRuntimeRef.current?.invalidate(previous.user.id)
     if (previous?.user.id !== next?.user.id) {
+      if (metadataSyncTimerRef.current !== null) window.clearTimeout(metadataSyncTimerRef.current)
+      metadataSyncTimerRef.current = null
       setRemoteShadows([])
       setRemoteHighlightShadows([])
       setPendingShadowReimport(null)
+    }
+    if (next && !next.user.isAnonymous && next.user.id.trim()) {
+      const accountPreferences = loadAccountReaderPreferences(next.user.id)
+      let previousStableAccountId = lastStableAccountIdRef.current
+      try {
+        previousStableAccountId ??= window.localStorage.getItem(ACTIVE_SYNC_ACCOUNT_KEY)
+      } catch {
+        previousStableAccountId ??= null
+      }
+      const switchedAccount = previousStableAccountId !== null && previousStableAccountId !== next.user.id
+      if (accountPreferences.layout) {
+        readerPreferencesRef.current = accountPreferences.layout
+        saveReaderPreferences(accountPreferences.layout)
+        setReaderPreferences(accountPreferences.layout)
+      } else if (switchedAccount) {
+        readerPreferencesRef.current = DEFAULT_READER_PREFERENCES
+        saveReaderPreferences(DEFAULT_READER_PREFERENCES)
+        setReaderPreferences(DEFAULT_READER_PREFERENCES)
+      }
+      if (accountPreferences.language) {
+        languageRef.current = accountPreferences.language
+        saveReadingLanguage(accountPreferences.language)
+        setLanguage(accountPreferences.language)
+      } else if (switchedAccount) {
+        languageRef.current = '中文'
+        saveReadingLanguage('中文')
+        setLanguage('中文')
+      }
+      lastStableAccountIdRef.current = next.user.id
+      try {
+        window.localStorage.setItem(ACTIVE_SYNC_ACCOUNT_KEY, next.user.id)
+      } catch {
+        // Sync remains account-scoped in the outbox even when this UI hint cannot be persisted.
+      }
     }
     sessionRef.current = next
     setSession(next)
@@ -397,12 +435,17 @@ function App() {
   const syncNow = useCallback(async () => {
     const current = sessionRef.current
     if (!current || current.user.isAnonymous) return undefined
-    const result = await metadataSyncRuntimeRef.current?.run(current)
-    if (result?.status === 'completed' && sessionRef.current?.user.id === current.user.id) {
-      void reloadRemoteShadows(current.user.id)
-      void reloadRemoteHighlightShadows(current.user.id)
+    try {
+      const result = await metadataSyncRuntimeRef.current?.run(current)
+      if (sessionRef.current?.user.id !== current.user.id) return result
+      if (result?.status === 'completed') {
+        void reloadRemoteShadows(current.user.id)
+        void reloadRemoteHighlightShadows(current.user.id)
+      }
+      return result
+    } catch {
+      return undefined
     }
-    return result
   }, [reloadRemoteHighlightShadows, reloadRemoteShadows])
 
   const scheduleSync = useCallback(() => {
@@ -949,7 +992,7 @@ function App() {
   const handleAccountSignOut = () => {
     setAccountMenuOpen(false)
     void signOut().then(() => {
-      setSession(null)
+      handleAuthSessionChange(null)
       toast(ui.syncSignedOut)
     }).catch((error) => toast(error instanceof Error ? error.message : ui.actionFailed))
   }

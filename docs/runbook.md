@@ -32,6 +32,8 @@
 - [ ] migration 文件名连续且只向前执行；RLS policy 检查通过。
 - [ ] 登录匿名试用/魔法链接、首次同步和翻译成功/失败均有可追踪 request id。
 - [ ] 在两个独立浏览器 profile 和两个测试账号上完成真实 Supabase 验收：匿名试用不创建同步队列；稳定账号只能操作自己的未撤销设备；登出或账户切换会取消旧账户的待同步工作；未知/不安全 payload 或 RPC 错误不推进 pull cursor；离线重放的 mutation 幂等；删除墓碑不会被旧设备复活；远端仅元数据条目明确标为需重新导入且不能打开本地阅读器。没有这项验收，保持客户端同步入口关闭，状态文案不得使用“已同步”或“跨设备恢复”。
+
+> 当前验收记录：本次工作树没有配置 `VITE_SUPABASE_URL`、`VITE_SUPABASE_ANON_KEY` 或真实测试会话，因此只可记录本地 migration/RLS 契约测试与客户端模拟回归结果；不得将其记作真实 Supabase、RLS 或双浏览器验收通过。配置真实 staging 后必须重新执行上面的双 profile 清单，再更新验收记录。
 - [ ] 若本次首次发布平台自有/获授权内容，已执行 `0006_platform_content_operations.sql` 与 `0007_platform_delivery_resolution_and_staff_roles.sql`，并由受控后台（不是浏览器）完成许可、来源、SHA-256、私有 R2 对象、地区策略和发布审计的完整接入清单；详见 `docs/deployment.md` 的“首个合规内容来源接入清单”。
 - [ ] 若本次启用社区审核、客服支持或平台管理能力，已执行 `0010_server_owned_account_roles.sql`。普通用户没有提升角色记录；`community_moderator`、`support_agent` 与 `platform_admin` 只能由受控 service-role 调用 `set_server_account_role` 授予或撤销，并必须填写内部操作者/工单引用。不得通过 `profiles`、`user_settings`、前端状态或 JWT claims 配置角色。
 - [ ] 若启用账户资料云端保存，已在目标 Supabase 按顺序执行 `0011_account_profile_and_avatar_foundation.sql` 与 `0013_public_profile_projection.sql`。用两个真实账号验证：只能编辑自己的 `profiles` 行；公开查询只可读取 `public_profiles` 明确授权的 `public_id`、昵称、简介、头像存在状态与更新时间，不能读取 `owner_id`、邮箱、设备、私有书架、阅读位置、摘录、原书、角色或私有头像路径；关闭 `is_public` 后投影立即消失。`profile-avatars` 必须保持私有，只接受本人 UUID 路径下不超过 5 MiB 的 JPEG/PNG/WebP；在按 `public_id` 校验的媒体网关完成前，不得把私有 Storage 路径作为公开头像 URL。
