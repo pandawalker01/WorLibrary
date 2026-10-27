@@ -229,3 +229,9 @@ WorLibrary 使用魔法链接，不假定用户具有可用于派生密钥的账
 ## 11. 尚待产品确认的项目
 
 实现前必须由产品所有者确定：免费配额与付费方案、单文件/总文件上限、默认云书库同意文案与同步范围、托管密钥的保留/访问审计政策、高级端到端加密的恢复码呈现与遗失政策、删除宽限期、支持的备份格式、地区/合规要求，以及首发只支持 Web 还是同时支持桌面和移动端。
+
+## 12. P0 网关实现与运行约束
+
+`0015_private_user_file_gateway.sql` 是 `0014` 的后继，必须按编号执行。它只向 `service_role` 授权上传、分块记录、完成和删除 RPC；authenticated/anon 不能读分块或对象键。Worker 同时需要私有 `USER_BACKUPS`、`SUPABASE_URL`、`SUPABASE_ANON_KEY` 和 Secret `SUPABASE_SERVICE_ROLE_KEY`。同一 idempotency key 重新 initiate 会返回已上传索引，客户端跳过它们继续；完成前 manifest 不会 active。恢复逐块经 Worker 重验账户与 active 状态，不提供下载 URL。
+
+删除顺序是 tombstone/标记 deleting、删除 R2 对象、标记 deleted/结算配额。R2 删除失败必须保留 deleting 与 tombstone 并由受控重试任务继续；不能以删除表或 tombstone 作为回滚。真实两账户/两设备验收完成前，任何用户文案仍不得称“同步完成”。

@@ -122,3 +122,9 @@ WorLibrary 是本地优先的多语言阅读器：用户导入自己拥有的 EP
 6. docs/runbook.md 与 docs/deployment.md（若涉及环境、数据库或发布）。
 7. 与任务对应的组件、lib 文件和已有 Playwright 用例。
 8. docs/known-issues.md，确认没有把已知缺陷误报为已完成。
+
+## 个人云书库 P0 网关（待真实验收）
+
+`0014`/`0015` 将 EPUB/PDF manifest、分块账本、配额预留和删除墓碑放在账户隔离表；字节仅进入独立私有的 `USER_BACKUPS` R2 绑定。`/api/user-files/*` 由 Worker 验证稳定账户后代持 R2 与 service-role RPC：浏览器只能得到 manifest ID、状态和进度，绝不得到对象键、签名 URL、桶名或服务端密钥。
+
+当前已有可恢复分块上传/按块恢复的实现和合约测试，但尚未完成真实 Supabase、R2、两设备验收。因此界面不得称“云端同步已完成”，也不得承诺已发布的跨设备恢复。

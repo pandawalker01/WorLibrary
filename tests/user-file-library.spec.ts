@@ -12,6 +12,17 @@ test('private user file migration keeps manifests user-scoped and object keys se
   expect(migration).not.toContain('grant select on public.user_file_chunks')
 })
 
+test('private file gateway migration uses service-only transactions, quota reservation, and 30-day deletion tombstones', async () => {
+  const migration = await readFile('supabase/migrations/0015_private_user_file_gateway.sql', 'utf8')
+  expect(migration).toContain('create table if not exists public.user_file_tombstones')
+  expect(migration).toContain("now() + interval '30 days'")
+  expect(migration).toContain('create or replace function public.begin_user_file_upload')
+  expect(migration).toContain('create or replace function public.complete_user_file_upload')
+  expect(migration).toContain('create or replace function public.request_user_file_delete')
+  expect(migration).toContain('grant execute on function public.begin_user_file_upload')
+  expect(migration).not.toContain('grant execute on function public.begin_user_file_upload(uuid, uuid, text, text, bigint, integer, integer, uuid, text) to authenticated')
+})
+
 test('user file validation accepts only bounded EPUB/PDF files and deterministic chunk ranges', () => {
   const file = { name: 'book.epub', type: 'application/epub+zip', size: USER_FILE_CHUNK_SIZE + 3, slice: Blob.prototype.slice }
   expect(describeUserFile(file)).toMatchObject({ mediaType: 'application/epub+zip', chunkCount: 2, chunkSize: USER_FILE_CHUNK_SIZE })

@@ -140,6 +140,31 @@ test('Cloudflare worker rejects invalid catalog requests without contacting upst
   })
 })
 
+test('private user-file gateway requires a verified account and never leaks R2 object locations', async () => {
+  const assets = createAssets()
+  const unconfigured = await worker.fetch(new Request('https://app.example.test/api/user-files/initiate', { method: 'POST' }), { ASSETS: assets })
+  assert.equal(unconfigured.status, 503)
+  assert.equal((await unconfigured.json()).error.code, 'USER_FILES_UNAVAILABLE')
+
+  const bucket = { async get() { return null }, async put() {}, async delete() {} }
+  await withFetchStub(async (url) => {
+    const target = String(url)
+    if (target.endsWith('/auth/v1/user')) return Response.json({ id: '11111111-1111-4111-8111-111111111111', app_metadata: {} })
+    if (target.includes('/rpc/begin_user_file_upload')) return Response.json([{ manifest_id: '22222222-2222-4222-8222-222222222222', upload_state: 'uploading', uploaded_chunks: [] }])
+    throw new Error(`Unexpected private-file gateway request: ${target}`)
+  }, async () => {
+    const response = await worker.fetch(new Request('https://app.example.test/api/user-files/initiate', {
+      method: 'POST', headers: { authorization: 'Bearer verified-user-token', 'content-type': 'application/json' },
+      body: JSON.stringify({ editionId: '33333333-3333-4333-8333-333333333333', fileName: 'private.epub', mediaType: 'application/epub+zip', size: 1, chunkSize: 8 * 1024 * 1024, chunkCount: 1, plaintextHash: 'a'.repeat(64), idempotencyKey: '44444444-4444-4444-8444-444444444444' }),
+    }), { ASSETS: assets, USER_BACKUPS: bucket, SUPABASE_URL: 'https://project.supabase.co', SUPABASE_ANON_KEY: 'anon', SUPABASE_SERVICE_ROLE_KEY: 'service-secret' })
+    assert.equal(response.status, 200)
+    const payload = await response.json()
+    assert.deepEqual(payload, { manifestId: '22222222-2222-4222-8222-222222222222', uploadState: 'uploading', uploadedChunks: [] })
+    assert.doesNotMatch(JSON.stringify(payload), /object|key|secret|url/i)
+    assert.equal(response.headers.get('cache-control'), 'no-store')
+  })
+})
+
 test('Cloudflare translation routes call a configured provider without exposing secrets or caching reader text', async () => {
   const assets = createAssets()
   const calls = []
