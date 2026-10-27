@@ -146,10 +146,11 @@ test('private user-file gateway requires a verified account and never leaks R2 o
   assert.equal(unconfigured.status, 503)
   assert.equal((await unconfigured.json()).error.code, 'USER_FILES_UNAVAILABLE')
 
-  const bucket = { async get() { return null }, async put() {}, async delete() {} }
+  const bucket = { async get() { return null }, async head() { return null }, async put() {}, async delete() {} }
   await withFetchStub(async (url) => {
     const target = String(url)
     if (target.endsWith('/auth/v1/user')) return Response.json({ id: '11111111-1111-4111-8111-111111111111', app_metadata: {} })
+    if (target.includes('/rpc/reap_expired_user_file_uploads')) return Response.json([])
     if (target.includes('/rpc/begin_user_file_upload')) return Response.json([{ manifest_id: '22222222-2222-4222-8222-222222222222', upload_state: 'uploading', uploaded_chunks: [] }])
     throw new Error(`Unexpected private-file gateway request: ${target}`)
   }, async () => {

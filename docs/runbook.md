@@ -78,3 +78,7 @@ Sentry 仅接收错误类型、路由、版本和 request id；过滤选区文�
 先按序执行 `0014_private_user_file_library.sql` 和 `0015_private_user_file_gateway.sql`，创建非公开 R2 bucket `worlibrary-user-backups` 并绑定为 `USER_BACKUPS`。将 `SUPABASE_SERVICE_ROLE_KEY` 只作为 Worker Secret 配置，同时配置 `SUPABASE_URL`、`SUPABASE_ANON_KEY`；不得写入 `.env`、前端变量、日志或 CI 输出。staging 必须用两个真实账户验证隔离、中断续传、私有 bucket 和删除 tombstone。
 
 回滚只回滚 Worker 路由/版本，保留 migration、manifest 与 tombstone，避免旧设备复活已删文件。不要删除表、桶或 tombstone；先完成所有 `uploading`/`deleting` 回收后，才能计划向前修复 migration。
+
+### 真实验收记录（2026-10-27）
+
+本工作区只配置了浏览器安全的 Supabase URL/anon key，没有 Worker service-role key、私有 R2 binding 或两个经验证的稳定邮箱测试账户；因此真实项目验收**未执行**，没有把本地/合约结果表述为通过。上线前必须按上节以 A/B 稳定账户和匿名会话执行：上传、跨账户 manifest/分块/字节拒绝、删除后读取拒绝、响应无对象键/桶名/长期 URL、设备 B 按块恢复并在 OPFS/IndexedDB 打开。记录 request id、环境、账户匿名化标识和结论；不得记录书籍正文、密钥或对象键。

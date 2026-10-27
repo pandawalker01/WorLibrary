@@ -629,7 +629,7 @@ function configuredUserFileGateway(env) {
   const url = typeof env.SUPABASE_URL === 'string' ? env.SUPABASE_URL.replace(/\/$/, '') : ''
   const anonKey = typeof env.SUPABASE_ANON_KEY === 'string' ? env.SUPABASE_ANON_KEY : ''
   const serviceKey = typeof env.SUPABASE_SERVICE_ROLE_KEY === 'string' ? env.SUPABASE_SERVICE_ROLE_KEY : ''
-  const bucket = env.USER_BACKUPS && typeof env.USER_BACKUPS.get === 'function' && typeof env.USER_BACKUPS.put === 'function' ? env.USER_BACKUPS : undefined
+  const bucket = env.USER_BACKUPS && typeof env.USER_BACKUPS.get === 'function' && typeof env.USER_BACKUPS.put === 'function' && typeof env.USER_BACKUPS.head === 'function' ? env.USER_BACKUPS : undefined
   return /^https:\/\//i.test(url) && anonKey && serviceKey && bucket ? { url, anonKey, serviceKey, bucket } : undefined
 }
 
@@ -673,6 +673,11 @@ async function userFiles(request, env, id, url) {
     let body; try { body = await request.json() } catch { return userFileError('INVALID_FILE_REQUEST', 400, id) }
     if (!validUuid(body?.editionId) || !validUuid(body?.idempotencyKey) || !safeUserFileName(body?.fileName) || !USER_FILE_TYPES.has(body?.mediaType) || !Number.isSafeInteger(body?.size) || body.size < 1 || body.size > USER_FILE_MAX_BYTES || body.chunkSize !== USER_FILE_CHUNK_SIZE || !Number.isSafeInteger(body?.chunkCount) || body.chunkCount !== Math.ceil(body.size / USER_FILE_CHUNK_SIZE) || !/^[0-9a-f]{64}$/i.test(body?.plaintextHash || '')) return userFileError('INVALID_FILE_REQUEST', 400, id)
     try {
+      const expired = await serviceRpc(gateway, 'reap_expired_user_file_uploads', { p_user_id: user.id })
+      for (const item of Array.isArray(expired) ? expired : []) {
+        for (const key of item?.object_keys || []) await gateway.bucket.delete(key)
+        await serviceRpc(gateway, 'finish_user_file_delete', { p_user_id: user.id, p_manifest_id: item.manifest_id })
+      }
       const rows = await serviceRpc(gateway, 'begin_user_file_upload', { p_user_id: user.id, p_edition_id: body.editionId, p_file_name: body.fileName.trim(), p_media_type: body.mediaType, p_plaintext_size: body.size, p_chunk_size: body.chunkSize, p_chunk_count: body.chunkCount, p_idempotency_key: body.idempotencyKey, p_plaintext_hash: body.plaintextHash.toLowerCase() })
       const manifest = Array.isArray(rows) ? rows[0] : rows
       return json({ manifestId: manifest?.manifest_id, uploadState: manifest?.upload_state, uploadedChunks: Array.isArray(manifest?.uploaded_chunks) ? manifest.uploaded_chunks : [] }, 200, id)
@@ -688,7 +693,12 @@ async function userFiles(request, env, id, url) {
     try { await gateway.bucket.put(key, bytes, { httpMetadata: { contentType: 'application/octet-stream' } }); await serviceRpc(gateway, 'record_user_file_chunk', { p_user_id: user.id, p_manifest_id: manifestId, p_chunk_index: index, p_cipher_hash: cipherHash, p_ciphertext_size: bytes.byteLength, p_object_key: key }); return json({ ok: true }, 200, id) } catch { return userFileError('INVALID_FILE_REQUEST', 409, id) }
   }
   if (request.method === 'POST' && parts.length === 4 && parts[3] === 'complete') {
-    try { await serviceRpc(gateway, 'complete_user_file_upload', { p_user_id: user.id, p_manifest_id: manifestId }); return json({ ok: true }, 200, id) } catch (error) { return userFileError(/incomplete/i.test(String(error?.message)) ? 'UPLOAD_INCOMPLETE' : 'INVALID_FILE_REQUEST', 409, id) }
+    try {
+      const rows = await serviceRows(gateway, `user_file_chunks?select=object_key&manifest_id=eq.${encodeURIComponent(manifestId)}&deleted_at=is.null`)
+      for (const row of Array.isArray(rows) ? rows : []) if (!await gateway.bucket.head(row.object_key)) return userFileError('UPLOAD_INCOMPLETE', 409, id)
+      await serviceRpc(gateway, 'complete_user_file_upload', { p_user_id: user.id, p_manifest_id: manifestId })
+      return json({ ok: true }, 200, id)
+    } catch (error) { return userFileError(/incomplete/i.test(String(error?.message)) ? 'UPLOAD_INCOMPLETE' : 'INVALID_FILE_REQUEST', 409, id) }
   }
   if (request.method === 'GET' && parts.length === 5 && parts[3] === 'chunks') {
     const index = Number(parts[4]); if (!Number.isInteger(index) || index < 0) return userFileError('INVALID_FILE_REQUEST', 400, id)
@@ -701,7 +711,12 @@ async function userFiles(request, env, id, url) {
     } catch { return userFileError('FILE_NOT_FOUND', 404, id) }
   }
   if (request.method === 'DELETE' && parts.length === 3) {
-    try { const rows = await serviceRpc(gateway, 'request_user_file_delete', { p_user_id: user.id, p_manifest_id: manifestId }); const result = Array.isArray(rows) ? rows[0] : rows; for (const key of result?.object_keys || []) await gateway.bucket.delete(key); await serviceRpc(gateway, 'finish_user_file_delete', { p_user_id: user.id, p_manifest_id: manifestId }); return json({ status: 'deleted' }, 202, id) } catch { return userFileError('FILE_NOT_FOUND', 404, id) }
+    try {
+      const rows = await serviceRpc(gateway, 'request_user_file_delete', { p_user_id: user.id, p_manifest_id: manifestId }); const result = Array.isArray(rows) ? rows[0] : rows
+      try { for (const key of result?.object_keys || []) await gateway.bucket.delete(key) } catch { return json({ status: 'deleting' }, 202, id) }
+      await serviceRpc(gateway, 'finish_user_file_delete', { p_user_id: user.id, p_manifest_id: manifestId })
+      return json({ status: 'deleted' }, 202, id)
+    } catch { return userFileError('FILE_NOT_FOUND', 404, id) }
   }
   return methodNotAllowed(id)
 }

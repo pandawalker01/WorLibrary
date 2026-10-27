@@ -120,13 +120,33 @@ begin
 end;
 $$;
 
+-- The Worker calls this before a new initiate for the same account, deletes
+-- the returned private objects, then calls finish_user_file_delete. Keeping
+-- deletion state durable prevents an expired upload from retaining quota.
+create or replace function public.reap_expired_user_file_uploads(p_user_id uuid)
+returns table(manifest_id uuid, object_keys text[]) language plpgsql security definer set search_path = public as $$
+begin
+  return query
+  with expired as (
+    update public.user_file_manifests
+      set upload_state = 'deleting', deleted_at = now(), delete_requested_at = now()
+      where user_id = p_user_id and upload_state = 'uploading' and upload_expires_at <= now()
+      returning id
+  )
+  select expired.id, coalesce(array(select object_key from public.user_file_chunks where manifest_id = expired.id and deleted_at is null), '{}'::text[])
+  from expired;
+end;
+$$;
+
 revoke all on function public.begin_user_file_upload(uuid, uuid, text, text, bigint, integer, integer, uuid, text) from public, anon, authenticated;
 revoke all on function public.record_user_file_chunk(uuid, uuid, integer, text, integer, text) from public, anon, authenticated;
 revoke all on function public.complete_user_file_upload(uuid, uuid) from public, anon, authenticated;
 revoke all on function public.request_user_file_delete(uuid, uuid) from public, anon, authenticated;
 revoke all on function public.finish_user_file_delete(uuid, uuid) from public, anon, authenticated;
+revoke all on function public.reap_expired_user_file_uploads(uuid) from public, anon, authenticated;
 grant execute on function public.begin_user_file_upload(uuid, uuid, text, text, bigint, integer, integer, uuid, text) to service_role;
 grant execute on function public.record_user_file_chunk(uuid, uuid, integer, text, integer, text) to service_role;
 grant execute on function public.complete_user_file_upload(uuid, uuid) to service_role;
 grant execute on function public.request_user_file_delete(uuid, uuid) to service_role;
 grant execute on function public.finish_user_file_delete(uuid, uuid) to service_role;
+grant execute on function public.reap_expired_user_file_uploads(uuid) to service_role;
