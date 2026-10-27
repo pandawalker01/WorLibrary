@@ -13,6 +13,43 @@ export type UserFileUploadProgress = { completedChunks: number; totalChunks: num
 
 const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
 const fileNamePattern = /^[^\u0000-\u001f\\/]{1,240}$/
+const RECOVERY_DATABASE = 'worlibrary-private-file-recovery'
+const RECOVERY_STORE = 'chunks'
+
+function recoveryChunkKey(manifestId: string, index: number): string { return `${manifestId}:${index}` }
+
+async function withRecoveryStore<T>(mode: IDBTransactionMode, work: (store: IDBObjectStore) => IDBRequest<T>): Promise<T | undefined> {
+  if (typeof indexedDB === 'undefined') return undefined
+  const database = await new Promise<IDBDatabase | undefined>((resolve) => {
+    const request = indexedDB.open(RECOVERY_DATABASE, 1)
+    request.onupgradeneeded = () => { if (!request.result.objectStoreNames.contains(RECOVERY_STORE)) request.result.createObjectStore(RECOVERY_STORE) }
+    request.onsuccess = () => resolve(request.result)
+    request.onerror = () => resolve(undefined)
+  })
+  if (!database) return undefined
+  try {
+    return await new Promise<T | undefined>((resolve) => {
+      const transaction = database.transaction(RECOVERY_STORE, mode)
+      const request = work(transaction.objectStore(RECOVERY_STORE))
+      request.onsuccess = () => resolve(request.result)
+      request.onerror = () => resolve(undefined)
+      transaction.onabort = () => resolve(undefined)
+    })
+  } finally { database.close() }
+}
+
+async function readRecoveryChunk(manifestId: string, index: number): Promise<Blob | undefined> {
+  const value = await withRecoveryStore<Blob | undefined>('readonly', (store) => store.get(recoveryChunkKey(manifestId, index)))
+  return value instanceof Blob ? value : undefined
+}
+
+async function writeRecoveryChunk(manifestId: string, index: number, chunk: Blob): Promise<void> {
+  await withRecoveryStore<IDBValidKey>('readwrite', (store) => store.put(chunk, recoveryChunkKey(manifestId, index)))
+}
+
+async function clearRecoveryChunks(manifestId: string, count: number): Promise<void> {
+  for (let index = 0; index < count; index += 1) await withRecoveryStore<undefined>('readwrite', (store) => store.delete(recoveryChunkKey(manifestId, index)))
+}
 
 export function describeUserFile(file: UserFileInput): UserFileDescriptor {
   if (!file || typeof file.name !== 'string' || !fileNamePattern.test(file.name.trim())) throw new TypeError('文件名无效')
@@ -98,13 +135,25 @@ export function createUserFileClient(session: AuthSession, config: UserFileClien
       if (!uuidPattern.test(manifest.id) || !Number.isSafeInteger(manifest.size) || manifest.size < 1 || !USER_FILE_TYPES.includes(manifest.mediaType)) throw new TypeError('云端文件清单无效')
       const chunks: Blob[] = []; const count = Math.ceil(manifest.size / USER_FILE_CHUNK_SIZE); let restored = 0
       for (let index = 0; index < count; index += 1) {
-        const response = await request(`${gatewayUrl}/api/user-files/${encodeURIComponent(manifest.id)}/chunks/${index}`, { headers: { apikey: anonKey, Authorization: `Bearer ${session.accessToken}` } })
-        if (!response.ok) throw new Error('无法恢复云端原书，请稍后重试')
-        const chunk = await response.blob(); chunks.push(chunk); restored += chunk.size
+        const expectedSize = Math.min(USER_FILE_CHUNK_SIZE, manifest.size - index * USER_FILE_CHUNK_SIZE)
+        let chunk = await readRecoveryChunk(manifest.id, index)
+        if (chunk?.size !== expectedSize) chunk = undefined
+        if (!chunk) {
+          const response = await request(`${gatewayUrl}/api/user-files/${encodeURIComponent(manifest.id)}/chunks/${index}`, { headers: { apikey: anonKey, Authorization: `Bearer ${session.accessToken}` } })
+          if (!response.ok) throw new Error('无法恢复云端原书，请稍后重试')
+          chunk = await response.blob()
+          if (chunk.size !== expectedSize) throw new Error('恢复的文件分块校验失败')
+          // Persist each verified chunk before fetching the next one, so an
+          // interrupted recovery resumes from missing chunks instead of making
+          // an incomplete file visible to the local shelf.
+          await writeRecoveryChunk(manifest.id, index, chunk)
+        }
+        chunks.push(chunk); restored += chunk.size
         onProgress?.({ completedChunks: index + 1, totalChunks: count, uploadedBytes: restored, totalBytes: manifest.size })
       }
       const restoredFile = new File(chunks, manifest.fileName, { type: manifest.mediaType })
       if (restoredFile.size !== manifest.size) throw new Error('恢复的文件大小校验失败')
+      await clearRecoveryChunks(manifest.id, count)
       return restoredFile
     },
     async deleteFromCloud(manifestId: string): Promise<void> {

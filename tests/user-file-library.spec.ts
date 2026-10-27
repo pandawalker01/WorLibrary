@@ -1,6 +1,6 @@
 import { readFile } from 'node:fs/promises'
 import { expect, test } from '@playwright/test'
-import { USER_FILE_CHUNK_SIZE, USER_FILE_MAX_BYTES, assertOwnedEditionId, chunkRange, describeUserFile } from '../src/lib/user-file-library'
+import { USER_FILE_CHUNK_SIZE, USER_FILE_MAX_BYTES, assertOwnedEditionId, chunkRange, createUserFileClient, describeUserFile } from '../src/lib/user-file-library'
 
 test('private user file migration keeps manifests user-scoped and object keys service-only', async () => {
   const migration = await readFile('supabase/migrations/0014_private_user_file_library.sql', 'utf8')
@@ -41,4 +41,22 @@ test('user file validation accepts only bounded EPUB/PDF files and deterministic
   expect(() => describeUserFile({ ...file, type: 'application/zip' })).toThrow('仅支持 EPUB 或 PDF')
   expect(() => describeUserFile({ ...file, size: USER_FILE_MAX_BYTES + 1 })).toThrow('文件大小超出')
   expect(() => assertOwnedEditionId('not-a-uuid')).toThrow('版本 ID 无效')
+})
+
+test('cloud restore downloads only authenticated chunks and rejects a partial final file', async () => {
+  const requests: string[] = []
+  const session = { accessToken: 'short-lived-token', user: { id: 'account-a', isAnonymous: false } }
+  const client = createUserFileClient(session, {
+    url: 'https://supabase.example',
+    anonKey: 'public-anon-key',
+    gatewayUrl: 'https://app.example',
+    fetch: async (input) => {
+      requests.push(String(input))
+      return new Response(new Uint8Array([1, 2, 3]), { status: 200 })
+    },
+  })
+  await expect(client.restore({ id: '018f7b9c-3e2f-7b4c-8a7c-56cf4c39b7de', fileName: 'book.pdf', mediaType: 'application/pdf', size: 4 })).rejects.toThrow('分块校验失败')
+  expect(requests).toEqual(['https://app.example/api/user-files/018f7b9c-3e2f-7b4c-8a7c-56cf4c39b7de/chunks/0'])
+  expect(requests[0]).not.toContain('bucket')
+  expect(requests[0]).not.toContain('r2')
 })
