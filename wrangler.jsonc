@@ -7,6 +7,11 @@
     "directory": "./dist",
     "binding": "ASSETS"
   },
+  // USER_BACKUPS must be a separate, private R2 bucket. It is only bound to
+  // this Worker; browser clients never receive its name, object keys, or R2 credentials.
+  "r2_buckets": [
+    { "binding": "USER_BACKUPS", "bucket_name": "worlibrary-user-backups" }
+  ],
   "observability": {
     "enabled": true
   }

@@ -6,6 +6,8 @@
 
 本轮不部署用户文件备份 bucket、恢复码或配额服务，不开放 Google/Apple 登录或匿名迁移，也不启用平台正文的运营发布、授权交付或下载。平台内容的 R2 binding、resolver、许可和运营流程仅在后续合规内容阶段启用，不能作为当前内测测试数据的替代品。
 
+个人云书库的 `0014` 迁移目前只是数据库安全底座，尚未开放真实文件备份。上线前必须额外配置独立私有用户文件桶、JWT 校验的 Worker 网关、分块完整性校验、配额事务和删除回收；禁止使用公开 bucket、静态对象 URL 或浏览器长期凭据。
+
 ## 离线应用壳
 
 生产构建会注册一个轻量 Service Worker：它只缓存应用壳和已请求的带哈希静态资源。它明确**不会**缓存 API 响应、Supabase 路由、下载内容或 `.epub` / `.pdf` / `.mobi` / `.cbz` 文件；用户导入的书籍始终只保存在浏览器的 OPFS / IndexedDB。
@@ -267,3 +269,7 @@ curl -sI https://app.example.com/
 6. 发布后执行 `docs/runbook.md` 的冒烟与回滚检查；满足质量门槛后由主 Agent 创建版本标签与 GitHub Release，而不是仅以一次部署作为正式版本。
 
 如果部署失败，先查看 Cloudflare Worker deployment logs 与对应 Environment 的权限范围；不要把 production Token 临时复制到 staging。修复后重新运行相同环境的手动发布，确认上一版本仍可访问再替换。
+
+## 私有原书对象存储
+
+Cloudflare 部署需独立、非公开的 R2 bucket，并以 `USER_BACKUPS` 绑定。它不得用于平台授权内容，也不得配置 public domain、静态 URL 或浏览器直连 CORS。`SUPABASE_SERVICE_ROLE_KEY` 只能是 Worker Secret，绝不使用 `VITE_` 前缀。部署前运行 `npm run test:worker`，并在 staging 完成真实 Supabase/R2 验收；本地合约测试不授权开启“同步完成”文案。
