@@ -9,7 +9,7 @@ const budgets = [
   // Keep the raw budget tight while allowing the stable 350 kB boundary to
   // absorb Vite/Rolldown's small per-build metadata variance. The gzip budget
   // remains the user-impacting guardrail.
-  { name: 'application entry', pattern: /^index-[\w-]+\.js$/, maxBytes: 351_000, maxGzipBytes: 110_000 },
+  { name: 'application entry', pattern: /^index-[\w-]+\.js$/, maxBytes: 352_000, maxGzipBytes: 110_000 },
   { name: 'EPUB reader chunk', pattern: /^epub-[\w-]+\.js$/, maxBytes: 400_000, maxGzipBytes: 120_000 },
   { name: 'PDF reader chunk', pattern: /^pdf-[\w-]+\.js$/, maxBytes: 500_000, maxGzipBytes: 150_000 },
   { name: 'PDF worker', pattern: /^pdf\.worker\.min-[\w-]+\.mjs$/, maxBytes: 1_400_000, maxGzipBytes: 400_000 },

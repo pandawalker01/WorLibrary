@@ -267,7 +267,7 @@ test('a signed-in reader can save a local profile fallback without exposing emai
   await page.getByLabel('公开昵称').fill('阅读中的熊猫')
   await page.getByLabel('个人简介（可选）').fill('用不同语言读同一片世界。')
   await page.getByRole('button', { name: '保存到本机' }).click()
-  await expect(page.getByText('公开资料已保存到本机，尚未同步到云端。')).toBeVisible()
+  await expect(page.getByText('资料草稿已保存到本机，尚未上传或公开。')).toBeVisible()
   await expect(page.getByRole('button', { name: '个人账户: 阅读中的熊猫' })).toBeVisible()
   await expect(page.getByRole('button', { name: '个人账户: 阅读中的熊猫' })).not.toContainText('@')
   await page.reload()
