@@ -23,6 +23,16 @@ test('private file gateway migration uses service-only transactions, quota reser
   expect(migration).not.toContain('grant execute on function public.begin_user_file_upload(uuid, uuid, text, text, bigint, integer, integer, uuid, text) to authenticated')
 })
 
+test('finishing deletion releases only the quota bucket originally charged and is idempotent', async () => {
+  const migration = await readFile('supabase/migrations/0015_private_user_file_gateway.sql', 'utf8')
+  const finish = migration.slice(migration.indexOf('create or replace function public.finish_user_file_delete'), migration.indexOf('create or replace function public.reap_expired_user_file_uploads'))
+  expect(finish).toContain("if v_manifest.upload_state = 'deleted' then return; end if;")
+  expect(finish).toContain('if v_manifest.reserved_bytes > 0 then')
+  expect(finish).toContain('reserved_bytes = greatest(0, reserved_bytes - v_manifest.reserved_bytes)')
+  expect(finish).toContain('used_bytes = greatest(0, used_bytes - v_manifest.plaintext_size)')
+  expect(finish).not.toContain('used_bytes = greatest(0, used_bytes - (select plaintext_size')
+})
+
 test('user file validation accepts only bounded EPUB/PDF files and deterministic chunk ranges', () => {
   const file = { name: 'book.epub', type: 'application/epub+zip', size: USER_FILE_CHUNK_SIZE + 3, slice: Blob.prototype.slice }
   expect(describeUserFile(file)).toMatchObject({ mediaType: 'application/epub+zip', chunkCount: 2, chunkSize: USER_FILE_CHUNK_SIZE })

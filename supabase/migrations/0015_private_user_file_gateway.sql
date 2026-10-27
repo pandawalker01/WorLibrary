@@ -110,13 +110,21 @@ $$;
 
 create or replace function public.finish_user_file_delete(p_user_id uuid, p_manifest_id uuid)
 returns void language plpgsql security definer set search_path = public as $$
-declare v_reserved bigint;
+declare v_manifest public.user_file_manifests%rowtype;
 begin
-  select reserved_bytes into v_reserved from public.user_file_manifests where id = p_manifest_id and user_id = p_user_id for update;
+  select * into v_manifest from public.user_file_manifests where id = p_manifest_id and user_id = p_user_id for update;
   if not found then return; end if;
+  -- A repeated finish must not debit either quota bucket twice.
+  if v_manifest.upload_state = 'deleted' then return; end if;
   update public.user_file_chunks set deleted_at = now() where manifest_id = p_manifest_id and deleted_at is null;
   update public.user_file_manifests set upload_state = 'deleted', delete_completed_at = now(), reserved_bytes = 0 where id = p_manifest_id;
-  update public.user_storage_quotas set reserved_bytes = greatest(0, reserved_bytes - coalesce(v_reserved, 0)), used_bytes = greatest(0, used_bytes - (select plaintext_size from public.user_file_manifests where id = p_manifest_id)), updated_at = now() where user_id = p_user_id;
+  if v_manifest.reserved_bytes > 0 then
+    -- Uploading/verifying/deleting uploads only held a reservation.
+    update public.user_storage_quotas set reserved_bytes = greatest(0, reserved_bytes - v_manifest.reserved_bytes), updated_at = now() where user_id = p_user_id;
+  else
+    -- An active file has already converted its reservation into used bytes.
+    update public.user_storage_quotas set used_bytes = greatest(0, used_bytes - v_manifest.plaintext_size), updated_at = now() where user_id = p_user_id;
+  end if;
 end;
 $$;
 
