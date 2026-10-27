@@ -55,6 +55,8 @@ Supabase Postgres（按 user_id + RLS 隔离）
 
 现有浏览器本地库使用 IndexedDB/OPFS 保存导入文件、书架、进度和摘录；`src/lib/sync.ts` 保留的旧全表 REST 实现已被客户端关闭，不能作为任何跨设备同步的验收依据。IndexedDB v5 新增的 `metadata-sync-outbox` 只保存账户隔离、已验证的 metadata mutation 意图，独立于 `books` 与 `book-blobs`；`src/lib/metadata-sync-engine.ts` 按创建顺序 flush，使用精确 lease 确认与 revision 重基，并以受控 RPC 分页拉取变更。网络错误保留待处理项，在线状态下做有限指数退避，离线后由网络恢复事件重放。IndexedDB v6 另设 `remote-book-metadata-shadows`：它按账户与来源 `editionId` 保存受控 change feed 的书名、作者、语言、进度、位置、文件元数据、封面色及服务器 revision/sequence；每条记录固定为 `needsReimport`，既不含原书字节、cover data URL、对象键/URL 或正文，也绝不构造成 `StoredBook`。`src/lib/metadata-sync-edition-shadow.ts` 是该 store 唯一允许的 edition feed 投影器：仅接受前述白名单字段与 `epub`/`pdf` 文件类型，拒绝未知字段、数据 URL、对象定位和正文；未知 entity 不触碰 store，由 change-feed 协调器决定游标语义。`src/lib/device-registration-session.ts` 已能在稳定账户、调用方确认远端配置后，为当前浏览器读取或创建随机 UUID 并调用受控设备注册 RPC；它不会在匿名或未配置状态触碰本地设备标记或网络，也不把用户/书籍数据写入设备标记。`src/lib/metadata-sync-coordinator.ts` 将注册、flush、pull、投影和 revision/cursor 持久化组合为一次有界运行；遇到未知/不安全 entity、outbox 阻塞或 cursor 写入失败时停止，不假装完成。`src/App.tsx` 已接入稳定账户启动、书架/进度/摘录/必要偏好写入、回前台/恢复联网同步和账户失效；阅读偏好缓存按账户隔离，登出与账户切换会取消旧账户运行及重试。实时双浏览器 Supabase/RLS 验收尚未执行，因此当前仍不能视为通过跨设备发布门槛。未完成项：
 
+受控 metadata RPC 的 edition payload 白名单为书名、作者、语言、进度、位置、文件名/类型/大小和安全封面色；阅读进度仅含版本 ID、进度与位置；偏好仅限 `reader.layout` / `reader.language`。文件名、类型和大小属于书目 metadata，不是文件传输。EPUB/PDF 或封面二进制、对象键、URL 和整本正文都不得发送；选区文本仅通过私有摘录 RPC 发送。真实 staging 首次 edition upsert 曾因 `controlled_sync_payload_has_forbidden_key` 未覆盖 JSON 标量 leaf 而抛 `case not found`；migration `0016_metadata_sync_scalar_payload_guard.sql` 增加了标量分支并有本地契约测试覆盖，但截至 2026-10-28 尚未部署到 staging，修复后真实同步和 RLS 验收仍 BLOCKED。
+
 1. 原 EPUB/PDF、封面和全文索引尚未上传；新设备目前无法自动访问原书。
 2. `works`、阅读统计、联网收藏和版本关联尚未形成完整同步闭环。
 3. 复杂并发冲突的字段级策略、文件版本和面向用户的可观测重试状态仍未实现；本轮只保证网络失败保留队列并自动有限重试。

@@ -9,7 +9,7 @@
 ## 发布前检查清单
 
 - [ ] 本地与 CI 均使用 Node.js 24（最低兼容版本为 22.13）；若 `npm ci` 出现 `EBADENGINE` 或 `Exit handler never called`，先检查 Node 版本，不能继续把后续 typecheck/build/Playwright 的连带失败当作产品问题。
-- [ ] 若启用登录用户的内测元数据同步，已依序执行 `0008_metadata_sync_foundation.sql`、`0009_controlled_metadata_sync_rpc.sql` 与 `0012_private_highlight_sync_rpc.sql`，且客户端页面已实际接入账户隔离 outbox、顺序 flush 与 revision pull；摘录必须经专用 RPC 以同账号、未撤销设备同步 `edition_id`、选区文本、位置、笔记、颜色与是否显示高亮。它们不上传 EPUB/PDF、封面二进制、对象键、文件元数据或 URL。第二设备中的本地书必须要求重新导入原书，不能打开。
+- [ ] 若启用登录用户的内测元数据同步，已依序执行 `0008_metadata_sync_foundation.sql`、`0009_controlled_metadata_sync_rpc.sql`、`0012_private_highlight_sync_rpc.sql` 与 `0016_metadata_sync_scalar_payload_guard.sql`，且客户端页面已实际接入账户隔离 outbox、顺序 flush 与 revision pull。edition 仅同步书名、作者、语言、进度、位置、文件名/类型/大小和安全封面色元数据；阅读进度仅同步版本 ID、进度和位置；偏好仅同步 `reader.layout` / `reader.language`；摘录必须经专用 RPC 同步 `edition_id`、选区文本、位置、笔记、颜色与显示状态。任何 RPC 都不得上传 EPUB/PDF 或封面二进制、对象键、URL 或整本正文。第二设备中的本地书必须要求重新导入原书，不能打开。
 - [ ] `npm ci && npm run typecheck && npm run build` 全部通过。
 - [ ] `npm run quality` 生成 `test-results/release-report.json`；只有 `releaseReady: true` 才可发布。`blocked` 需要补齐部署配置，`failed` 需要修复代码或测试。
 - [ ] 在 Cloudflare Dashboard 核对 Preview/Production 使用不同的部署环境；CI Token 仅授予该项目所需的 Workers 编辑权限，绝不复制生产 Token 到预览环境或前端变量。
@@ -33,11 +33,11 @@
 - [ ] 登录匿名试用/魔法链接、首次同步和翻译成功/失败均有可追踪 request id。
 - [ ] 在两个独立浏览器 profile 和两个测试账号上完成真实 Supabase 验收：匿名试用不创建同步队列；稳定账号只能操作自己的未撤销设备；登出或账户切换会取消旧账户的待同步工作；未知/不安全 payload 或 RPC 错误不推进 pull cursor；离线重放的 mutation 幂等；删除墓碑不会被旧设备复活；远端仅元数据条目明确标为需重新导入且不能打开本地阅读器。没有这项验收，保持客户端同步入口关闭，状态文案不得使用“已同步”或“跨设备恢复”。
 
-> 验收状态：2026-10-27 首次检查时 staging 配置和真实测试会话不可用。2026-10-28 staging 配置已提供且 HTTPS Auth endpoint 可达，但账户 A、B 的密码登录都返回 HTTP 400 `Invalid login credentials`；没有建立已认证 Profile，也没有发起同步 RPC、RLS 查询或写入。因此真实双 Profile 验收仍为 **BLOCKED**，不能记为 Supabase、RLS 或跨账户验收通过。请在 Supabase staging 核验/重置两组测试账户凭据后重跑上方 1–8 步。
+> 验收状态：2026-10-27 首次检查时 staging 配置和真实测试会话不可用。2026-10-28 更新本地测试凭据后，A/B 稳定账户认证、设备注册与初始 change-feed 拉取均成功；但真实 edition upsert 返回 HTTP 400、SQLSTATE `20000`、`case not found`，请求 ID 为 `01a17e3c-e328-797d-91a5-76ef80fa61a9`。修复 migration `0016_metadata_sync_scalar_payload_guard.sql` 已新增并通过本地契约测试，尚未应用到 staging。测试书目的 edition 未写入；除设备注册外没有其他同步数据写入。因此真实双 Profile 验收仍为 **BLOCKED**，不能记为同步或 RLS 验收通过。先在 staging 应用 0016，再重跑上方 1–8 步。
 
 ### 真实 Supabase 双 Profile 验收步骤
 
-仅在专用 staging 项目执行，不要使用生产账户或 service-role key。先依序应用 `0008`、`0009`、`0012` migration，部署指向该 staging 的客户端，并准备两个独立浏览器 Profile（A、B）和两个稳定测试账户（账户 A、账户 B）。两个 Profile 必须使用独立浏览器数据目录；记录应用版本、migration 版本和测试时间。测试书籍只能使用自有或明确许可的短小 fixture。浏览器记录只保留 RPC 名称、结果、操作 ID、revision/sequence 与时间，不记录 access token、邮箱、摘录正文或完整 RPC payload。
+仅在专用 staging 项目执行，不要使用生产账户或 service-role key。先依序应用 `0008`、`0009`、`0012`、`0016` migration，部署指向该 staging 的客户端，并准备两个独立浏览器 Profile（A、B）和两个稳定测试账户（账户 A、账户 B）。两个 Profile 必须使用独立浏览器数据目录；记录应用版本、migration 版本和测试时间。测试书籍只能使用自有或明确许可的短小 fixture。浏览器记录只保留 RPC 名称、结果、操作 ID、revision/sequence 与时间，不记录 access token、邮箱、摘录正文或完整 RPC payload。
 
 | 步骤 | 操作 | 通过标准 |
 | --- | --- | --- |
@@ -48,7 +48,7 @@
 | 5. 登出与切换中的待处理项 | 账户 A 在断网状态创建待发送项，然后退出或切换到账户 B，再恢复网络；另在 staging 延迟一条请求，在请求进行期间退出。最后重新登录账户 A。 | 失效后不再启动旧账户的后续 flush、pull、revision/cursor 持久化或重试；待处理项仍留在账户 A 队列，B 登录期间不发送，重新登录 A 后可继续。已到达服务端的单个 in-flight RPC 无法撤回，需确认它不会带动该旧运行继续下一步。 |
 | 6. revision 与 cursor 持久化 | 使用自动化故障注入使远端 shadow 或 entity revision 持久化失败，再分别使 cursor IndexedDB 写入失败；随后恢复存储并重试。 | projection/revision 任一步未成功时，整页 cursor 不推进；cursor 写失败返回明确失败状态。修复后重放同页安全且幂等，不能跳过未持久化变更。 |
 | 7. 删除墓碑与旧设备 | Profile A、B 同登录账户 A。A 删除已同步书籍及其摘录并确认墓碑成功；让 B 保留删除前的旧本地版本/离线编辑，再联网尝试旧版本 upsert。 | 服务端拒绝 tombstoned entity 的旧设备复活写入；B 拉取删除状态，不能重新创建同一 ID 的书目或摘录。 |
-| 8. RPC 数据边界 | 在浏览器 Network 面板检查 metadata 与私有摘录 RPC 的字段名和请求体类型；检查 Supabase 中对应同步行/日志，不查看或导出敏感正文。 | 一般 metadata RPC 不含 EPUB/PDF、封面二进制、对象键、URL 或书籍正文；摘录选区文本仅出现在专用私有摘录 RPC。 |
+| 8. RPC 数据边界 | 在浏览器 Network 面板检查 metadata 与私有摘录 RPC 的字段名和请求体类型；检查 Supabase 中对应同步行/日志，不查看或导出敏感正文。 | edition RPC 只含书名、作者、语言、进度、位置、文件名/类型/大小和安全封面色元数据；阅读偏好键严格限制为 `reader.layout` / `reader.language`。摘录选区文本仅出现在专用私有摘录 RPC。任何 RPC 均不含 EPUB/PDF 或封面二进制、对象键、URL 或整本正文。 |
 
 任何步骤失败或证据不完整都记录为 **未通过**，关闭同步入口并保留可阅读的本地模式。通过记录应注明各步 PASS/FAIL、两账户使用的匿名测试标识、应用/migration 版本、RPC 结果摘要和复测日期；不得把 migration 静态断言、模拟 RPC 或本地 Playwright 结果写成真实 Supabase/RLS 通过。
 
@@ -69,13 +69,14 @@
 
 解除阻塞后，使用专用 staging、两个独立 Profile 和两个测试账户，按本节上方 1–8 步执行；保留脱敏的操作 ID、revision/sequence、request ID、截图和日志索引，并在表中逐项填写 PASS/FAIL。不得记录邮箱、令牌、摘录正文、密钥或书籍内容。
 
-### staging 认证阻塞记录（2026-10-28）
+### staging metadata RPC 阻塞记录（2026-10-28）
 
-- **状态：BLOCKED；未进入双 Profile 同步验收。**
-- **环境：**使用本机 Vite `staging` 模式和 Git 忽略的 `.env.staging.local`；仅核验 URL 为 HTTPS，文档不记录项目 URL、项目标识、anon key、邮箱或密码。
-- **步骤与结果：**以 Supabase Auth password-token endpoint 分别验证两个 staging 测试账号；账户 A、B 均返回 HTTP 400 `Invalid login credentials`。未取得 access/refresh token，未创建浏览器认证会话，未调用设备注册、同步 RPC 或 PostgREST 数据表，也未修改 staging 数据。
-- **证据：**脱敏探测结果仅保留两个账号均为 HTTP 400 / `Invalid login credentials`；本次未保留 `x-request-id`、截图或 Supabase 服务端日志。不得将此结果解释为 RLS 通过或应用登录 UI 通过。
-- **下一步：**由 staging 管理员在 Supabase Dashboard 核实测试账号是否存在、已确认且密码有效；更新被忽略的本地凭据后重跑完整清单。不要把密码或令牌粘贴到 PR、日志或截图中。
+- **状态：BLOCKED；认证与设备启动成功，但同步数据写入失败，尚未执行双 Profile 闭环。**
+- **环境：**使用本机 Vite `staging` 模式和 Git 忽略的 `.env.staging.local`；只确认 Supabase endpoint 为 HTTPS。文档不记录项目 URL、anon key、邮箱或密码。
+- **步骤与结果：**更新本地测试凭据后，账户 A、B password-token 请求均返回 HTTP 200；浏览器 Profile 的 `register_sync_device` 和 `pull_metadata_sync_changes` 均返回 HTTP 200。导入本地自有 EPUB fixture 后，edition metadata upsert 返回 HTTP 400、SQLSTATE `20000`、`case not found`（request ID `01a17e3c-e328-797d-91a5-76ef80fa61a9`）。PostgreSQL 递归 payload 检查函数未处理 JSON 标量；事务拒绝 mutation，未创建 edition/highlight/progress/setting 同步记录。
+- **代码修复：**新增 `0016_metadata_sync_scalar_payload_guard.sql`，为递归检查增加标量 leaf 分支；`tests/controlled-metadata-sync-migration.spec.ts` 新增回归断言，本地两项迁移契约测试通过。该 migration 尚未应用到 staging，故没有进行修复后的真实重测。
+- **数据边界与证据：**失败 RPC 只包含受限 edition metadata 字段名（书名、作者、语言、进度、文件名/类型/大小、封面色）；未发送 EPUB/PDF 或封面二进制、对象键、URL 或正文。除设备注册外没有同步写入；未截取截图。脱敏 RPC/测试记录见 `docs/evidence/staging-sync-2026-10-28.json`，其中包含 request ID、响应状态和 hash 化操作/实体标识，不含邮箱、令牌、密钥或 payload 值。
+- **下一步：**通过 Supabase staging 的受控 migration 流程应用 `0016`，再重跑清单 1–8 步；不要把密码或令牌粘贴到 PR、日志或截图中。
 
 - [ ] 若本次首次发布平台自有/获授权内容，已执行 `0006_platform_content_operations.sql` 与 `0007_platform_delivery_resolution_and_staff_roles.sql`，并由受控后台（不是浏览器）完成许可、来源、SHA-256、私有 R2 对象、地区策略和发布审计的完整接入清单；详见 `docs/deployment.md` 的“首个合规内容来源接入清单”。
 - [ ] 若本次启用社区审核、客服支持或平台管理能力，已执行 `0010_server_owned_account_roles.sql`。普通用户没有提升角色记录；`community_moderator`、`support_agent` 与 `platform_admin` 只能由受控 service-role 调用 `set_server_account_role` 授予或撤销，并必须填写内部操作者/工单引用。不得通过 `profiles`、`user_settings`、前端状态或 JWT claims 配置角色。

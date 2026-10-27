@@ -25,7 +25,7 @@ WorLibrary 是世界图书馆阅读器：让用户发现世界各地的作品和
 
 ## 当前 P0 待办
 
-1. 在 PR #5 分支 `codex/sync-real-acceptance` 完成元数据同步真实 Supabase 双 Profile/双账户验收。2026-10-28 staging 配置已提供，但两个测试账号的 Auth password-token 请求都返回 `Invalid login credentials`；尚未创建认证 Profile 或发出同步/RLS 请求。不得把本地自动化当作线上 RLS 证据。
+1. 在 PR #5 分支 `codex/sync-real-acceptance` 完成元数据同步真实 Supabase 双 Profile/双账户验收。2026-10-28 staging 账户认证、设备注册和 change-feed 拉取已成功；edition upsert 发现 SQLSTATE `20000` / `case not found`，需先在 staging 应用新 migration `0016_metadata_sync_scalar_payload_guard.sql` 再继续。不得把本地自动化当作线上 RLS 证据。
 2. 用两个独立浏览器 Profile 验证同账户恢复、跨账户隔离、匿名限制、断网重放、账户切换、cursor 持久化和删除墓碑。
 3. 发现同步代码问题时，先添加回归测试并修复，再复测真实 Supabase。
 4. 完成个人云书库后续真实 Supabase/R2 验收及新设备恢复，该功能由 Agent A 负责。

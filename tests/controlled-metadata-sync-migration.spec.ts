@@ -32,3 +32,15 @@ test('controlled metadata sync RPCs are authenticated, idempotent, revisioned, a
   expect(migration).not.toContain('user_file_chunks')
   expect(migration).not.toContain('PLATFORM_CONTENT')
 })
+
+test('scalar metadata leaves are handled by the forward migration payload guard', async () => {
+  const migration = await readFile('supabase/migrations/0016_metadata_sync_scalar_payload_guard.sql', 'utf8')
+
+  expect(migration).toContain('create or replace function public.controlled_sync_payload_has_forbidden_key')
+  expect(migration).toMatch(/case jsonb_typeof\(p_value\)[\s\S]*?when 'object'[\s\S]*?when 'array'[\s\S]*?else\s+return false;\s*end case;/)
+  expect(migration).toContain('security definer')
+  expect(migration).toContain('set search_path = public, pg_temp')
+  expect(migration).toContain("'object_key'")
+  expect(migration).toContain("'content_url'")
+  expect(migration).toContain("'raw_content'")
+})
