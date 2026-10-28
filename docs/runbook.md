@@ -78,6 +78,13 @@
 - **数据边界与证据：**失败 RPC 只包含受限 edition metadata 字段名（书名、作者、语言、进度、文件名/类型/大小、封面色）；未发送 EPUB/PDF 或封面二进制、对象键、URL 或正文。除设备注册外没有同步写入；未截取截图。脱敏 RPC/测试记录见 `docs/evidence/staging-sync-2026-10-28.json`，其中包含 request ID、响应状态和 hash 化操作/实体标识，不含邮箱、令牌、密钥或 payload 值。
 - **下一步：**等待主 Agent 审核 migration `0016` 后，才可在 Supabase staging 执行 `db push`；Production 不得操作。应用后再重跑清单 1–8 步；不要把密码或令牌粘贴到 PR、日志或截图中。
 
+### staging 反馈修复跟进（2026-10-28）
+
+- **发现的问题：**本轮 staging 验收反馈还指出两项客户端边界缺陷：已缓存较新 sequence 后重放较旧的偏好 upsert/clear，会被当作持久化失败并阻塞 feed/cursor；安全 edition upsert 的可选 `location: ""` 会以空字符串进入 shadow durable store，导致存储校验失败。
+- **最小复现与修复：**先保存 sequence 10 的 `reader.layout`，再重放 sequence 9 的另一值或更旧的 clear；两种重放现应返回成功、保持 sequence 10 的值不变。对完整安全 edition payload 设置 `location: ""`；shadow projector 现会在写入前归一化为 `undefined`。
+- **本地验证：**`tests/metadata-sync-preference-shadow.spec.ts` 和 `tests/metadata-sync-edition-shadow.spec.ts` 覆盖上述回归；两文件共 11 项 Playwright 测试通过。`npm run typecheck`、`npm run build`、`npm run test:bundle` 通过。`npm run quality` 中代码与 Playwright 检查通过，但总门禁因本地缺少 production 环境配置而为 **BLOCKED**。
+- **验收边界：**本跟进只提供代码和本地自动化证据，没有执行 staging/production 操作，也没有完成修复后的真实 staging 重测或双 Profile/RLS 验收。完整同步验收仍为 **BLOCKED**；只有在审核并应用 `0016` 后，才可在专用 staging 重跑完整清单 1–8 步。
+
 #### staging migration 安全应用步骤
 
 1. 主 Agent 审核 `supabase/migrations/0016_metadata_sync_scalar_payload_guard.sql` 并明确批准后再继续；批准前不得执行任何远端 DDL。
