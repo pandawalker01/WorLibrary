@@ -155,7 +155,12 @@ export function createUserFileClient(session: AuthSession, config: UserFileClien
       }
       const restoredFile = new File(chunks, manifest.fileName, { type: manifest.mediaType })
       if (restoredFile.size !== manifest.size) throw new Error('恢复的文件大小校验失败')
-      if (await sha256Hex(restoredFile) !== manifest.plaintextHash.toLowerCase()) throw new Error('恢复的文件完整性校验失败，请重试')
+      if (await sha256Hex(restoredFile) !== manifest.plaintextHash.toLowerCase()) {
+        // Same-size stale/corrupt cache cannot be retried safely: discard it so
+        // the next restore obtains fresh chunks only through the owned gateway.
+        await recoveryCache.clear(manifest.id, count)
+        throw new Error('恢复的文件完整性校验失败，请重试')
+      }
       await recoveryCache.clear(manifest.id, count)
       return restoredFile
     },

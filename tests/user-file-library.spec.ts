@@ -80,18 +80,22 @@ test('cloud restore downloads only authenticated chunks and rejects a partial fi
   expect(requests[0]).not.toContain('r2')
 })
 
-test('a same-size corrupted cached recovery chunk fails the final hash check without clearing the retry cache', async () => {
-  const cached = new Blob([new Uint8Array([9, 9, 9, 9])])
+test('a same-size corrupted cached recovery chunk is cleared so retry downloads and restores the verified file', async () => {
+  let cached: Blob | undefined = new Blob([new Uint8Array([9, 9, 9, 9])])
   const calls: string[] = []; let cleared = 0
   const session = { accessToken: 'short-lived-token', user: { id: 'account-a', isAnonymous: false } }
   const client = createUserFileClient(session, {
     url: 'https://supabase.example', anonKey: 'public-anon-key', gatewayUrl: 'https://app.example',
     fetch: async (input) => { calls.push(String(input)); return new Response(new Uint8Array([1, 2, 3, 4]), { status: 200 }) },
-    recoveryCache: { get: async () => cached, put: async () => { throw new Error('should not replace same-size cached chunk') }, clear: async () => { cleared += 1 } },
+    recoveryCache: { get: async () => cached, put: async (_manifestId, _index, chunk) => { cached = chunk }, clear: async () => { cached = undefined; cleared += 1 } },
   })
-  await expect(client.restore({ id: '018f7b9c-3e2f-7b4c-8a7c-56cf4c39b7de', fileName: 'book.pdf', mediaType: 'application/pdf', size: 4, plaintextHash: '0'.repeat(64) })).rejects.toThrow('完整性校验失败')
+  const manifest = { id: '018f7b9c-3e2f-7b4c-8a7c-56cf4c39b7de', fileName: 'book.pdf', mediaType: 'application/pdf' as const, size: 4, plaintextHash: '9f64a747e1b97f131fabb6b447296c9b6f0201e79fb3c5356e6c77e89b6a806a' }
+  await expect(client.restore(manifest)).rejects.toThrow('完整性校验失败')
   expect(calls).toEqual([])
-  expect(cleared).toBe(0)
+  expect(cleared).toBe(1)
+  await expect(client.restore(manifest)).resolves.toMatchObject({ name: 'book.pdf', size: 4, type: 'application/pdf' })
+  expect(calls).toEqual(['https://app.example/api/user-files/018f7b9c-3e2f-7b4c-8a7c-56cf4c39b7de/chunks/0'])
+  expect(cleared).toBe(2)
 })
 
 test('a failed cloud hash check cannot invoke the local shelf importer', async () => {
