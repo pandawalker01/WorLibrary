@@ -1,0 +1,96 @@
+{
+  "date": "2026-10-28",
+  "environment": "Supabase staging",
+  "appMode": "Vite staging",
+  "appCommit": "97bc3e9b663b0a3091817d2b2eac869645bb4a0e",
+  "migrations": [
+    "0008_metadata_sync_foundation.sql",
+    "0009_controlled_metadata_sync_rpc.sql",
+    "0012_private_highlight_sync_rpc.sql"
+  ],
+  "migrationAppliedToStaging": {
+    "0016_metadata_sync_scalar_payload_guard.sql": false
+  },
+  "accounts": {
+    "A": "c93e6ab4ed5b",
+    "B": "cc04a6191846"
+  },
+  "scenarios": [
+    {
+      "id": "staging-account-auth",
+      "result": "PASS",
+      "detail": "Both stable staging test accounts returned HTTP 200 from password-token authentication; credentials are not retained."
+    },
+    {
+      "id": "device-registration-and-initial-pull",
+      "result": "PARTIAL",
+      "detail": "Authenticated device registration and initial change-feed pull returned HTTP 200; no changes were available to verify restoration."
+    },
+    {
+      "id": "edition-metadata-upsert",
+      "result": "BLOCKED",
+      "detail": "HTTP 400 / SQLSTATE 20000 / case not found; request ID is recorded in rpcLog. The test mutation was rejected."
+    }
+  ],
+  "rpcLog": [
+    {
+      "rpc": "register_sync_device",
+      "status": 200,
+      "request_id": "01a17e3c-d7d4-7e63-bcd1-5c4d3db01f28"
+    },
+    {
+      "rpc": "pull_metadata_sync_changes",
+      "status": 200,
+      "request_id": "01a17e3c-da16-724e-991d-19f5bec0dadb",
+      "returned_change_count": 0,
+      "max_sequence": null,
+      "sequences_strictly_increasing": true
+    },
+    {
+      "rpc": "register_sync_device",
+      "status": 200,
+      "request_id": "01a17e3c-e126-7b57-9a1e-b41f5b5d8d42"
+    },
+    {
+      "rpc": "apply_metadata_sync_change",
+      "status": 400,
+      "request_id": "01a17e3c-e328-797d-91a5-76ef80fa61a9",
+      "operation_id_sha256_12": "3e690cd3cf62",
+      "entity_type": "edition",
+      "operation": "upsert",
+      "entity_id_sha256_12": "e3a816ad1258",
+      "payload_keys": [
+        "author",
+        "cover",
+        "file_name",
+        "file_size",
+        "file_type",
+        "language",
+        "progress",
+        "title"
+      ],
+      "error_code": "20000",
+      "error_message": "case not found",
+      "sequence": null,
+      "entity_revision": null,
+      "applied": null
+    }
+  ],
+  "restChecks": {},
+  "screenshots": [],
+  "cursorCheck": {},
+  "metadataPayloadBoundary": "PARTIAL PASS; the failed edition request contained only allowlisted metadata keys and no binary, object locator, URL, or full-text fields; request values were not retained",
+  "overall": "BLOCKED",
+  "failureStep": "create_primary_metadata",
+  "failureType": "RPC error followed by harness timeout waiting for successful sync",
+  "rootCause": "The deployed recursive JSON payload guard has no scalar-leaf CASE branch; forward migration 0016 fixes this but is not yet applied to staging.",
+  "uiDiagnostics": {
+    "headings": [
+      "把世界的书，读成自己的语言。",
+      "Reader Fixture"
+    ],
+    "statusMessages": [],
+    "importInputCount": 1
+  },
+  "partialScenarios": []
+}
