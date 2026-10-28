@@ -2,6 +2,8 @@ import { readFile } from 'node:fs/promises'
 import { expect, test } from '@playwright/test'
 import { USER_FILE_CHUNK_SIZE, USER_FILE_MAX_BYTES, assertOwnedEditionId, chunkRange, createUserFileClient, describeUserFile } from '../src/lib/user-file-library'
 
+const appPath = new URL('../src/App.tsx', import.meta.url)
+
 test('private user file migration keeps manifests user-scoped and object keys service-only', async () => {
   const migration = await readFile('supabase/migrations/0014_private_user_file_library.sql', 'utf8')
   for (const table of ['user_file_manifests', 'user_file_chunks', 'user_storage_quotas']) expect(migration).toContain(`create table if not exists public.${table}`)
@@ -72,8 +74,29 @@ test('cloud restore downloads only authenticated chunks and rejects a partial fi
       return new Response(new Uint8Array([1, 2, 3]), { status: 200 })
     },
   })
-  await expect(client.restore({ id: '018f7b9c-3e2f-7b4c-8a7c-56cf4c39b7de', fileName: 'book.pdf', mediaType: 'application/pdf', size: 4 })).rejects.toThrow('分块校验失败')
+  await expect(client.restore({ id: '018f7b9c-3e2f-7b4c-8a7c-56cf4c39b7de', fileName: 'book.pdf', mediaType: 'application/pdf', size: 4, plaintextHash: 'a'.repeat(64) })).rejects.toThrow('分块校验失败')
   expect(requests).toEqual(['https://app.example/api/user-files/018f7b9c-3e2f-7b4c-8a7c-56cf4c39b7de/chunks/0'])
   expect(requests[0]).not.toContain('bucket')
   expect(requests[0]).not.toContain('r2')
+})
+
+test('a same-size corrupted cached recovery chunk fails the final hash check without clearing the retry cache', async () => {
+  const cached = new Blob([new Uint8Array([9, 9, 9, 9])])
+  const calls: string[] = []; let cleared = 0
+  const session = { accessToken: 'short-lived-token', user: { id: 'account-a', isAnonymous: false } }
+  const client = createUserFileClient(session, {
+    url: 'https://supabase.example', anonKey: 'public-anon-key', gatewayUrl: 'https://app.example',
+    fetch: async (input) => { calls.push(String(input)); return new Response(new Uint8Array([1, 2, 3, 4]), { status: 200 }) },
+    recoveryCache: { get: async () => cached, put: async () => { throw new Error('should not replace same-size cached chunk') }, clear: async () => { cleared += 1 } },
+  })
+  await expect(client.restore({ id: '018f7b9c-3e2f-7b4c-8a7c-56cf4c39b7de', fileName: 'book.pdf', mediaType: 'application/pdf', size: 4, plaintextHash: '0'.repeat(64) })).rejects.toThrow('完整性校验失败')
+  expect(calls).toEqual([])
+  expect(cleared).toBe(0)
+})
+
+test('a failed cloud hash check cannot invoke the local shelf importer', async () => {
+  const source = await readFile(appPath, 'utf8')
+  const recovery = source.slice(source.indexOf('async function restoreCloudShadow'), source.indexOf('function removeBookFromDevice'))
+  expect(recovery.indexOf('await (await createCloudFileClient(current)).restore(manifest)')).toBeLessThan(recovery.indexOf('await reimportRemoteBookMetadataShadow'))
+  expect(recovery).toContain('catch (error)')
 })

@@ -8,8 +8,9 @@ export type UserFileType = typeof USER_FILE_TYPES[number]
 
 export type UserFileInput = { name: string; type: string; size: number; slice: Blob['slice'] }
 export type UserFileDescriptor = { name: string; mediaType: UserFileType; size: number; chunkSize: number; chunkCount: number }
-export type UserFileManifest = { id: string; editionId: string; fileName: string; mediaType: UserFileType; size: number; uploadState: string; deletedAt: string | null }
+export type UserFileManifest = { id: string; editionId: string; fileName: string; mediaType: UserFileType; size: number; plaintextHash: string; uploadState: string; deletedAt: string | null }
 export type UserFileUploadProgress = { completedChunks: number; totalChunks: number; uploadedBytes: number; totalBytes: number }
+export type UserFileRecoveryCache = { get: (manifestId: string, index: number) => Promise<Blob | undefined>; put: (manifestId: string, index: number, chunk: Blob) => Promise<void>; clear: (manifestId: string, count: number) => Promise<void> }
 
 const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
 const fileNamePattern = /^[^\u0000-\u001f\\/]{1,240}$/
@@ -73,7 +74,7 @@ async function sha256Hex(source: Blob): Promise<string> {
   return [...new Uint8Array(digest)].map((value) => value.toString(16).padStart(2, '0')).join('')
 }
 
-export type UserFileClientConfig = { url?: string; anonKey?: string; gatewayUrl?: string; fetch?: typeof globalThis.fetch }
+export type UserFileClientConfig = { url?: string; anonKey?: string; gatewayUrl?: string; fetch?: typeof globalThis.fetch; recoveryCache?: UserFileRecoveryCache }
 
 export function createUserFileClient(session: AuthSession, config: UserFileClientConfig = {}) {
   if (session.user.isAnonymous) throw new TypeError('匿名试用不能使用个人云书库')
@@ -82,6 +83,7 @@ export function createUserFileClient(session: AuthSession, config: UserFileClien
   const gatewayUrl = (config.gatewayUrl ?? (typeof window === 'undefined' ? '' : window.location.origin)).replace(/\/$/, '')
   const anonKey = config.anonKey ?? env.VITE_SUPABASE_ANON_KEY
   const request = config.fetch ?? globalThis.fetch
+  const recoveryCache = config.recoveryCache ?? { get: readRecoveryChunk, put: writeRecoveryChunk, clear: clearRecoveryChunks }
   if (!url || !anonKey || !gatewayUrl) throw new Error('尚未配置个人云书库')
   const headers = { apikey: anonKey, Authorization: `Bearer ${session.accessToken}`, 'Content-Type': 'application/json' }
   async function responseValue(response: Response): Promise<any> {
@@ -91,9 +93,9 @@ export function createUserFileClient(session: AuthSession, config: UserFileClien
   }
   return {
     async listManifests(): Promise<UserFileManifest[]> {
-      const response = await request(`${url}/rest/v1/user_file_manifests?select=id,edition_id,file_name,media_type,plaintext_size,upload_state,deleted_at&deleted_at=is.null&order=updated_at.desc`, { headers })
+      const response = await request(`${url}/rest/v1/user_file_manifests?select=id,edition_id,file_name,media_type,plaintext_size,plaintext_hash,upload_state,deleted_at&deleted_at=is.null&order=updated_at.desc`, { headers })
       const rows = await responseValue(response)
-      return Array.isArray(rows) ? rows.map((row) => ({ id: row.id, editionId: row.edition_id, fileName: row.file_name, mediaType: row.media_type, size: row.plaintext_size, uploadState: row.upload_state, deletedAt: row.deleted_at ?? null })) : []
+      return Array.isArray(rows) ? rows.flatMap((row) => typeof row?.plaintext_hash === 'string' && /^[0-9a-f]{64}$/i.test(row.plaintext_hash) ? [{ id: row.id, editionId: row.edition_id, fileName: row.file_name, mediaType: row.media_type, size: row.plaintext_size, plaintextHash: row.plaintext_hash.toLowerCase(), uploadState: row.upload_state, deletedAt: row.deleted_at ?? null }] : []) : []
     },
     async initiate(editionId: string, file: UserFileInput, idempotencyKey: string = crypto.randomUUID()): Promise<{ manifestId: string; descriptor: UserFileDescriptor; uploadedChunks: number[] }> {
       assertOwnedEditionId(editionId)
@@ -131,29 +133,30 @@ export function createUserFileClient(session: AuthSession, config: UserFileClien
       await this.complete(started.manifestId)
       return started.manifestId
     },
-    async restore(manifest: Pick<UserFileManifest, 'id' | 'fileName' | 'mediaType' | 'size'>, onProgress?: (progress: UserFileUploadProgress) => void): Promise<File> {
-      if (!uuidPattern.test(manifest.id) || !Number.isSafeInteger(manifest.size) || manifest.size < 1 || !USER_FILE_TYPES.includes(manifest.mediaType)) throw new TypeError('云端文件清单无效')
+    async restore(manifest: Pick<UserFileManifest, 'id' | 'fileName' | 'mediaType' | 'size' | 'plaintextHash'>, onProgress?: (progress: UserFileUploadProgress) => void): Promise<File> {
+      if (!uuidPattern.test(manifest.id) || !Number.isSafeInteger(manifest.size) || manifest.size < 1 || !USER_FILE_TYPES.includes(manifest.mediaType) || !/^[0-9a-f]{64}$/i.test(manifest.plaintextHash)) throw new TypeError('云端文件清单无效')
       const chunks: Blob[] = []; const count = Math.ceil(manifest.size / USER_FILE_CHUNK_SIZE); let restored = 0
       for (let index = 0; index < count; index += 1) {
         const expectedSize = Math.min(USER_FILE_CHUNK_SIZE, manifest.size - index * USER_FILE_CHUNK_SIZE)
-        let chunk = await readRecoveryChunk(manifest.id, index)
+        let chunk = await recoveryCache.get(manifest.id, index)
         if (chunk?.size !== expectedSize) chunk = undefined
         if (!chunk) {
           const response = await request(`${gatewayUrl}/api/user-files/${encodeURIComponent(manifest.id)}/chunks/${index}`, { headers: { apikey: anonKey, Authorization: `Bearer ${session.accessToken}` } })
           if (!response.ok) throw new Error('无法恢复云端原书，请稍后重试')
           chunk = await response.blob()
           if (chunk.size !== expectedSize) throw new Error('恢复的文件分块校验失败')
-          // Persist each verified chunk before fetching the next one, so an
-          // interrupted recovery resumes from missing chunks instead of making
-          // an incomplete file visible to the local shelf.
-          await writeRecoveryChunk(manifest.id, index, chunk)
+          // Persist each size-validated chunk before fetching the next one so
+          // interruption resumes from missing chunks. Final plaintext SHA-256
+          // verification below decides whether anything can enter the shelf.
+          await recoveryCache.put(manifest.id, index, chunk)
         }
         chunks.push(chunk); restored += chunk.size
         onProgress?.({ completedChunks: index + 1, totalChunks: count, uploadedBytes: restored, totalBytes: manifest.size })
       }
       const restoredFile = new File(chunks, manifest.fileName, { type: manifest.mediaType })
       if (restoredFile.size !== manifest.size) throw new Error('恢复的文件大小校验失败')
-      await clearRecoveryChunks(manifest.id, count)
+      if (await sha256Hex(restoredFile) !== manifest.plaintextHash.toLowerCase()) throw new Error('恢复的文件完整性校验失败，请重试')
+      await recoveryCache.clear(manifest.id, count)
       return restoredFile
     },
     async deleteFromCloud(manifestId: string): Promise<void> {

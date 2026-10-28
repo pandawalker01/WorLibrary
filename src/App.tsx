@@ -894,8 +894,8 @@ function App() {
     if (!current || current.user.isAnonymous || !manifest || recoveringEditionId) return
     setRecoveringEditionId(shadow.editionId)
     try {
-      // `restore` verifies every received byte before this function asks the
-      // existing atomic importer to write OPFS/IndexedDB records.
+      // `restore` verifies the completed file against the owned manifest hash
+      // before this function asks the atomic importer to write local records.
       const file = await (await createCloudFileClient(current)).restore(manifest)
       const restored = await reimportRemoteBookMetadataShadow({ file, shadow: safeShadowReimport(shadow) })
       setBooks((items) => [...items, restored])
