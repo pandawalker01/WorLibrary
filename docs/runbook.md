@@ -76,7 +76,29 @@
 - **步骤与结果：**更新本地测试凭据后，账户 A、B password-token 请求均返回 HTTP 200；浏览器 Profile 的 `register_sync_device` 和 `pull_metadata_sync_changes` 均返回 HTTP 200。导入本地自有 EPUB fixture 后，edition metadata upsert 返回 HTTP 400、SQLSTATE `20000`、`case not found`（request ID `01a17e3c-e328-797d-91a5-76ef80fa61a9`）。PostgreSQL 递归 payload 检查函数未处理 JSON 标量；事务拒绝 mutation，未创建 edition/highlight/progress/setting 同步记录。
 - **代码修复：**新增 `0016_metadata_sync_scalar_payload_guard.sql`，为递归检查增加标量 leaf 分支；`tests/controlled-metadata-sync-migration.spec.ts` 新增回归断言，本地两项迁移契约测试通过。该 migration 尚未应用到 staging，故没有进行修复后的真实重测。
 - **数据边界与证据：**失败 RPC 只包含受限 edition metadata 字段名（书名、作者、语言、进度、文件名/类型/大小、封面色）；未发送 EPUB/PDF 或封面二进制、对象键、URL 或正文。除设备注册外没有同步写入；未截取截图。脱敏 RPC/测试记录见 `docs/evidence/staging-sync-2026-10-28.json`，其中包含 request ID、响应状态和 hash 化操作/实体标识，不含邮箱、令牌、密钥或 payload 值。
-- **下一步：**通过 Supabase staging 的受控 migration 流程应用 `0016`，再重跑清单 1–8 步；不要把密码或令牌粘贴到 PR、日志或截图中。
+- **下一步：**等待主 Agent 审核 migration `0016` 后，才可在 Supabase staging 执行 `db push`；Production 不得操作。应用后再重跑清单 1–8 步；不要把密码或令牌粘贴到 PR、日志或截图中。
+
+#### staging migration 安全应用步骤
+
+1. 主 Agent 审核 `supabase/migrations/0016_metadata_sync_scalar_payload_guard.sql` 并明确批准后再继续；批准前不得执行任何远端 DDL。
+2. 在 Supabase Dashboard 核对当前项目明确为专用 staging，并从 Dashboard 取得 staging project ref。确认终端位于包含已审核 `0016` 的 PR 分支；不要依赖不明来源的本地 link 状态。
+3. 将 CLI 连接到已核对的 staging project ref（下方尖括号内容需替换为 staging ref），然后检查远端与本地 migration 清单：
+
+   ```sh
+   supabase link --project-ref <STAGING_PROJECT_REF>
+   supabase migration list --linked
+   ```
+
+   只有在远端最新为 `0015`、本地待应用项仅为已审核的 `0016`，且 Dashboard 与 CLI 项目 ref 一致时才继续；如发现其他待应用 migration 或目标不一致，停止并交由主 Agent确认。不要把数据库密码作为命令行参数；按组织批准的 Supabase CLI 登录/凭据流程操作。
+4. 确认 CLI 当前仍链接到 staging 后，执行并核对 migration：
+
+   ```sh
+   supabase db push --linked
+   supabase migration list --linked
+   ```
+
+   仅当第二次清单显示 `0016` 已应用，才记录为 staging migration 已部署。不要对 Production 执行 `db push`。
+5. 保存脱敏的 migration 版本、应用时间和命令结果摘要，不保留项目 URL、数据库密码、access token、测试账号凭据或 `.env` 内容。随后按双 Profile 清单逐项复测；所有场景完成前真实同步验收仍为 **BLOCKED**。
 
 - [ ] 若本次首次发布平台自有/获授权内容，已执行 `0006_platform_content_operations.sql` 与 `0007_platform_delivery_resolution_and_staff_roles.sql`，并由受控后台（不是浏览器）完成许可、来源、SHA-256、私有 R2 对象、地区策略和发布审计的完整接入清单；详见 `docs/deployment.md` 的“首个合规内容来源接入清单”。
 - [ ] 若本次启用社区审核、客服支持或平台管理能力，已执行 `0010_server_owned_account_roles.sql`。普通用户没有提升角色记录；`community_moderator`、`support_agent` 与 `platform_admin` 只能由受控 service-role 调用 `set_server_account_role` 授予或撤销，并必须填写内部操作者/工单引用。不得通过 `profiles`、`user_settings`、前端状态或 JWT claims 配置角色。
