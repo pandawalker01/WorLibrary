@@ -6,7 +6,7 @@
 
 本轮不部署用户文件备份 bucket、恢复码或配额服务，不开放 Google/Apple 登录或匿名迁移，也不启用平台正文的运营发布、授权交付或下载。平台内容的 R2 binding、resolver、许可和运营流程仅在后续合规内容阶段启用，不能作为当前内测测试数据的替代品。
 
-个人云书库的 `0014` 迁移目前只是数据库安全底座，尚未开放真实文件备份。上线前必须额外配置独立私有用户文件桶、JWT 校验的 Worker 网关、分块完整性校验、配额事务和删除回收；禁止使用公开 bucket、静态对象 URL 或浏览器长期凭据。
+个人云书库的前向 migration 顺序为 `0014` → `0015` → `0016_metadata_sync_scalar_payload_guard.sql` → `0017_private_user_file_storage_and_quota_fix.sql`。`private-r2-v1` 表示私有对象存储，不是应用层加密或端到端加密。真实 Supabase/R2 上传、恢复、RLS 和对象访问均为 **NOT VERIFIED**；本 PR 不执行 db push、staging 或 production 操作。
 
 ## 离线应用壳
 

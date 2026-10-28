@@ -143,6 +143,8 @@ Sentry 仅接收错误类型、路由、版本和 request id；过滤选区文�
 
 ## 个人云书库 P0 部署与回滚
 
+本 PR 的前向 migration 顺序为 `0014` → `0015` → `0016_metadata_sync_scalar_payload_guard.sql` → `0017_private_user_file_storage_and_quota_fix.sql`。`private-r2-v1` 表示私有对象存储，不是应用层加密或端到端加密。真实 Supabase/R2 上传、恢复、双账户 RLS 和对象访问为 **NOT VERIFIED**；不要执行 db push。
+
 先按序执行 `0014_private_user_file_library.sql` 和 `0015_private_user_file_gateway.sql`，创建非公开 R2 bucket `worlibrary-user-backups` 并绑定为 `USER_BACKUPS`。将 `SUPABASE_SERVICE_ROLE_KEY` 只作为 Worker Secret 配置，同时配置 `SUPABASE_URL`、`SUPABASE_ANON_KEY`；不得写入 `.env`、前端变量、日志或 CI 输出。staging 必须用两个真实账户验证隔离、中断续传、私有 bucket 和删除 tombstone。
 
 回滚只回滚 Worker 路由/版本，保留 migration、manifest 与 tombstone，避免旧设备复活已删文件。不要删除表、桶或 tombstone；先完成所有 `uploading`/`deleting` 回收后，才能计划向前修复 migration。

@@ -23,14 +23,31 @@ test('private file gateway migration uses service-only transactions, quota reser
   expect(migration).not.toContain('grant execute on function public.begin_user_file_upload(uuid, uuid, text, text, bigint, integer, integer, uuid, text) to authenticated')
 })
 
-test('finishing deletion releases only the quota bucket originally charged and is idempotent', async () => {
-  const migration = await readFile('supabase/migrations/0015_private_user_file_gateway.sql', 'utf8')
+test('forward migration labels P0 as private storage rather than application-layer encryption', async () => {
+  const migration = await readFile('supabase/migrations/0017_private_user_file_storage_and_quota_fix.sql', 'utf8')
+  expect(migration).toContain('rename column encryption_version to storage_mode')
+  expect(migration).toContain("alter column storage_mode set default 'private-r2-v1'")
+  expect(migration).toContain('does not claim application-layer encryption')
+})
+
+test('forward deletion migration releases used quota only for an active-file charge', async () => {
+  const migration = await readFile('supabase/migrations/0017_private_user_file_storage_and_quota_fix.sql', 'utf8')
   const finish = migration.slice(migration.indexOf('create or replace function public.finish_user_file_delete'), migration.indexOf('create or replace function public.reap_expired_user_file_uploads'))
-  expect(finish).toContain("if v_manifest.upload_state = 'deleted' then return; end if;")
-  expect(finish).toContain('if v_manifest.reserved_bytes > 0 then')
-  expect(finish).toContain('reserved_bytes = greatest(0, reserved_bytes - v_manifest.reserved_bytes)')
+  expect(finish).toContain("if not found or v_manifest.upload_state = 'deleted' then return; end if;")
+  expect(finish).toContain("if v_manifest.upload_state = 'active' then\n    v_quota_bucket := 'used';")
+  expect(finish).toContain("elsif v_manifest.upload_state in ('uploading', 'verifying') then\n    v_quota_bucket := 'reserved';")
+  expect(finish).toContain("elsif v_manifest.upload_state = 'deleting' then\n    v_quota_bucket := v_manifest.delete_quota_bucket;")
   expect(finish).toContain('used_bytes = greatest(0, used_bytes - v_manifest.plaintext_size)')
-  expect(finish).not.toContain('used_bytes = greatest(0, used_bytes - (select plaintext_size')
+  expect(finish).toContain('reserved_bytes = greatest(0, reserved_bytes - v_manifest.reserved_bytes)')
+})
+
+test('forward deletion migration snapshots active charges and keeps repeated complete/delete requests idempotent', async () => {
+  const migration = await readFile('supabase/migrations/0017_private_user_file_storage_and_quota_fix.sql', 'utf8')
+  const requestDelete = migration.slice(migration.indexOf('create or replace function public.request_user_file_delete'), migration.indexOf('create or replace function public.finish_user_file_delete'))
+  const complete = migration.slice(migration.indexOf('create or replace function public.complete_user_file_upload'), migration.indexOf('create or replace function public.request_user_file_delete'))
+  expect(requestDelete).toContain("if v_manifest.upload_state not in ('deleted', 'deleting') then")
+  expect(requestDelete).toContain("case when v_manifest.upload_state = 'active' then 'used' else 'reserved' end")
+  expect(complete).toContain("if v_manifest.upload_state = 'active' then return true; end if;")
 })
 
 test('user file validation accepts only bounded EPUB/PDF files and deterministic chunk ranges', () => {
