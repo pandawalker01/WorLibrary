@@ -1,7 +1,7 @@
 import { expect, test } from '@playwright/test'
 import { readFile } from 'node:fs/promises'
 import { READER_LAYOUT_SETTING_KEY, READING_LANGUAGE_SETTING_KEY } from '../src/lib/metadata-sync-preference-intent'
-import { loadAccountReaderPreferences, persistAccountReaderPreference } from '../src/lib/account-reader-preferences'
+import { clearAccountReaderPreference, loadAccountReaderPreferences, persistAccountReaderPreference } from '../src/lib/account-reader-preferences'
 import { projectRemoteReaderPreferenceChange } from '../src/lib/metadata-sync-preference-shadow'
 
 const ids = { user: 'stable-user', device: '9c025db3-12bc-4c7b-8be7-b6d0bd658fba', operation: '31e5ed3a-7258-4f7f-a53d-5d43a02f4aec' }
@@ -83,6 +83,41 @@ test('cached reader preferences are validated and isolated by stable account', (
     })
     expect(loadAccountReaderPreferences('account-b')).toEqual({ language: '日本語' })
     expect(loadAccountReaderPreferences('')).toEqual({})
+  } finally {
+    if (previousWindow) Object.defineProperty(globalThis, 'window', previousWindow)
+    else Reflect.deleteProperty(globalThis, 'window')
+  }
+})
+
+test('stale preference upserts and clears succeed without replacing a newer cached value', () => {
+  const values = new Map<string, string>()
+  const previousWindow = Object.getOwnPropertyDescriptor(globalThis, 'window')
+  Object.defineProperty(globalThis, 'window', {
+    configurable: true,
+    value: {
+      localStorage: {
+        getItem: (key: string) => values.get(key) ?? null,
+        setItem: (key: string, value: string) => { values.set(key, value) },
+        removeItem: (key: string) => { values.delete(key) },
+      },
+    },
+  })
+
+  try {
+    const currentPreference = { key: READER_LAYOUT_SETTING_KEY, value: { theme: 'night' as const, fontScale: 1.2, pdfZoom: 1.5 } }
+    expect(persistAccountReaderPreference({
+      userId: ids.user, preference: currentPreference, revision: 4, sequence: 10,
+    })).toBe(true)
+    expect(persistAccountReaderPreference({
+      userId: ids.user,
+      preference: { key: READER_LAYOUT_SETTING_KEY, value: { theme: 'paper', fontScale: 1, pdfZoom: 1 } },
+      revision: 3,
+      sequence: 9,
+    })).toBe(true)
+    expect(clearAccountReaderPreference({ userId: ids.user, key: READER_LAYOUT_SETTING_KEY, sequence: 8 })).toBe(true)
+    expect(loadAccountReaderPreferences(ids.user)).toEqual({
+      layout: { theme: 'night', fontScale: 1.2, pdfZoom: 1.5 },
+    })
   } finally {
     if (previousWindow) Object.defineProperty(globalThis, 'window', previousWindow)
     else Reflect.deleteProperty(globalThis, 'window')

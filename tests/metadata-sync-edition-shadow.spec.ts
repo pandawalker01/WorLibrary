@@ -63,6 +63,19 @@ test('edition upsert projects only safe local-import metadata into a re-import s
   if (result.outcome === 'projected') expect(result.shadow.needsReimport).toBe(true)
 })
 
+test('edition shadow normalizes an empty optional location before durable storage', async () => {
+  const fixture = shadows()
+  const result = await projectRemoteEditionChangeToShadow({
+    userId,
+    change: editionChange({ payload: { ...editionChange().payload, location: '' } }),
+    shadows: fixture.store,
+  })
+
+  expect(result.outcome).toBe('projected')
+  expect(fixture.upserts).toHaveLength(1)
+  expect(fixture.upserts[0].location).toBeUndefined()
+})
+
 test('edition delete deletes its account-scoped shadow without treating it as a book', async () => {
   const fixture = shadows()
   const result = await projectRemoteEditionChangeToShadow({

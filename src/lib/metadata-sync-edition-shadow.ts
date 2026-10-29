@@ -38,6 +38,7 @@ function safeString(value: unknown, label: string, maximum: number, optional = f
   if (value === undefined && optional) return undefined
   if (typeof value !== 'string') throw new Error(`${label} must be a string`)
   const normalized = value.trim()
+  if (optional && !normalized) return undefined
   if ((!optional && !normalized) || normalized.length > maximum) throw new Error(`invalid ${label}`)
   if (/^(?:https?:|data:|blob:)/i.test(normalized)) throw new Error(`${label} cannot be a URL or data URL`)
   return normalized

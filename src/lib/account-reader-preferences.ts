@@ -82,7 +82,7 @@ export function persistAccountReaderPreference(input: { userId: string; preferen
   try {
     const stored = readStoredPreferences(input.userId)
     const previous = stored[input.preference.key]
-    if (previous && previous.sequence > input.sequence) return false
+    if (previous && previous.sequence > input.sequence) return true
     stored[input.preference.key] = { preference: input.preference, revision: input.revision, sequence: input.sequence }
     window.localStorage.setItem(storageKey(input.userId), JSON.stringify(stored))
     return true
@@ -97,7 +97,7 @@ export function clearAccountReaderPreference(input: { userId: string; key: typeo
   try {
     const stored = readStoredPreferences(input.userId)
     const previous = stored[input.key]
-    if (previous && previous.sequence > input.sequence) return false
+    if (previous && previous.sequence > input.sequence) return true
     delete stored[input.key]
     if (Object.keys(stored).length === 0) window.localStorage.removeItem(storageKey(input.userId))
     else window.localStorage.setItem(storageKey(input.userId), JSON.stringify(stored))
