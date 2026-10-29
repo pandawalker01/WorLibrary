@@ -128,6 +128,7 @@
 
 - 域名、DNS、TLS、CORS、CSP、安全响应头。
 - GitHub Actions：检查、测试、预览部署、生产发布。
+- [ ] 建立受保护的 `staging` 集成分支与 `staging → main` 晋级流程；仅 `staging` 可部署 staging，只有 `main` 可部署 Production，并为 Production 设置人工批准。
 - 数据库 migration 版本化，禁止直接修改生产表。
 - 发布前后冒烟测试、代码回滚、数据库前向修复。
 - 监控、告警、备份、恢复演练和密钥轮换。
