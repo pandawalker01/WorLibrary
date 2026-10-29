@@ -39,6 +39,10 @@ WorLibrary 是本地优先的多语言阅读器：用户导入自己拥有的 EP
 
 本轮不交付：原书加密云备份、恢复码与配额；Google/Apple 登录和匿名迁移；平台自有/授权正文的运营发布、下载与权益交付；原生客户端、订阅支付、复杂冲突界面和完整全球界面语言包。中英文是当前可切换界面语言；AI 理解语言仍支持全球可搜索选择。该范围是路线图中的优先级约束，不代表延后能力被删除。
 
+## 分支与环境门禁
+
+所有新功能默认从独立 `codex/` worktree 提交 PR 到 `staging`，在独立 staging Supabase/Cloudflare 环境完成真实验收后，才通过 `staging → main` PR 晋级。`main` 仅表示可发布版本；`staging` Git 分支与 staging Supabase 项目分别控制代码集成和运行数据隔离。完整规则、迁移门禁与管理员设置清单见 [release-governance.md](release-governance.md)。
+
 ## 2. 分层总览
 
 用户浏览器

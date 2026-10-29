@@ -22,8 +22,10 @@
 | 环境 | 用途 | 来源 | 必需检查 |
 | --- | --- | --- | --- |
 | local | 开发与离线阅读验证 | 本地 Vite | `npm run typecheck`、`npm run build` |
-| staging | 每个 PR 的预览环境 | Cloudflare Workers Preview | 冒烟测试、关键流程手测 |
+| staging | `staging` 分支集成验收环境 | 独立 Cloudflare staging + Supabase staging | migration、冒烟测试、关键流程与两账户手测 |
 | production | 对外服务 | `main` 合并后人工批准的 Cloudflare Workers Production | 发布清单、回滚路径、监控 |
+
+分支与环境必须一一绑定：仅 `staging` 可部署 staging，只有 `main` 可部署 Production；`codex/*` 不得部署共享环境。详见 [release-governance.md](release-governance.md)。
 
 ## Cloudflare Workers 部署基线
 

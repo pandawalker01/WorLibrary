@@ -8,7 +8,7 @@
 
 ## 主分支治理与合并职责
 
-`main` 是唯一的集成与发布基线。主 Agent 负责审核 PR、解决跨分支冲突、合并通过验收的改动，以及创建正式版本 Release；执行 Agent 只在功能分支或 worktree 中工作，不能直接向 `main` 推送。
+`staging` 是唯一的共享集成基线，`main` 是仅包含已通过真实 staging 验收的发布基线。主 Agent 负责审核 PR、解决跨分支冲突、决定 `staging → main` 晋级，以及创建正式版本 Release；执行 Agent 只在功能分支或 worktree 中工作，不能直接向 `staging` 或 `main` 推送。完整分支、环境与 migration 门禁见 [release-governance.md](release-governance.md)。
 
 每个 PR 至少应提供变更范围、用户影响、数据/迁移影响、验收步骤、已运行的测试和遗留风险。主 Agent 在合并前必须检查：
 
@@ -16,7 +16,7 @@
 - 必要文档、自动化测试与验收矩阵同步更新；
 - `npm run typecheck`、`npm run build` 和相关 Playwright/质量测试通过；
 - 涉及 Supabase migration、RLS、对象存储或 Worker 的改动已进行专项安全审查；
-- 目标分支仍基于最新 `main`，并已处理冲突。
+- 目标分支仍基于最新 `staging`（晋级 PR 则为最新 `main`），并已处理冲突。
 
 当前仓库为 GitHub Free 私有仓库。GitHub 不允许在此组合下通过 Branch Protection API 为 `main` 启用强制保护（需要升级 GitHub Pro，或将仓库公开）。在获得平台级保护前，项目执行“软保护”：仅主 Agent 审核并合并 PR，任何直接推送必须是经用户明确授权的紧急修复，并在 PR/提交说明中记录原因。升级后应立即在 GitHub 为 `main` 启用“必须通过 PR、至少一名审核者、CI 必须通过、审批在新提交后失效、限制直接推送（包括管理员）”。
 
@@ -34,11 +34,11 @@
 
 ### 每轮固定流程
 
-1. 主 Agent 先读取 `main` 的现状、QA 结果和用户反馈，再向 A–D 下发互不冲突的任务。
-2. A–D 只能在各自分支或 worktree 提交；不得直接更新 `main`。
+1. 主 Agent 先读取 `staging` 的现状、QA 结果和用户反馈，再向 A–D 下发互不冲突的任务。
+2. A–D 只能在各自分支或 worktree 提交；不得直接更新 `staging` 或 `main`。
 3. 每个 Agent 交付提交号、变更文件、已跑测试、遗留风险和建议的下一步。
 4. 主 Agent 审查公共接口与迁移，依次集成，运行类型检查、生产构建和全量 Playwright/QA。
-5. 仅主 Agent 在验收通过后推送 `main`，并向用户汇报功能进度、已知限制和需要的外部配置。
+5. 仅主 Agent 在 CI 与代码审核通过后合并至 `staging`；真实 staging 验收通过后才合并 `staging → main`，并向用户汇报功能进度、已知限制和需要的外部配置。
 
 ### 调度原则
 
@@ -58,7 +58,7 @@ codex/ai-gateway
 codex/deploy-quality
 ```
 
-每个 Agent 必须从最新 `main` 创建自己的分支或独立 worktree。禁止直接向 `main` 推送。完成后提交 PR 或交付 commit，由主 Agent 集成。
+每个 Agent 必须从最新 `staging` 创建自己的分支或独立 worktree。禁止直接向 `staging` 或 `main` 推送。完成后提交目标为 `staging` 的 PR，由主 Agent 集成。
 
 ## Agent A：阅读器与多译本
 
