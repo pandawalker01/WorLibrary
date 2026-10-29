@@ -143,6 +143,8 @@ Sentry 仅接收错误类型、路由、版本和 request id；过滤选区文�
 
 ## 个人云书库 P0 部署与回滚
 
+本 PR 的前向 migration 顺序为 `0014` → `0015` → `0016_metadata_sync_scalar_payload_guard.sql` → `0017_private_user_file_storage_and_quota_fix.sql`。`private-r2-v1` 表示私有对象存储，不是应用层加密或端到端加密。真实 Supabase/R2 上传、恢复、双账户 RLS 和对象访问为 **NOT VERIFIED**；不要执行 db push。
+
 先按序执行 `0014_private_user_file_library.sql` 和 `0015_private_user_file_gateway.sql`，创建非公开 R2 bucket `worlibrary-user-backups` 并绑定为 `USER_BACKUPS`。将 `SUPABASE_SERVICE_ROLE_KEY` 只作为 Worker Secret 配置，同时配置 `SUPABASE_URL`、`SUPABASE_ANON_KEY`；不得写入 `.env`、前端变量、日志或 CI 输出。staging 必须用两个真实账户验证隔离、中断续传、私有 bucket 和删除 tombstone。
 
 回滚只回滚 Worker 路由/版本，保留 migration、manifest 与 tombstone，避免旧设备复活已删文件。不要删除表、桶或 tombstone；先完成所有 `uploading`/`deleting` 回收后，才能计划向前修复 migration。
@@ -152,3 +154,11 @@ Sentry 仅接收错误类型、路由、版本和 request id；过滤选区文�
 ### 真实验收记录（2026-10-27）
 
 本工作区只配置了浏览器安全的 Supabase URL/anon key，没有 Worker service-role key、私有 R2 binding 或两个经验证的稳定邮箱测试账户；因此真实项目验收**未执行**，没有把本地/合约结果表述为通过。上线前必须按上节以 A/B 稳定账户和匿名会话执行：上传、跨账户 manifest/分块/字节拒绝、删除后读取拒绝、响应无对象键/桶名/长期 URL、设备 B 按块恢复并在 OPFS/IndexedDB 打开。记录 request id、环境、账户匿名化标识和结论；不得记录书籍正文、密钥或对象键。
+
+### 新设备恢复与删除验收步骤（待执行）
+
+1. 设备 A 用稳定邮箱账户上传最小测试 EPUB/PDF，记录脱敏 manifest ID；匿名会话的 initiate 必须返回拒绝。
+2. 设备 B 用同一账户登录，确认书架仅把对应 metadata shadow 标为“云端可恢复”，而不是“本地可读”或“同步完成”。点击恢复后在 Network 中只出现授权的 `/api/user-files/<id>/chunks/<n>`，不出现 R2 bucket、对象键或长期 URL；完成后关闭/重开阅读器验证本地 OPFS/IndexedDB 可读。
+3. 恢复中断网络，在已收取至少一个分块后重试；确认仅缺失分块再次请求，恢复失败前书架不出现本地书籍。
+4. 设备 B 使用另一稳定账户，确认 manifest 列表为空，读取 A 的 manifest、分块与字节均被拒绝。删除云端副本后同一账户读取也必须被拒绝；复查 used/reserved quota 和 tombstone。
+5. 分别执行“仅从此设备移除”与“从云端删除”：前者保留设备 A/B 的恢复入口，后者保留当前设备本地文件但撤销后续恢复。Worker 完成删除和数据库复核前，UI 只能显示请求已提交。
