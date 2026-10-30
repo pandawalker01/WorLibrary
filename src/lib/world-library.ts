@@ -70,6 +70,7 @@ export type WorldCatalogSource = {
 }
 
 const SAVED_WORLD_BOOKS_KEY = 'worlibrary.saved-world-books'
+const MAX_WORLD_IDENTIFIER_LENGTH = 160
 // A browser request can remain pending during DNS, captive-portal or upstream
 // outages. Catalog search must return control to the reader instead of leaving
 // the UI in an indefinite loading state.
@@ -112,8 +113,8 @@ function normalizeOpenLibraryBook(doc: OpenLibraryDoc): WorldBook | undefined {
   if (!doc.key || !doc.title) return undefined
   const sourceRecordId = doc.key.replace(/^\/works\//, '')
   const sourceUrl = `https://openlibrary.org${doc.key}`
-  return {
-    id: `open-library:${sourceRecordId}`, sourceId: 'open-library', sourceRecordId, title: doc.title,
+  return parseWorldBook({
+    sourceId: 'open-library', sourceRecordId, title: doc.title,
     sourceWorkId: sourceRecordId,
     author: doc.author_name?.[0] ?? '', year: doc.first_publish_year, languages: [...new Set(doc.language ?? [])],
     editionCount: doc.edition_count, coverUrl: doc.cover_i ? `https://covers.openlibrary.org/b/id/${doc.cover_i}-M.jpg` : undefined,
@@ -121,7 +122,7 @@ function normalizeOpenLibraryBook(doc: OpenLibraryDoc): WorldBook | undefined {
     // A catalog record, or a public-domain query term, never grants WorLibrary
     // a right to deliver this work's full text.
     access: { mode: 'catalog_only', url: sourceUrl },
-  }
+  })
 }
 
 const openLibrarySource: WorldCatalogSource = {
@@ -152,12 +153,12 @@ function normalizeGoogleBook(doc: GoogleBooksDoc): WorldBook | undefined {
   const sourceUrl = doc.volumeInfo?.infoLink ?? `https://books.google.com/books?id=${encodeURIComponent(sourceRecordId)}`
   const published = doc.volumeInfo?.publishedDate
   const year = published && /^\d{4}/.test(published) ? Number(published.slice(0, 4)) : undefined
-  return {
-    id: `google-books:${sourceRecordId}`, sourceId: 'google-books', sourceRecordId, title,
+  return parseWorldBook({
+    sourceId: 'google-books', sourceRecordId, title,
     author: doc.volumeInfo?.authors?.[0] ?? '', year, languages: doc.volumeInfo?.language ? [doc.volumeInfo.language] : [],
     coverUrl: doc.volumeInfo?.imageLinks?.thumbnail?.replace(/^http:/, 'https:'), sourceUrl, sourceName: 'Google Books',
     access: googleBookAccess(doc, sourceUrl),
-  }
+  })
 }
 
 const googleBooksSource: WorldCatalogSource = {
@@ -183,8 +184,87 @@ const googleBooksSource: WorldCatalogSource = {
 // Both sources are catalog metadata only; opening a result always leaves the app.
 export const WORLD_CATALOG_SOURCES: readonly WorldCatalogSource[] = [openLibrarySource, googleBooksSource]
 
-function isCatalogApiResponse(payload: unknown): payload is { books: WorldBook[] } {
-  return Boolean(payload) && typeof payload === 'object' && Array.isArray((payload as { books?: unknown }).books)
+function normalizedText(value: unknown, maximum: number): string | undefined {
+  if (typeof value !== 'string' || /[\u0000-\u001f\u007f-\u009f]/.test(value)) return undefined
+  const normalized = value.trim().replace(/\s+/gu, ' ')
+  return normalized && normalized.length <= maximum ? normalized : undefined
+}
+
+function httpsUrl(value: unknown): string | undefined {
+  const raw = normalizedText(value, 2_048)
+  if (!raw || raw !== value) return undefined
+  try {
+    const url = new URL(raw)
+    return url.protocol === 'https:' && url.hostname && !url.username && !url.password ? url.toString() : undefined
+  } catch { /* invalid URL */ }
+}
+
+function parsedLanguages(value: unknown): string[] {
+  if (!Array.isArray(value)) return []
+  return [...new Set(value.map((language) => normalizedText(language, 16)).filter((language): language is string => Boolean(language && /^[A-Za-z0-9-]+$/.test(language))).map((language) => language.toLowerCase()))].slice(0, 32)
+}
+
+function optionalInteger(value: unknown, minimum: number, maximum: number): number | undefined {
+  return typeof value === 'number' && Number.isInteger(value) && value >= minimum && value <= maximum ? value : undefined
+}
+
+/**
+ * Converts an untrusted catalog/localStorage record into the only WorldBook
+ * shape allowed to reach UI state or persistent bookmarks. This deliberately
+ * fails closed: absent or invalid access data becomes a catalog-only link to
+ * the already-validated source record, never an inferred reading entitlement.
+ */
+export function parseWorldBook(value: unknown, options: { allowLegacyIdentity?: boolean } = {}): WorldBook | undefined {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined
+  const raw = value as Record<string, unknown>
+  const legacyId = normalizedText(raw.id, MAX_WORLD_IDENTIFIER_LENGTH)
+  const sourceId = normalizedText(raw.sourceId, MAX_WORLD_IDENTIFIER_LENGTH) ?? (options.allowLegacyIdentity ? 'open-library' : undefined)
+  const sourceRecordId = normalizedText(raw.sourceRecordId, MAX_WORLD_IDENTIFIER_LENGTH) ?? (options.allowLegacyIdentity ? legacyId : undefined)
+  const title = normalizedText(raw.title, 1_024)
+  const sourceUrl = httpsUrl(raw.sourceUrl)
+  if (!sourceId || !sourceRecordId || !title || !sourceUrl) return undefined
+
+  const accessCandidate = raw.access && typeof raw.access === 'object' ? raw.access as Record<string, unknown> : undefined
+  const accessMode = accessCandidate?.mode
+  const accessUrl = httpsUrl(accessCandidate?.url)
+  const validAccess = /^(catalog_only|public_domain|licensed_full_text|preview|borrow|purchase|external)$/.test(accessMode as string) && accessUrl
+  const mode: WorldBookAccessMode = validAccess ? accessMode as WorldBookAccessMode : 'catalog_only'
+  const access: WorldBookAccess = {
+    mode,
+    url: validAccess ? accessUrl : sourceUrl,
+  }
+  const sourceWorkId = normalizedText(raw.sourceWorkId, MAX_WORLD_IDENTIFIER_LENGTH)
+  const originalTitle = normalizedText(raw.originalTitle, 1_024)
+  const originalLanguage = normalizedText(raw.originalLanguage, 16)
+  const platformEditionId = sourceId === 'platform' ? normalizedText(raw.platformEditionId, MAX_WORLD_IDENTIFIER_LENGTH) : undefined
+  const year = optionalInteger(raw.year, 0, 9_999)
+  const editionCount = optionalInteger(raw.editionCount, 0, 1_000_000)
+  const coverUrl = httpsUrl(raw.coverUrl)
+  return {
+    // Do not preserve a server-supplied opaque id: the stable identity is only
+    // the validated source namespace and source record identifier.
+    id: `${sourceId}:${sourceRecordId}`,
+    sourceId, sourceRecordId, title,
+    author: normalizedText(raw.author, MAX_WORLD_IDENTIFIER_LENGTH) ?? '',
+    languages: parsedLanguages(raw.languages),
+    sourceUrl, sourceName: normalizedText(raw.sourceName, MAX_WORLD_IDENTIFIER_LENGTH) ?? sourceId,
+    access,
+    ...(sourceWorkId ? { sourceWorkId } : {}),
+    ...(year !== undefined ? { year } : {}),
+    ...(editionCount !== undefined ? { editionCount } : {}),
+    ...(coverUrl ? { coverUrl } : {}),
+    // Original/work fields are accepted only when explicitly provided; the
+    // parser never derives literary relationships, licences, or reading rights.
+    ...(originalTitle ? { originalTitle } : {}),
+    ...(originalLanguage ? { originalLanguage } : {}),
+    ...(raw.isOriginal === true ? { isOriginal: true } : {}),
+    ...(platformEditionId ? { platformEditionId } : {}),
+  }
+}
+
+export function parseWorldCatalogResponse(payload: unknown): WorldBook[] | undefined {
+  if (!payload || typeof payload !== 'object' || !Array.isArray((payload as { books?: unknown }).books)) return undefined
+  return (payload as { books: unknown[] }).books.map((book) => parseWorldBook(book)).filter((book): book is WorldBook => Boolean(book))
 }
 
 async function searchCatalogApi(query: string, options: WorldLibrarySearchOptions, signal?: AbortSignal): Promise<WorldBook[] | undefined> {
@@ -196,7 +276,7 @@ async function searchCatalogApi(query: string, options: WorldLibrarySearchOption
     const response = await fetch(`${WORLD_CATALOG_API_PATH}?${params}`, { signal: request.signal, headers: { Accept: 'application/json' } })
     if (!response.ok) return undefined
     const payload: unknown = await response.json()
-    return isCatalogApiResponse(payload) ? payload.books : undefined
+    return parseWorldCatalogResponse(payload)
   } catch {
     // Local Vite development and legacy deployments may not expose the Worker
     // route yet. Fall back to reviewed direct catalog adapters in that case.
@@ -314,36 +394,18 @@ export function groupWorldBooksByWork(books: readonly WorldBook[], options: Work
   })
 }
 
-function normalizeSavedWorldBook(book: Partial<WorldBook>): WorldBook | undefined {
-  if (typeof book?.id !== 'string' || typeof book?.title !== 'string' || typeof book?.sourceUrl !== 'string') return undefined
-  const sourceId = typeof book.sourceId === 'string' ? book.sourceId : 'open-library'
-  const sourceRecordId = typeof book.sourceRecordId === 'string' ? book.sourceRecordId : book.id
-  const sourceUrl = book.sourceUrl
-  return {
-    id: book.id || `${sourceId}:${sourceRecordId}`, sourceId, sourceRecordId, title: book.title,
-    sourceWorkId: typeof book.sourceWorkId === 'string' && book.sourceWorkId.trim() ? book.sourceWorkId.trim() : undefined,
-    author: typeof book.author === 'string' ? book.author : '', year: typeof book.year === 'number' ? book.year : undefined,
-    languages: Array.isArray(book.languages) ? book.languages.filter((language): language is string => typeof language === 'string') : [],
-    editionCount: typeof book.editionCount === 'number' ? book.editionCount : undefined, coverUrl: typeof book.coverUrl === 'string' ? book.coverUrl : undefined,
-    sourceUrl, sourceName: typeof book.sourceName === 'string' ? book.sourceName : 'Open Library',
-    access: book.access?.mode && typeof book.access.url === 'string' ? book.access : { mode: 'catalog_only', url: sourceUrl },
-    originalTitle: typeof book.originalTitle === 'string' && book.originalTitle.trim() ? book.originalTitle.trim() : undefined,
-    originalLanguage: typeof book.originalLanguage === 'string' && book.originalLanguage.trim() ? book.originalLanguage.trim() : undefined,
-    isOriginal: book.isOriginal === true,
-    platformEditionId: typeof book.platformEditionId === 'string' && book.platformEditionId.trim() ? book.platformEditionId.trim() : undefined,
-  }
-}
-
 export function loadSavedWorldBooks(): WorldBook[] {
   try {
     const value = JSON.parse(window.localStorage.getItem(SAVED_WORLD_BOOKS_KEY) ?? '[]')
-    return Array.isArray(value) ? value.map(normalizeSavedWorldBook).filter((book): book is WorldBook => Boolean(book)) : []
+    return Array.isArray(value) ? value.map((book) => parseWorldBook(book, { allowLegacyIdentity: true })).filter((book): book is WorldBook => Boolean(book)) : []
   } catch { return [] }
 }
 
 export function saveWorldBook(book: WorldBook): WorldBook[] {
   const saved = loadSavedWorldBooks()
-  const next = saved.some((item) => worldBookIdentity(item) === worldBookIdentity(book)) ? saved : [book, ...saved]
+  const parsed = parseWorldBook(book)
+  if (!parsed) return saved
+  const next = saved.some((item) => worldBookIdentity(item) === worldBookIdentity(parsed)) ? saved : [parsed, ...saved]
   try { window.localStorage.setItem(SAVED_WORLD_BOOKS_KEY, JSON.stringify(next)) } catch { /* Saving a bookmark must not block browsing. */ }
   return next
 }
