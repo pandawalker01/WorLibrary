@@ -19,6 +19,7 @@
 - [ ] Playwright 冒烟覆盖书库搜索、阅读/对照、AI 解释入口和备份控件。
 - [ ] staging 可访问，HTTPS 和安全响应头齐全。
 - [ ] 用 `/api/catalog?q=world%20classics` 验证世界书库能返回来源标识；临时断开任一上游时确认不会永久加载，也不会缓存失败响应。手动 Cloudflare 部署会从 GitHub Runner 自动执行同一条真实目录探针；其失败代表 Worker 或上游链路问题，而不是发布者本地 DNS 问题。
+- [ ] 对目录响应做一次不可信输入回归：含 `javascript:`、`data:`、协议相对、凭据嵌入或控制字符的来源/访问/封面 URL 不得进入 UI 或 `worlibrary.saved-world-books`；非法/缺失 `access.mode` 必须只显示经校验来源 URL 的 `catalog_only`。保留一个安全 HTTPS 的旧收藏 fixture，确认兼容读取；不要把测试 URL、完整书目 payload 或任何正文写入发布记录。
 - [ ] 若启用 `PLATFORM_CATALOG_JSON`，逐条核对其 `editionId` 与 `PLATFORM_CONTENT_ACCESS_JSON` 有一一对应的已审核策略，并确认目录响应中没有对象键、文件 URL、签名 URL、正文或授权信息。没有匹配策略的条目必须不出现在世界书库；不要把上游网页的“免费”状态直接抄入平台目录。
 - [ ] 用 `GET /api/translation-status` 确认返回 `configured: true`、`Cache-Control: no-store` 和请求 ID；该探针不发送选区文本、不调用模型。若为 `false`，先在 Cloudflare Worker Secret 中补齐 `AI_API_KEY` 并重新部署，绝不将它改为 `VITE_AI_API_KEY`。
 - [ ] 仅在受控内测环境使用无版权短句，完成一次 EPUB/PDF 划词翻译与解释；确认成功和错误响应都不被缓存。公开启用前在 Cloudflare 配置全局 WAF/Rate Limiting，并完成认证与持久化额度账本验收；Worker 的本地边缘限流不足以承担公开付费 API 的成本防护。
