@@ -70,11 +70,7 @@ export type WorldCatalogSource = {
 }
 
 const SAVED_WORLD_BOOKS_KEY = 'worlibrary.saved-world-books'
-const WORLD_BOOK_ACCESS_MODES = 'catalog_only public_domain licensed_full_text preview borrow purchase external'.split(' ')
 const MAX_WORLD_IDENTIFIER_LENGTH = 160
-const MAX_WORLD_TITLE_LENGTH = 1_024
-const MAX_WORLD_LANGUAGE_LENGTH = 16
-const MAX_WORLD_LANGUAGES = 32
 // A browser request can remain pending during DNS, captive-portal or upstream
 // outages. Catalog search must return control to the reader instead of leaving
 // the UI in an indefinite loading state.
@@ -195,16 +191,17 @@ function normalizedText(value: unknown, maximum: number): string | undefined {
 }
 
 function httpsUrl(value: unknown): string | undefined {
-  if (typeof value !== 'string' || /[\u0000-\u001f\u007f-\u009f]/.test(value) || value.trim() !== value) return undefined
+  const raw = normalizedText(value, 2_048)
+  if (!raw || raw !== value) return undefined
   try {
-    const url = new URL(value)
-    return url.protocol === 'https:' && Boolean(url.hostname) && !url.username && !url.password ? url.toString() : undefined
-  } catch { return undefined }
+    const url = new URL(raw)
+    return url.protocol === 'https:' && url.hostname && !url.username && !url.password ? url.toString() : undefined
+  } catch { /* invalid URL */ }
 }
 
 function parsedLanguages(value: unknown): string[] {
   if (!Array.isArray(value)) return []
-  return [...new Set(value.map((language) => normalizedText(language, MAX_WORLD_LANGUAGE_LENGTH)).filter((language): language is string => Boolean(language && /^[A-Za-z0-9-]+$/.test(language))).map((language) => language.toLowerCase()))].slice(0, MAX_WORLD_LANGUAGES)
+  return [...new Set(value.map((language) => normalizedText(language, 16)).filter((language): language is string => Boolean(language && /^[A-Za-z0-9-]+$/.test(language))).map((language) => language.toLowerCase()))].slice(0, 32)
 }
 
 function optionalInteger(value: unknown, minimum: number, maximum: number): number | undefined {
@@ -223,22 +220,22 @@ export function parseWorldBook(value: unknown, options: { allowLegacyIdentity?: 
   const legacyId = normalizedText(raw.id, MAX_WORLD_IDENTIFIER_LENGTH)
   const sourceId = normalizedText(raw.sourceId, MAX_WORLD_IDENTIFIER_LENGTH) ?? (options.allowLegacyIdentity ? 'open-library' : undefined)
   const sourceRecordId = normalizedText(raw.sourceRecordId, MAX_WORLD_IDENTIFIER_LENGTH) ?? (options.allowLegacyIdentity ? legacyId : undefined)
-  const title = normalizedText(raw.title, MAX_WORLD_TITLE_LENGTH)
+  const title = normalizedText(raw.title, 1_024)
   const sourceUrl = httpsUrl(raw.sourceUrl)
   if (!sourceId || !sourceRecordId || !title || !sourceUrl) return undefined
 
-  const accessCandidate = raw.access && typeof raw.access === 'object' && !Array.isArray(raw.access) ? raw.access as Record<string, unknown> : undefined
+  const accessCandidate = raw.access && typeof raw.access === 'object' ? raw.access as Record<string, unknown> : undefined
   const accessMode = accessCandidate?.mode
   const accessUrl = httpsUrl(accessCandidate?.url)
-  const validAccess = typeof accessMode === 'string' && WORLD_BOOK_ACCESS_MODES.includes(accessMode) && accessUrl
+  const validAccess = /^(catalog_only|public_domain|licensed_full_text|preview|borrow|purchase|external)$/.test(accessMode as string) && accessUrl
   const mode: WorldBookAccessMode = validAccess ? accessMode as WorldBookAccessMode : 'catalog_only'
   const access: WorldBookAccess = {
     mode,
     url: validAccess ? accessUrl : sourceUrl,
   }
   const sourceWorkId = normalizedText(raw.sourceWorkId, MAX_WORLD_IDENTIFIER_LENGTH)
-  const originalTitle = normalizedText(raw.originalTitle, MAX_WORLD_TITLE_LENGTH)
-  const originalLanguage = normalizedText(raw.originalLanguage, MAX_WORLD_LANGUAGE_LENGTH)
+  const originalTitle = normalizedText(raw.originalTitle, 1_024)
+  const originalLanguage = normalizedText(raw.originalLanguage, 16)
   const platformEditionId = sourceId === 'platform' ? normalizedText(raw.platformEditionId, MAX_WORLD_IDENTIFIER_LENGTH) : undefined
   const year = optionalInteger(raw.year, 0, 9_999)
   const editionCount = optionalInteger(raw.editionCount, 0, 1_000_000)
