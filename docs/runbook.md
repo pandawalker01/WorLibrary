@@ -173,3 +173,11 @@ Sentry 仅接收错误类型、路由、版本和 request id；过滤选区文�
 ## Agent A 上传任务验证
 
 上传任务 journal 使用独立数据库 `worlibrary-private-upload-tasks`，不调整 metadata 数据库版本。上传请求前必须已持久化 operation ID；本地 journal 无法写入时，不开始远端上传。断网后保留本机文件与 journal，重试复用 operation；不要通过清除站点数据处理失败，否则无法保证续用原操作。产品入口仍待接线，不能宣称备份完成。真实 Supabase/R2 两账户/两 Profile 验收仍为 NOT VERIFIED。
+
+恢复失败排查：账户切换或登出会使仍在下载的旧任务失效，保留已校验临时分块供原账户重新登录重试；不能把取消提示视为原书丢失。云端删除的 deleting 表示对象/配额清理尚未确认，不能因 HTTP 202 就宣称已清理；deleted 才是网关确认，仍须真实环境验收。
+
+### Agent A 2026-11-11 验证记录
+
+Node 24.22.1 下 typecheck、生产 build、bundle budget 通过；完整 Playwright 199/199 通过（含上传任务4项与恢复/删除状态新增回归）。首次 Windows checkout 的4项静态文本断言因 CRLF 失败；仅将工作副本换行恢复为 Git blob 的 LF 后全量通过，没有修改历史 migration 的提交内容。首批 3baf96c GitHub CI quality 两次通过。
+
+本机 `npm run quality` 虽返回0，但 Windows 路径下脚本入口条件未触发，未生成 release-report.json，因此不能记为本地质量门通过；以 PR 的 Linux CI quality 报告为有效质量门，真实环境仍 NOT VERIFIED。该执行器问题已在 PR 交由主 Agent协调，不在个人文件 PR 中顺带修改发布门禁。

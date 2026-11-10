@@ -101,6 +101,35 @@ test('a same-size corrupted cached recovery chunk is cleared so retry downloads 
 test('a failed cloud hash check cannot invoke the local shelf importer', async () => {
   const source = await readFile(appPath, 'utf8')
   const recovery = source.slice(source.indexOf('async function restoreCloudShadow'), source.indexOf('function removeBookFromDevice'))
-  expect(recovery.indexOf('await (await createCloudFileClient(current)).restore(manifest)')).toBeLessThan(recovery.indexOf('await reimportRemoteBookMetadataShadow'))
+  expect(recovery.indexOf('.restore(manifest)')).toBeLessThan(recovery.indexOf('await reimportRemoteBookMetadataShadow'))
+  expect(recovery).toContain('shadow.userId !== current.user.id')
+  expect(recovery).toContain('() => sessionRef.current === current')
+  expect(recovery.indexOf('if (sessionRef.current !== current) return')).toBeLessThan(recovery.indexOf('await reimportRemoteBookMetadataShadow'))
   expect(recovery).toContain('catch (error)')
+})
+
+test('account invalidation while downloading stops before caching, progress or returning a file', async () => {
+  let current = true; let writes = 0; let progress = 0
+  const client = createUserFileClient({ accessToken: 'token', refreshToken: 'refresh', user: { id: 'a', isAnonymous: false } }, {
+    url: 'https://supabase.example', anonKey: 'public', gatewayUrl: 'https://app.example', isCurrent: () => current,
+    recoveryCache: { get: async () => undefined, put: async () => { writes += 1 }, clear: async () => {} },
+    fetch: async () => { current = false; return new Response(new Uint8Array([1, 2, 3, 4])) },
+  })
+  await expect(client.restore({ id: '018f7b9c-3e2f-7b4c-8a7c-56cf4c39b7de', fileName: 'book.pdf', mediaType: 'application/pdf', size: 4, plaintextHash: 'a'.repeat(64) }, () => { progress += 1 })).rejects.toThrow('会话已失效')
+  expect(writes).toBe(0)
+  expect(progress).toBe(0)
+})
+
+test('cloud delete preserves pending cleanup status and rejects unknown success responses', async () => {
+  let status = 'deleting'
+  const client = createUserFileClient({ accessToken: 'token', refreshToken: 'refresh', user: { id: 'a', isAnonymous: false } }, {
+    url: 'https://supabase.example', anonKey: 'public', gatewayUrl: 'https://app.example',
+    fetch: async () => Response.json({ status }, { status: 202 }),
+  })
+  const id = '018f7b9c-3e2f-7b4c-8a7c-56cf4c39b7de'
+  await expect(client.deleteFromCloud(id)).resolves.toBe('deleting')
+  status = 'deleted'
+  await expect(client.deleteFromCloud(id)).resolves.toBe('deleted')
+  status = 'unknown'
+  await expect(client.deleteFromCloud(id)).rejects.toThrow('云端删除状态无效')
 })

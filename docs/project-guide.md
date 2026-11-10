@@ -136,3 +136,5 @@ WorLibrary 是本地优先的多语言阅读器：用户导入自己拥有的 EP
 ## 上传任务 journal（Agent A，待产品接线）
 
 `src/lib/user-file-upload-task.ts` 使用独立 IndexedDB 保存账户、版本、文件指纹与幂等 operation ID，不保存原书字节或对象地址。先提交 journal 才发远端写入；重试复用 operation 并跳过已确认分块。调用方必须串行调度，并在登出、账户/会话切换或暂停时使任务失效；每个异步边界后重新检查，避免旧任务继续上传或 complete。该模块尚待产品接线；active 仅表示网关确认，不能作为真实备份验收证据。
+
+恢复会话边界：`createUserFileClient` 支持 `isCurrent`，下载前、每次网络/缓存异步之后以及最终返回前检查当前会话。App 仅允许当前账户的 shadow，并在下载完成后再次检查会话再调用 importer；旧运行不得继续进度提示或覆盖新账户的恢复状态。已经进入本地 importer 的写入仍需补事务级失效控制，未把本次保护声称为全流程账户隔离验收。删除客户端保留 `deleting`/`deleted` 返回状态，未知成功响应失败关闭；产品重试入口待接线。

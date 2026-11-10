@@ -103,3 +103,5 @@ npm run qa
 ## 上传任务 journal 回归
 
 `tests/user-file-upload-task.spec.ts` 覆盖中断续传复用 operation ID、跳过服务端已确认块、账户变化阻止后续 complete/进度、同名同大小但内容不同重新分配 operation、账户隔离、journal 写失败时零远端写入。模块目前尚未接产品入口；真实 Supabase/R2 仍为 NOT VERIFIED。
+
+恢复会话失效与删除状态：`tests/user-file-library.spec.ts` 增加真实异步 fetch 期间账户失效的回归，断言不缓存、不回报进度、不返回原书；云端删除必须保留 deleting/deleted，未知响应不得当作清理完成。当前 importer 在途写入、删除产品重试入口与真实环境仍待完成。

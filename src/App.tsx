@@ -33,9 +33,9 @@ const WorldLanguagePicker = lazy(() => import('./components/WorldLanguagePicker'
 const InterfaceLanguagePicker = lazy(() => import('./components/InterfaceLanguagePicker'))
 const RemoteBookMetadataShadows = lazy(() => import('./components/RemoteBookMetadataShadows'))
 
-async function createCloudFileClient(session: AuthSession) {
+async function createCloudFileClient(session: AuthSession, isCurrent?: () => boolean) {
   const { createUserFileClient } = await import('./lib/user-file-library')
-  return createUserFileClient(session)
+  return createUserFileClient(session, { isCurrent })
 }
 const ACTIVE_SYNC_ACCOUNT_KEY = 'worlibrary.metadata-sync.active-account'
 
@@ -891,21 +891,23 @@ function App() {
   async function restoreCloudShadow(shadow: RemoteBookMetadataShadow) {
     const current = sessionRef.current
     const manifest = cloudManifests.find((item) => item.editionId === shadow.editionId && item.fileName === shadow.fileName && item.size === shadow.fileSize)
-    if (!current || current.user.isAnonymous || !manifest || recoveringEditionId) return
+    if (!current || current.user.isAnonymous || shadow.userId !== current.user.id || !manifest || recoveringEditionId) return
     setRecoveringEditionId(shadow.editionId)
     try {
       // `restore` verifies the completed file against the owned manifest hash
       // before this function asks the atomic importer to write local records.
-      const file = await (await createCloudFileClient(current)).restore(manifest)
+      const file = await (await createCloudFileClient(current, () => sessionRef.current === current)).restore(manifest)
+      if (sessionRef.current !== current) return
       const restored = await reimportRemoteBookMetadataShadow({ file, shadow: safeShadowReimport(shadow) })
+      if (sessionRef.current !== current) return
       setBooks((items) => [...items, restored])
       setEditions(await listEditions())
       void queueEditionMetadataSync(restored)
       toast(interpolate(ui.remoteShelfReimported, { title: restored.title }))
     } catch (error) {
-      toast(error instanceof Error ? error.message : ui.actionFailed)
+      if (sessionRef.current === current) toast(error instanceof Error ? error.message : ui.actionFailed)
     } finally {
-      setRecoveringEditionId(null)
+      if (sessionRef.current === current) setRecoveringEditionId(null)
     }
   }
 
