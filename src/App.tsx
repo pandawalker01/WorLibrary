@@ -359,7 +359,6 @@ function App() {
       setRemoteHighlightShadows([])
       setPendingShadowReimport(null)
       setCloudManifests([])
-      setRecoveringEditionId(null)
     }
     if (next && !next.user.isAnonymous && next.user.id.trim()) {
       const accountPreferences = loadAccountReaderPreferences(next.user.id)

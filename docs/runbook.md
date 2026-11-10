@@ -189,3 +189,9 @@ Node 24.22.1 下 typecheck、生产 build、bundle budget 通过；完整 Playwr
 恢复原书通过大小与 SHA-256 校验后，原书、book/work/edition 在单一 IndexedDB 事务中提交。会话变化会 abort 在途事务，不能留下可读书籍或原书孤儿；新会话同时清空恢复忙状态，包括同账户刷新会话。`tests/private-cloud-local-lifecycle.spec.ts` 使用真实浏览器 IndexedDB，在 put 成功事件注入账户失效，验证四个 store 全部回滚；另验证成功后可读与 OPFS 清理失败可重试。此自动化不是线上 RLS 证据。自动上传尚未接线；接线时必须先持久化本机移除/云端删除的任务抑制标记，禁止旧任务重传或复活删除文件。
 
 2026-11-11 主 Agent 审查修改验证：Node24 typecheck、生产 build 与原 bundle budget 通过，入口约 351.9 kB（未提高预算）；完整 Playwright 在 Agent A 独占本机 4273 端口为 202 PASS / 0 FAIL。首次共用 4173 端口时预览进程在运行中消失，137 PASS / 64 FAIL（连接拒绝），该基础设施失败未被计作通过；隔离端口后完整重跑通过。测试临时把 0012/0017 的工作副本换行按 Git blob LF 读取，随后恢复；历史 migration 没有语义或提交改动。Windows quality/CRLF 永久修复归 Agent B #10，本 PR 不改共享质量门。真实 Supabase/R2 仍 NOT VERIFIED。
+
+### CI 模拟构建包体复测（2026-11-11）
+
+8bc680a 的 Linux quality 失败项只有 bundle-budget；用仓库 workflow 的公开模拟 `VITE_SUPABASE_URL`/`VITE_SUPABASE_ANON_KEY` 本机复现入口 352,027 bytes，说明无远端配置的 351.9 kB 构建不能替代已配置构建。移除重复忙状态清空并精简本次新增中英文状态文案后，相同模拟配置入口 351,954 bytes，原 352,000/110,000 预算通过；没有提高预算或修改质量门。后续产品接线需保持按需加载并再次验证配置构建。
+
+恢复/本机菜单/国际化受影响回归通过。扩大到旧 sign-out 用例时，模拟 Supabase URL 的 logout 请求等待网络导致1项失败；Agent B #10 已有该用例的专用 logout mock，本 PR 不重复修改其时序修复。该失败未作为通过记录；完整集成质量以新提交 CI 和 B 合入后的 quality 为准。
