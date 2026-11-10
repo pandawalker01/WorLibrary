@@ -169,3 +169,7 @@ Sentry 仅接收错误类型、路由、版本和 request id；过滤选区文�
 3. 恢复中断网络，在已收取至少一个分块后重试；确认仅缺失分块再次请求，恢复失败前书架不出现本地书籍。
 4. 设备 B 使用另一稳定账户，确认 manifest 列表为空，读取 A 的 manifest、分块与字节均被拒绝。删除云端副本后同一账户读取也必须被拒绝；复查 used/reserved quota 和 tombstone。
 5. 分别执行“仅从此设备移除”与“从云端删除”：前者保留设备 A/B 的恢复入口，后者保留当前设备本地文件但撤销后续恢复。Worker 完成删除和数据库复核前，UI 只能显示请求已提交。
+
+## Agent A 上传任务验证
+
+上传任务 journal 使用独立数据库 `worlibrary-private-upload-tasks`，不调整 metadata 数据库版本。上传请求前必须已持久化 operation ID；本地 journal 无法写入时，不开始远端上传。断网后保留本机文件与 journal，重试复用 operation；不要通过清除站点数据处理失败，否则无法保证续用原操作。产品入口仍待接线，不能宣称备份完成。真实 Supabase/R2 两账户/两 Profile 验收仍为 NOT VERIFIED。

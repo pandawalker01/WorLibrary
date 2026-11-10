@@ -99,3 +99,7 @@ npm run qa
 - 自动化 fixture 只包含可公开测试的最小 EPUB/PDF 内容；不提交受版权保护的完整书籍。
 - `reader-position.spec.ts` 验证浏览器本地持久化，而非跨设备同步。清除站点数据后位置丢失属于预期，需要通过导出/导入恢复。
 - `mobile-reader.spec.ts` 覆盖窄屏基础可用性，仍需在发布前用真机及 Safari/Android Chrome 进行一次人工体验验收。
+
+## 上传任务 journal 回归
+
+`tests/user-file-upload-task.spec.ts` 覆盖中断续传复用 operation ID、跳过服务端已确认块、账户变化阻止后续 complete/进度、同名同大小但内容不同重新分配 operation、账户隔离、journal 写失败时零远端写入。模块目前尚未接产品入口；真实 Supabase/R2 仍为 NOT VERIFIED。
