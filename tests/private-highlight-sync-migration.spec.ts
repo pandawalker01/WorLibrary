@@ -2,7 +2,7 @@ import { readFile } from 'node:fs/promises'
 import { expect, test } from '@playwright/test'
 
 test('private highlight sync is authenticated, device-bound, and accepts only excerpt fields', async () => {
-  const migration = await readFile('supabase/migrations/0012_private_highlight_sync_rpc.sql', 'utf8')
+  const migration = (await readFile('supabase/migrations/0012_private_highlight_sync_rpc.sql', 'utf8')).replace(/\r\n/g, '\n')
 
   expect(migration).toContain('create or replace function public.apply_private_highlight_sync_change')
   expect(migration).toMatch(/apply_private_highlight_sync_change[\s\S]*?security definer/)

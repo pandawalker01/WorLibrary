@@ -5,7 +5,7 @@ import { USER_FILE_CHUNK_SIZE, USER_FILE_MAX_BYTES, assertOwnedEditionId, chunkR
 const appPath = new URL('../src/App.tsx', import.meta.url)
 
 test('private user file migration keeps manifests user-scoped and object keys service-only', async () => {
-  const migration = await readFile('supabase/migrations/0014_private_user_file_library.sql', 'utf8')
+  const migration = (await readFile('supabase/migrations/0014_private_user_file_library.sql', 'utf8')).replace(/\r\n/g, '\n')
   for (const table of ['user_file_manifests', 'user_file_chunks', 'user_storage_quotas']) expect(migration).toContain(`create table if not exists public.${table}`)
   expect(migration).toContain('alter table public.user_file_manifests enable row level security')
   expect(migration).toContain("media_type in ('application/epub+zip', 'application/pdf')")
@@ -15,7 +15,7 @@ test('private user file migration keeps manifests user-scoped and object keys se
 })
 
 test('private file gateway migration uses service-only transactions, quota reservation, and 30-day deletion tombstones', async () => {
-  const migration = await readFile('supabase/migrations/0015_private_user_file_gateway.sql', 'utf8')
+  const migration = (await readFile('supabase/migrations/0015_private_user_file_gateway.sql', 'utf8')).replace(/\r\n/g, '\n')
   expect(migration).toContain('create table if not exists public.user_file_tombstones')
   expect(migration).toContain("now() + interval '30 days'")
   expect(migration).toContain('create or replace function public.begin_user_file_upload')
@@ -26,14 +26,14 @@ test('private file gateway migration uses service-only transactions, quota reser
 })
 
 test('forward migration labels P0 as private storage rather than application-layer encryption', async () => {
-  const migration = await readFile('supabase/migrations/0017_private_user_file_storage_and_quota_fix.sql', 'utf8')
+  const migration = (await readFile('supabase/migrations/0017_private_user_file_storage_and_quota_fix.sql', 'utf8')).replace(/\r\n/g, '\n')
   expect(migration).toContain('rename column encryption_version to storage_mode')
   expect(migration).toContain("alter column storage_mode set default 'private-r2-v1'")
   expect(migration).toContain('does not claim application-layer encryption')
 })
 
 test('forward deletion migration releases used quota only for an active-file charge', async () => {
-  const migration = await readFile('supabase/migrations/0017_private_user_file_storage_and_quota_fix.sql', 'utf8')
+  const migration = (await readFile('supabase/migrations/0017_private_user_file_storage_and_quota_fix.sql', 'utf8')).replace(/\r\n/g, '\n')
   const finish = migration.slice(migration.indexOf('create or replace function public.finish_user_file_delete'), migration.indexOf('create or replace function public.reap_expired_user_file_uploads'))
   expect(finish).toContain("if not found or v_manifest.upload_state = 'deleted' then return; end if;")
   expect(finish).toContain("if v_manifest.upload_state = 'active' then\n    v_quota_bucket := 'used';")
@@ -44,7 +44,7 @@ test('forward deletion migration releases used quota only for an active-file cha
 })
 
 test('forward deletion migration snapshots active charges and keeps repeated complete/delete requests idempotent', async () => {
-  const migration = await readFile('supabase/migrations/0017_private_user_file_storage_and_quota_fix.sql', 'utf8')
+  const migration = (await readFile('supabase/migrations/0017_private_user_file_storage_and_quota_fix.sql', 'utf8')).replace(/\r\n/g, '\n')
   const requestDelete = migration.slice(migration.indexOf('create or replace function public.request_user_file_delete'), migration.indexOf('create or replace function public.finish_user_file_delete'))
   const complete = migration.slice(migration.indexOf('create or replace function public.complete_user_file_upload'), migration.indexOf('create or replace function public.request_user_file_delete'))
   expect(requestDelete).toContain("if v_manifest.upload_state not in ('deleted', 'deleting') then")
@@ -99,7 +99,7 @@ test('a same-size corrupted cached recovery chunk is cleared so retry downloads 
 })
 
 test('a failed cloud hash check cannot invoke the local shelf importer', async () => {
-  const source = await readFile(appPath, 'utf8')
+  const source = (await readFile(appPath, 'utf8')).replace(/\r\n/g, '\n')
   const recovery = source.slice(source.indexOf('async function restoreCloudShadow'), source.indexOf('function removeBookFromDevice'))
   expect(recovery.indexOf('await (await createCloudFileClient(current)).restore(manifest)')).toBeLessThan(recovery.indexOf('await reimportRemoteBookMetadataShadow'))
   expect(recovery).toContain('catch (error)')

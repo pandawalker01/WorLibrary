@@ -2,7 +2,7 @@ import { expect, test } from '@playwright/test'
 import { readFile } from 'node:fs/promises'
 
 test('local book deletion queues account-scoped excerpt tombstones before an identity-only edition tombstone', async () => {
-  const source = await readFile('src/App.tsx', 'utf8')
+  const source = (await readFile('src/App.tsx', 'utf8')).replace(/\r\n/g, '\n')
 
   expect(source).toContain('const queueEditionMetadataDeleteSync')
   expect(source).toContain("operation: 'delete'")

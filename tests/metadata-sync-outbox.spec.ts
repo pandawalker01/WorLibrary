@@ -23,7 +23,7 @@ function editionEntry(overrides: Partial<MetadataSyncOutboxEntry> = {}): Metadat
 }
 
 test('metadata sync outbox is an account-scoped metadata-only IndexedDB store', async () => {
-  const source = await readFile('src/lib/storage.ts', 'utf8')
+  const source = (await readFile('src/lib/storage.ts', 'utf8')).replace(/\r\n/g, '\n')
 
   expect(Number(source.match(/const DB_VERSION = (\d+)/)?.[1])).toBeGreaterThanOrEqual(8)
   expect(source).toContain("const METADATA_SYNC_OUTBOX_STORE = 'metadata-sync-outbox'")
@@ -77,7 +77,7 @@ test('edition outbox coalescing never crosses accounts or changes delete/non-edi
 })
 
 test('metadata sync cursors are durable, account-scoped, monotonic, and metadata-only', async () => {
-  const source = await readFile('src/lib/storage.ts', 'utf8')
+  const source = (await readFile('src/lib/storage.ts', 'utf8')).replace(/\r\n/g, '\n')
 
   expect(source).toContain("const METADATA_SYNC_CURSORS_STORE = 'metadata-sync-cursors'")
   expect(source).toContain("db.createObjectStore(METADATA_SYNC_CURSORS_STORE, { keyPath: 'userId' })")
@@ -95,7 +95,7 @@ test('metadata sync cursors are durable, account-scoped, monotonic, and metadata
 })
 
 test('metadata sync entity revisions are keyed by account and entity, and exclude all content fields', async () => {
-  const source = await readFile('src/lib/storage.ts', 'utf8')
+  const source = (await readFile('src/lib/storage.ts', 'utf8')).replace(/\r\n/g, '\n')
   expect(source).toContain("const METADATA_SYNC_ENTITY_REVISIONS_STORE = 'metadata-sync-entity-revisions'")
   expect(source).toContain('export type MetadataSyncEntityRevision')
   expect(source).toContain('readMetadataSyncEntityRevision')
@@ -112,7 +112,7 @@ test('metadata sync entity revisions are keyed by account and entity, and exclud
 })
 
 test('remote metadata shadows are account-scoped, require re-import, and never become local books', async () => {
-  const source = await readFile('src/lib/storage.ts', 'utf8')
+  const source = (await readFile('src/lib/storage.ts', 'utf8')).replace(/\r\n/g, '\n')
 
   expect(source).toContain("const REMOTE_BOOK_METADATA_SHADOWS_STORE = 'remote-book-metadata-shadows'")
   expect(source).toContain("shadows.createIndex(REMOTE_BOOK_METADATA_SHADOWS_BY_USER, 'userId'")
