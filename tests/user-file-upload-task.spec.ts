@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test'
-import { runUserFileUploadTask, UploadTaskCancelled, type UserFileUploadTask, type UploadTaskStore } from '../src/lib/user-file-upload-task'
+import { runUserFileUploadTask, suppressUserFileUploadTask, UploadTaskCancelled, type UserFileUploadTask, type UploadTaskStore } from '../src/lib/user-file-upload-task'
 import { USER_FILE_CHUNK_SIZE } from '../src/lib/user-file-library'
 
 const userId = '018f7b9c-3e2f-7b4c-8a7c-56cf4c39b7de'
@@ -9,7 +9,10 @@ function journal() {
   const tasks = new Map<string, UserFileUploadTask>()
   const store: UploadTaskStore = {
     get: async (user, edition) => tasks.get(`${user}:${edition}`),
-    put: async (task) => { tasks.set(`${task.userId}:${task.editionId}`, structuredClone(task)) },
+    put: async (task) => {
+      const key = `${task.userId}:${task.editionId}`
+      if (tasks.get(key)?.state !== 'suppressed' || task.state === 'suppressed') tasks.set(key, structuredClone(task))
+    },
   }
   return { store, tasks }
 }
@@ -75,4 +78,30 @@ test('failed durable write prevents all remote mutations', async () => {
     gateway: { initiate: async () => { requests += 1; return { manifestId, uploadedChunks: [] } }, uploadChunk: async () => {}, complete: async () => {} },
   })).rejects.toThrow('quota')
   expect(requests).toBe(0)
+})
+
+test('cloud deletion during a chunk prevents completion and survives a stale failure receipt and retry', async () => {
+  const { store } = journal(); let initiations = 0; let completions = 0
+  const options = {
+    userId, editionId, file: new File(['pdf'], 'book.pdf', { type: 'application/pdf' }), store, isCurrent: () => true,
+    gateway: {
+      initiate: async () => { initiations += 1; return { manifestId, uploadedChunks: [] } },
+      uploadChunk: async () => suppressUserFileUploadTask(store, userId, editionId),
+      complete: async () => { completions += 1 },
+    },
+  }
+  await expect(runUserFileUploadTask(options)).rejects.toBeInstanceOf(UploadTaskCancelled)
+  expect((await store.get(userId, editionId))?.state).toBe('suppressed')
+  await expect(runUserFileUploadTask({ ...options, file: new File(['new'], 'book.pdf', { type: 'application/pdf' }) })).rejects.toBeInstanceOf(UploadTaskCancelled)
+  expect(initiations).toBe(1)
+  expect(completions).toBe(0)
+})
+
+test('suppression before any upload has run is durable and does not affect another account', async () => {
+  const { store } = journal()
+  await suppressUserFileUploadTask(store, userId, editionId)
+  const tombstone = await store.get(userId, editionId)
+  expect(tombstone?.state).toBe('suppressed')
+  expect(tombstone?.fingerprint).toBe('')
+  expect(await store.get(editionId, editionId)).toBeUndefined()
 })

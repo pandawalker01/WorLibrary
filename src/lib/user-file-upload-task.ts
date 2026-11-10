@@ -7,12 +7,13 @@ export type UserFileUploadTask = {
   editionId: string
   operationId: string
   fingerprint: string
-  state: 'pending' | 'failed' | 'active'
+  state: 'pending' | 'failed' | 'active' | 'suppressed'
   manifestId?: string
 }
 
 export type UploadTaskStore = {
   get(userId: string, editionId: string): Promise<UserFileUploadTask | undefined>
+  /** Atomically preserve an existing suppression against stale upload writes. */
   put(task: UserFileUploadTask): Promise<void>
 }
 
@@ -24,6 +25,14 @@ type UploadGateway = {
 
 export class UploadTaskCancelled extends Error {
   constructor() { super('Upload task is no longer current'); this.name = 'UploadTaskCancelled' }
+}
+
+/** Persist before local eviction or cloud deletion, even if no upload ran yet. */
+export async function suppressUserFileUploadTask(store: UploadTaskStore, userId: string, editionId: string): Promise<void> {
+  assertOwnedEditionId(userId)
+  assertOwnedEditionId(editionId)
+  const previous = await store.get(userId, editionId)
+  await store.put({ userId, editionId, fingerprint: previous?.fingerprint ?? '', operationId: previous?.operationId ?? crypto.randomUUID(), manifestId: previous?.manifestId, state: 'suppressed' })
 }
 
 /**
@@ -45,23 +54,30 @@ export async function runUserFileUploadTask(options: {
   check()
   assertOwnedEditionId(userId)
   assertOwnedEditionId(editionId)
+  const previous = await store.get(userId, editionId)
+  check()
+  if (previous?.state === 'suppressed') throw new UploadTaskCancelled()
   const descriptor = describeUserFile(file)
   const digest = await crypto.subtle.digest('SHA-256', await file.arrayBuffer())
   check()
   const hash = [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, '0')).join('')
   const fingerprint = JSON.stringify([descriptor.name, descriptor.mediaType, descriptor.size, hash])
-  const previous = await store.get(userId, editionId)
-  check()
   const task: UserFileUploadTask = previous?.userId === userId && previous.editionId === editionId && previous.fingerprint === fingerprint
     ? { ...previous, state: 'pending' }
     : { userId, editionId, fingerprint, operationId: crypto.randomUUID(), state: 'pending' }
   // Persist the operation before any remote mutation. Failed persistence must
   // never create an upload that cannot be resumed with the same operation ID.
   await store.put(task)
-  check()
+  const checkTask = async () => {
+    check()
+    const saved = await store.get(userId, editionId)
+    check()
+    if (!saved || saved.state === 'suppressed' || saved.operationId !== task.operationId) throw new UploadTaskCancelled()
+  }
+  await checkTask()
   try {
     const started = await gateway.initiate(editionId, file, task.operationId)
-    check()
+    await checkTask()
     assertOwnedEditionId(started.manifestId)
     const completed = new Set(started.uploadedChunks)
     for (const index of completed) {
@@ -78,20 +94,20 @@ export async function runUserFileUploadTask(options: {
     progress()
     for (let index = 0; index < descriptor.chunkCount; index += 1) {
       if (completed.has(index)) continue
-      check()
+      await checkTask()
       const range = chunkRange(file, index)
       const chunk = file.slice(range.start, range.end)
       await gateway.uploadChunk(started.manifestId, index, chunk)
-      check()
+      await checkTask()
       completed.add(index)
       uploadedBytes += chunk.size
       progress()
     }
-    check()
+    await checkTask()
     await gateway.complete(started.manifestId)
-    check()
+    await checkTask()
     await store.put({ ...task, manifestId: started.manifestId, state: 'active' })
-    check()
+    await checkTask()
     return started.manifestId
   } catch (error) {
     if (isCurrent()) await store.put({ ...task, state: 'failed' })
@@ -122,6 +138,15 @@ export function createUploadTaskStore(): UploadTaskStore {
   const key = (userId: string, editionId: string) => `${userId}:${editionId}`
   return {
     get: (userId, editionId) => transact('readonly', (store) => store.get(key(userId, editionId))),
-    put: async (task) => { await transact('readwrite', (store) => store.put(task, key(task.userId, task.editionId))) },
+    put: async (task) => {
+      await transact('readwrite', (store) => {
+        const request = store.get(key(task.userId, task.editionId))
+        request.onsuccess = () => {
+          // A late upload receipt or stale tab must never overwrite deletion.
+          if (request.result?.state !== 'suppressed' || task.state === 'suppressed') store.put(task, key(task.userId, task.editionId))
+        }
+        return request
+      })
+    },
   }
 }

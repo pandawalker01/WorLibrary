@@ -88,3 +88,31 @@ test('concurrent recovery cannot commit two local books for one remote edition',
   })
   expect(result).toEqual({ success: 1, books: 1 })
 })
+
+test('real upload journal keeps deletion suppression across reopened stores and stale receipts', async ({ page }) => {
+  await loadStorage(page)
+  for (const [path, file] of [['**/__upload-test.js', 'src/lib/user-file-upload-task.ts'], ['**/user-file-library', 'src/lib/user-file-library.ts']]) {
+    const body = stripTypeScriptTypes(await readFile(file, 'utf8'))
+    await page.route(path, (route) => route.fulfill({ contentType: 'text/javascript', body }))
+  }
+  const result = await page.evaluate(async () => {
+    const tasks = await import('/__upload-test.js')
+    const userId = '018f7b9c-3e2f-7b4c-8a7c-56cf4c39b7de'
+    const editionId = '018f7b9c-3e2f-7b4c-8a7c-56cf4c39b7df'
+    const store = tasks.createUploadTaskStore()
+    const stale = { userId, editionId, operationId: crypto.randomUUID(), fingerprint: 'fingerprint', state: 'pending' }
+    await store.put(stale)
+    await tasks.suppressUserFileUploadTask(store, userId, editionId)
+    await Promise.all([store.put({ ...stale, state: 'active' }), store.put({ ...stale, state: 'failed' })])
+    const persisted = await tasks.createUploadTaskStore().get(userId, editionId)
+    let requests = 0; let cancelled = false
+    try {
+      await tasks.runUserFileUploadTask({
+        userId, editionId, file: new File(['pdf'], 'book.pdf', { type: 'application/pdf' }), store: tasks.createUploadTaskStore(), isCurrent: () => true,
+        gateway: { initiate: async () => { requests += 1; return {} }, uploadChunk: async () => {}, complete: async () => {} },
+      })
+    } catch (error) { cancelled = (error as Error).name === 'UploadTaskCancelled' }
+    return { state: persisted.state, requests, cancelled }
+  })
+  expect(result).toEqual({ state: 'suppressed', requests: 0, cancelled: true })
+})

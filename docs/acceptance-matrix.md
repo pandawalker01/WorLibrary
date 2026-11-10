@@ -110,4 +110,8 @@ npm run qa
 
 - `tests/private-cloud-local-lifecycle.spec.ts`：在真实 IndexedDB 写请求成功事件触发会话撤销，原书、book、work、edition 一起回滚；成功恢复文件可读取；OPFS 清理失败保留本机书供重试。
 - `tests/book-delete-tombstone-wiring.spec.ts`：仅本机移除不排 edition/highlight 全局 tombstone，既有 metadata 删除协议不被删除。
-- `tests/smoke.spec.ts`：菜单可访问名称明确使用“仅从此设备移除”。恢复/移除的持久化 helper 按需加载，首屏包体仍须满足原预算。首次同意、上传调度、任务抑制/重试与真实 Supabase/R2 闭环仍待交付。
+- `tests/smoke.spec.ts`：菜单可访问名称明确使用“仅从此设备移除”。恢复/移除的持久化 helper 按需加载，首屏包体仍须满足原预算。首次同意、上传调度与可见失败重试仍待接线；本机上传抑制已有代码/自动化，真实 Supabase/R2 闭环仍待验收。
+
+## 删除后的本机上传抑制验收
+
+`tests/user-file-upload-task.spec.ts` 新增在途分块时删除、陈旧失败回执、重试/内容变化仍拒绝和账户隔离；`tests/private-cloud-local-lifecycle.spec.ts` 用真实IndexedDB验证重开store以及陈旧active/failed写入均不能覆盖suppressed；`tests/user-file-library.spec.ts` 验证抑制落盘失败时不发云删除请求。本机/云端删除入口均先写本机抑制。此阶段自动上传产品入口尚未接线，跨设备永久删除和R2清理/配额真实验收仍NOT VERIFIED。

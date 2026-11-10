@@ -140,3 +140,7 @@ WorLibrary 是本地优先的多语言阅读器：用户导入自己拥有的 EP
 恢复会话边界：`createUserFileClient` 支持 `isCurrent`，下载前、每次网络/缓存异步之后以及最终返回前检查当前会话。App 仅允许当前账户的 shadow，并在下载完成后再次检查会话再调用 importer；旧运行不得继续进度提示或覆盖新账户的恢复状态。恢复 importer 将原书、book、work、edition 在同一 IndexedDB 事务提交；会话变更通过 AbortSignal 中止在途事务，每次请求成功事件也复核会话并可整体回滚。恢复不再分离写 OPFS，以避免留下不可回滚的正文。真实账户隔离仍须 staging 验收。删除客户端保留 `deleting`/`deleted` 返回状态，未知成功响应失败关闭；产品重试入口待接线。
 
 恢复与本机清理 helper 为 `src/lib/private-file-local-commit.ts`，仅在操作时加载。恢复的文件、book/work/edition 一次事务提交，重复恢复在同一写事务内再次校验，避免并发产生两条本机书籍；账户 AbortSignal 与请求成功事件双重校验可整体回滚。仅本机移除先清理 OPFS，实际清理失败保留可重试入口，再原子删除本机记录；不调用全局 metadata 删除协议。
+
+上传任务抑制：`user-file-upload-task.ts` 为每个账户/版本持久保存 `suppressed` 状态，即使尚未上传也可先建立标记。本机移除和云端删除在文件清理/远端删除前写入标记，写入失败不继续破坏性动作。runner 在每次远端请求前后检查 journal，抑制后停止后续块、complete、进度和自动重试；IndexedDB 写事务拒绝陈旧 active/failed 回执覆盖 suppressed。重新打开 journal 仍拒绝同版本任务，即使文件内容变化；不同账户互不影响。新导入的新版本 ID 不复用旧抑制记录。这不是服务端全局永久删除证明，仍需服务端墓碑和真实跨设备验收。
+
+恢复的全部校验/构造与原子落库现在按需加载到 `private-file-local-commit.ts`，storage.ts 仅保留公开入口与只读/校验依赖注入；不改变 metadata 数据库版本，不把正文送入 metadata RPC。配置启用的首屏包体仍须通过原预算。

@@ -13,10 +13,10 @@ test('remote shadow re-import accepts only a user-selected matching local EPUB/P
     source.indexOf('export type RemoteBookMetadataShadowReimportInput'),
     source.indexOf('export type LibraryBackup'),
   )
-  const implementation = source.slice(
-    source.indexOf('export async function reimportRemoteBookMetadataShadow'),
-    source.indexOf('/** Correct shelf metadata locally'),
-  )
+  const helper = await readFile('src/lib/private-file-local-commit.ts', 'utf8')
+  const implementation = helper.slice(helper.indexOf('export async function restoreRemoteShadow'))
+  expect(source).toContain("await import('./private-file-local-commit')")
+
 
   expect(type).toContain("'editionId'")
   expect(type).toContain("'needsReimport'")

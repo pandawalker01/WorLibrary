@@ -929,7 +929,7 @@ function App() {
     if (!window.confirm(interpolate(ui.cloudDeviceRemoveConfirm, { title: book.title }))) return
     try {
       // Device cache eviction must never enqueue a global metadata tombstone.
-      await deleteBook(book as StoredBook)
+      await deleteBook(book as StoredBook, sessionRef.current?.user)
       setBooks((current) => current.filter((item) => item.id !== book.id))
       if (selectedBook.id === book.id) setSelectedBook(sampleBooks[0])
       toast(ui.cloudDeviceRemoved)
@@ -942,13 +942,14 @@ function App() {
     if (!current || current.user.isAnonymous || !manifest) return
     if (!window.confirm(interpolate(ui.cloudDeleteConfirm, { title: book.title }))) return
     try {
-      await (await createCloudFileClient(current)).deleteFromCloud(manifest.id)
+      await (await createCloudFileClient(current, () => sessionRef.current === current)).deleteFromCloud(manifest.id, manifest.editionId)
+      if (sessionRef.current !== current) return
       setCloudManifests((items) => items.filter((item) => item.id !== manifest.id))
       // The gateway may still be deleting chunks. Do not claim completion until
       // a real manifest refresh confirms the server-side state.
       toast(ui.cloudDeletePending)
     } catch (error) {
-      toast(error instanceof Error ? error.message : ui.actionFailed)
+      if (sessionRef.current === current) toast(error instanceof Error ? error.message : ui.actionFailed)
     }
   }
 

@@ -1401,81 +1401,11 @@ export async function saveBook(file: File, index: number): Promise<StoredBook> {
  * import. This never reads a URL or fetches remote content.
  */
 export async function reimportRemoteBookMetadataShadow(input: RemoteBookMetadataShadowReimportInput): Promise<StoredBook> {
-  const { file, shadow } = input
-  if (shadow.needsReimport !== true) throw new Error('只能关联需要重新导入原书的已同步版本')
-  const extension = extensionOf(file.name)
-  if (!['epub', 'pdf'].includes(extension)) {
-    throw new Error(`请选择与已同步版本匹配的 EPUB 或 PDF 原书，而不是 .${extension || 'unknown'} 文件`)
-  }
-  if (file.name !== shadow.fileName) {
-    throw new Error('所选原书的文件名与已同步版本不一致；请从原设备选择同一份 EPUB/PDF 文件')
-  }
-  if (file.size !== shadow.fileSize) {
-    throw new Error('所选原书的文件大小与已同步版本不一致；请从原设备选择同一份 EPUB/PDF 文件')
-  }
-  if (extensionOf(shadow.fileName) !== extension) {
-    throw new Error('已同步版本的文件格式与所选原书不一致，不能关联')
-  }
-  if (file.size > 100 * 1024 * 1024) throw new Error(`${file.name} 超过 100 MB 限制`)
-
-  assertNonEmptyMetadataSyncId(shadow.editionId, 'remote edition id')
-  assertSafeRemoteBookMetadataString(shadow.title, 'title')
-  assertSafeRemoteBookMetadataString(shadow.author, 'author')
-  assertSafeRemoteBookMetadataString(shadow.language, 'language')
-  assertSafeRemoteBookMetadataString(shadow.fileName, 'file name')
-  assertSafeRemoteBookMetadataString(shadow.fileType, 'file type')
-  assertSafeRemoteBookMetadataString(shadow.location, 'location', 4_096, true)
-  assertSafeRemoteBookMetadataNumber(shadow.progress, 'progress', 100)
-  assertSafeRemoteBookMetadataNumber(shadow.fileSize, 'file size', Number.MAX_SAFE_INTEGER)
-  if (shadow.cover !== 'ink' && shadow.cover !== 'sun' && shadow.cover !== 'red') {
-    throw new Error('已同步版本的封面元数据无效，不能关联')
-  }
-
-  // Do not call listBooks() here: its legacy edition migration can write old
-  // records, while a rejected re-import must remain strictly write-free.
-  const existing = await transaction<StoredBook[]>(BOOKS_STORE, 'readonly', (store) => store.getAll())
-  if (existing.some((book) => book.editionId === shadow.editionId)) {
-    throw new Error('这个已同步版本已经在本机书库中，无需再次重新导入')
-  }
-  if (existing.some((book) => book.fileName === file.name && book.fileSize === file.size)) {
-    throw new Error(`${file.name} 已作为另一条本地书籍存在；请不要将普通导入记录重复关联`)
-  }
-
-  const id = crypto.randomUUID()
-  // Recovery commits bytes and all readable records in one IndexedDB
-  // transaction. A separately awaited OPFS write would escape its rollback.
-  const storage: StoredBook['storage'] = 'indexeddb'
-  const workId = crypto.randomUUID()
-  const book: StoredBook = {
-    id,
-    title: shadow.title,
-    author: shadow.author,
-    language: shadow.language,
-    progress: shadow.progress,
-    cover: shadow.cover,
-    fileName: shadow.fileName,
-    fileType: shadow.fileType,
-    fileSize: shadow.fileSize,
-    storage,
-    createdAt: Date.now(),
-    location: shadow.location,
-    workId,
-    editionId: shadow.editionId,
-  }
-  const work: Work = { id: workId, title: book.title, author: book.author, editionIds: [shadow.editionId] }
-  const edition: Edition = {
-    id: shadow.editionId,
-    workId,
-    label: book.title,
-    language: book.language,
-    format: extension as Edition['format'],
-    bookId: book.id,
-    progress: book.progress,
-    location: book.location,
-  }
-  const { commitRecoveredFile } = await import('./private-file-local-commit')
-  await commitRecoveredFile({ database: await openDatabase(), file, book, work, edition, isCurrent: input.isCurrent, signal: input.signal })
-  return book
+  const { restoreRemoteShadow } = await import('./private-file-local-commit')
+  return restoreRemoteShadow(input, {
+    openDatabase, extensionOf, assertNonEmptyMetadataSyncId, assertSafeRemoteBookMetadataString, assertSafeRemoteBookMetadataNumber,
+    readBooks: () => transaction<StoredBook[]>(BOOKS_STORE, 'readonly', (store) => store.getAll()),
+  })
 }
 
 /** Correct shelf metadata locally without touching the imported source file. */
@@ -1674,9 +1604,9 @@ export async function deleteHighlight(id: string): Promise<Highlight | null> {
   return current
 }
 
-export async function deleteBook(book: StoredBook): Promise<void> {
+export async function deleteBook(book: StoredBook, account?: { id: string; isAnonymous: boolean }): Promise<void> {
   const { removeDeviceBook } = await import('./private-file-local-commit')
-  await removeDeviceBook(book, openDatabase)
+  await removeDeviceBook(book, openDatabase, account)
 }
 
 function encodeBytes(bytes: Uint8Array) {

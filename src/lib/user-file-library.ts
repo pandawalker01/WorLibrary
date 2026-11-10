@@ -1,4 +1,5 @@
 import type { AuthSession } from './auth'
+import type { UploadTaskStore } from './user-file-upload-task'
 
 export const USER_FILE_CHUNK_SIZE = 8 * 1024 * 1024
 /** Matches the server-side P0 safety ceiling; larger files must be rejected before reading. */
@@ -74,7 +75,7 @@ async function sha256Hex(source: Blob): Promise<string> {
   return [...new Uint8Array(digest)].map((value) => value.toString(16).padStart(2, '0')).join('')
 }
 
-export type UserFileClientConfig = { url?: string; anonKey?: string; gatewayUrl?: string; fetch?: typeof globalThis.fetch; recoveryCache?: UserFileRecoveryCache; isCurrent?: () => boolean }
+export type UserFileClientConfig = { url?: string; anonKey?: string; gatewayUrl?: string; fetch?: typeof globalThis.fetch; recoveryCache?: UserFileRecoveryCache; isCurrent?: () => boolean; uploadTaskStore?: UploadTaskStore }
 
 export function createUserFileClient(session: AuthSession, config: UserFileClientConfig = {}) {
   if (session.user.isAnonymous) throw new TypeError('匿名试用不能使用个人云书库')
@@ -173,8 +174,12 @@ export function createUserFileClient(session: AuthSession, config: UserFileClien
       assertCurrent()
       return restoredFile
     },
-    async deleteFromCloud(manifestId: string): Promise<'deleting' | 'deleted'> {
+    async deleteFromCloud(manifestId: string, editionId: string): Promise<'deleting' | 'deleted'> {
       if (!uuidPattern.test(manifestId)) throw new TypeError('文件清单 ID 无效')
+      assertOwnedEditionId(editionId)
+      assertCurrent()
+      const { createUploadTaskStore, suppressUserFileUploadTask } = await import('./user-file-upload-task')
+      await suppressUserFileUploadTask(config.uploadTaskStore ?? createUploadTaskStore(), session.user.id, editionId)
       assertCurrent()
       const value = await responseValue(await request(`${gatewayUrl}/api/user-files/${encodeURIComponent(manifestId)}`, { method: 'DELETE', headers }))
       assertCurrent()

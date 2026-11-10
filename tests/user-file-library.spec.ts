@@ -124,14 +124,29 @@ test('account invalidation while downloading stops before caching, progress or r
 
 test('cloud delete preserves pending cleanup status and rejects unknown success responses', async () => {
   let status = 'deleting'
-  const client = createUserFileClient({ accessToken: 'token', refreshToken: 'refresh', user: { id: 'a', isAnonymous: false } }, {
+  let suppressed = 0
+  const client = createUserFileClient({ accessToken: 'token', refreshToken: 'refresh', user: { id: '018f7b9c-3e2f-7b4c-8a7c-56cf4c39b7de', isAnonymous: false } }, {
     url: 'https://supabase.example', anonKey: 'public', gatewayUrl: 'https://app.example',
     fetch: async () => Response.json({ status }, { status: 202 }),
+    uploadTaskStore: { get: async () => undefined, put: async (task) => { expect(task.state).toBe('suppressed'); suppressed += 1 } },
   })
   const id = '018f7b9c-3e2f-7b4c-8a7c-56cf4c39b7de'
-  await expect(client.deleteFromCloud(id)).resolves.toBe('deleting')
+  await expect(client.deleteFromCloud(id, id)).resolves.toBe('deleting')
   status = 'deleted'
-  await expect(client.deleteFromCloud(id)).resolves.toBe('deleted')
+  await expect(client.deleteFromCloud(id, id)).resolves.toBe('deleted')
   status = 'unknown'
-  await expect(client.deleteFromCloud(id)).rejects.toThrow('云端删除状态无效')
+  await expect(client.deleteFromCloud(id, id)).rejects.toThrow('云端删除状态无效')
+  expect(suppressed).toBe(3)
+})
+
+test('failed upload suppression prevents a cloud deletion request with an untracked retry hazard', async () => {
+  let requests = 0
+  const id = '018f7b9c-3e2f-7b4c-8a7c-56cf4c39b7de'
+  const client = createUserFileClient({ accessToken: 'token', refreshToken: 'refresh', user: { id, isAnonymous: false } }, {
+    url: 'https://supabase.example', anonKey: 'public', gatewayUrl: 'https://app.example',
+    uploadTaskStore: { get: async () => undefined, put: async () => { throw new Error('journal unavailable') } },
+    fetch: async () => { requests += 1; return Response.json({ status: 'deleted' }) },
+  })
+  await expect(client.deleteFromCloud(id, id)).rejects.toThrow('journal unavailable')
+  expect(requests).toBe(0)
 })
