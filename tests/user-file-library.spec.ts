@@ -100,12 +100,14 @@ test('a same-size corrupted cached recovery chunk is cleared so retry downloads 
 
 test('a failed cloud hash check cannot invoke the local shelf importer', async () => {
   const source = await readFile(appPath, 'utf8')
-  const recovery = source.slice(source.indexOf('async function restoreCloudShadow'), source.indexOf('function removeBookFromDevice'))
+  const start = source.indexOf('async function restoreCloudShadow')
+  const recovery = source.slice(start, source.indexOf('async function linkCurrentEdition', start))
   expect(recovery.indexOf('.restore(manifest)')).toBeLessThan(recovery.indexOf('await reimportRemoteBookMetadataShadow'))
   expect(recovery).toContain('shadow.userId !== current.user.id')
   expect(recovery).toContain('() => sessionRef.current === current')
   expect(recovery.indexOf('if (sessionRef.current !== current) return')).toBeLessThan(recovery.indexOf('await reimportRemoteBookMetadataShadow'))
-  expect(recovery).toContain('catch (error)')
+  expect(recovery).toContain('catch {')
+  expect(recovery).toContain('isCurrent: () => sessionRef.current === current, signal')
 })
 
 test('account invalidation while downloading stops before caching, progress or returning a file', async () => {

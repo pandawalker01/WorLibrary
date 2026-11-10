@@ -277,6 +277,7 @@ function App() {
   const metadataSyncTimerRef = useRef<number | null>(null)
   const lastStableAccountIdRef = useRef<string | null>(null)
   const sessionRef = useRef<AuthSession | null>(null)
+  const recoveryAbortRef = useRef(new AbortController())
   const readerPreferencesRef = useRef(readerPreferences)
   const languageRef = useRef(language)
   if (!metadataSyncRuntimeRef.current) {
@@ -345,6 +346,11 @@ function App() {
 
   const handleAuthSessionChange = useCallback((next: AuthSession | null) => {
     const previous = sessionRef.current
+    if (previous !== next) {
+      recoveryAbortRef.current.abort()
+      recoveryAbortRef.current = new AbortController()
+      setRecoveringEditionId(null)
+    }
     if (previous?.user.id && previous.user.id !== next?.user.id) metadataSyncRuntimeRef.current?.invalidate(previous.user.id)
     if (previous?.user.id !== next?.user.id) {
       if (metadataSyncTimerRef.current !== null) window.clearTimeout(metadataSyncTimerRef.current)
@@ -529,30 +535,6 @@ function App() {
     } catch {
       // The shelf remains local-first. Background metadata sync must not turn
       // an otherwise successful import, edit, or page turn into a UI failure.
-    }
-  }, [scheduleSync])
-
-  /**
-   * Queue an identity-only edition tombstone only after local deletion has
-   * succeeded. This deliberately accepts no StoredBook: the sync boundary
-   * must not inspect a deleted EPUB/PDF, cover, filename, or local book id.
-   */
-  const queueEditionMetadataDeleteSync = useCallback(async (editionId: string) => {
-    const current = sessionRef.current
-    if (!current || current.user.isAnonymous) return
-    try {
-      const revision = await readMetadataSyncEntityRevision(current.user.id, 'edition', editionId)
-      if (sessionRef.current?.user.id !== current.user.id) return
-      const result = await enqueueLocalEditionMetadataSyncIntent({
-        session: current,
-        editionId,
-        operation: 'delete',
-        baseRevision: revision?.revision ?? 0,
-      })
-      if (result.status === 'queued') scheduleSync()
-    } catch {
-      // Local deletion remains successful even if its future cross-device
-      // tombstone cannot be queued. No local file is ever read or uploaded.
     }
   }, [scheduleSync])
 
@@ -871,25 +853,31 @@ function App() {
   }
 
   async function handleShadowReimport(event: ChangeEvent<HTMLInputElement>) {
+    const current = sessionRef.current
+    const signal = recoveryAbortRef.current.signal
     const file = event.target.files?.[0]
     event.target.value = ''
     const shadow = pendingShadowReimport
     setPendingShadowReimport(null)
-    if (!file || !shadow) return
+    if (!file || !shadow || !current || shadow.userId !== current.user.id) return
     toast(ui.remoteShelfReimporting)
     try {
-      const restored = await reimportRemoteBookMetadataShadow({ file, shadow: safeShadowReimport(shadow) })
+      const restored = await reimportRemoteBookMetadataShadow({ file, shadow: safeShadowReimport(shadow), isCurrent: () => sessionRef.current === current, signal })
+      if (sessionRef.current !== current) return
       setBooks((current) => [...current, restored])
-      setEditions(await listEditions())
+      const nextEditions = await listEditions()
+      if (sessionRef.current !== current) return
+      setEditions(nextEditions)
       void queueEditionMetadataSync(restored)
       toast(interpolate(ui.remoteShelfReimported, { title: restored.title }))
-    } catch (error) {
-      toast(error instanceof Error ? error.message : ui.actionFailed)
+    } catch {
+      if (sessionRef.current === current) toast(ui.actionFailed)
     }
   }
 
   async function restoreCloudShadow(shadow: RemoteBookMetadataShadow) {
     const current = sessionRef.current
+    const signal = recoveryAbortRef.current.signal
     const manifest = cloudManifests.find((item) => item.editionId === shadow.editionId && item.fileName === shadow.fileName && item.size === shadow.fileSize)
     if (!current || current.user.isAnonymous || shadow.userId !== current.user.id || !manifest || recoveringEditionId) return
     setRecoveringEditionId(shadow.editionId)
@@ -898,14 +886,16 @@ function App() {
       // before this function asks the atomic importer to write local records.
       const file = await (await createCloudFileClient(current, () => sessionRef.current === current)).restore(manifest)
       if (sessionRef.current !== current) return
-      const restored = await reimportRemoteBookMetadataShadow({ file, shadow: safeShadowReimport(shadow) })
+      const restored = await reimportRemoteBookMetadataShadow({ file, shadow: safeShadowReimport(shadow), isCurrent: () => sessionRef.current === current, signal })
       if (sessionRef.current !== current) return
       setBooks((items) => [...items, restored])
-      setEditions(await listEditions())
+      const nextEditions = await listEditions()
+      if (sessionRef.current !== current) return
+      setEditions(nextEditions)
       void queueEditionMetadataSync(restored)
       toast(interpolate(ui.remoteShelfReimported, { title: restored.title }))
-    } catch (error) {
-      if (sessionRef.current === current) toast(error instanceof Error ? error.message : ui.actionFailed)
+    } catch {
+      if (sessionRef.current === current) toast(ui.actionFailed)
     } finally {
       if (sessionRef.current === current) setRecoveringEditionId(null)
     }
@@ -937,35 +927,27 @@ function App() {
 
   async function removeBook(book: DisplayBook) {
     if (!book.storage || !book.fileName) return
-    if (!window.confirm(`仅从此设备移除《${book.title}》吗？云端可恢复副本不会被删除。`)) return
-    // The book deletion cascades its local excerpts. Capture their durable
-    // records first so a successful local delete can enqueue private delete
-    // tombstones without ever reading or sending the original file.
-    const deletedHighlights = await listHighlights(book.id)
-    await deleteBook(book as StoredBook)
-    if (book.editionId) {
-      // Keep the local deletion first, then enqueue excerpt tombstones before
-      // the edition tombstone. The queues are metadata-only; `deleteBook`
-      // has already removed the local EPUB/PDF and blob records.
-      for (const highlight of deletedHighlights) await queueHighlightMetadataSync(highlight, 'delete', book.editionId)
-      await queueEditionMetadataDeleteSync(book.editionId)
-    }
-    setBooks((current) => current.filter((item) => item.id !== book.id))
-    if (selectedBook.id === book.id) setSelectedBook(sampleBooks[0])
-    toast('书籍、阅读进度和摘录已从此设备移除')
+    if (!window.confirm(interpolate(ui.cloudDeviceRemoveConfirm, { title: book.title }))) return
+    try {
+      // Device cache eviction must never enqueue a global metadata tombstone.
+      await deleteBook(book as StoredBook)
+      setBooks((current) => current.filter((item) => item.id !== book.id))
+      if (selectedBook.id === book.id) setSelectedBook(sampleBooks[0])
+      toast(ui.cloudDeviceRemoved)
+    } catch { toast(ui.actionFailed) }
   }
 
   async function deleteCloudCopy(book: DisplayBook) {
     const current = sessionRef.current
     const manifest = cloudManifests.find((item) => item.editionId === book.editionId)
     if (!current || current.user.isAnonymous || !manifest) return
-    if (!window.confirm(`从云端删除《${book.title}》的可恢复副本吗？此操作不会移除此设备上的书籍。`)) return
+    if (!window.confirm(interpolate(ui.cloudDeleteConfirm, { title: book.title }))) return
     try {
       await (await createCloudFileClient(current)).deleteFromCloud(manifest.id)
       setCloudManifests((items) => items.filter((item) => item.id !== manifest.id))
       // The gateway may still be deleting chunks. Do not claim completion until
       // a real manifest refresh confirms the server-side state.
-      toast('已提交云端删除请求；本机副本不受影响。')
+      toast(ui.cloudDeletePending)
     } catch (error) {
       toast(error instanceof Error ? error.message : ui.actionFailed)
     }
@@ -1245,7 +1227,7 @@ function App() {
         {view === 'settings' && <section className="settings-view"><div className="settings-wrap"><h1>{ui.settingsTitle}</h1><section className="account-center-card" aria-labelledby="account-center-title"><div><h2 id="account-center-title">{ui.accountCenter}</h2><p>{session && !session.user.isAnonymous ? ui.accountCenterSignedIn : ui.accountCenterSignedOut}</p></div><button type="button" onClick={() => session ? setAccountMenuOpen(true) : setAuthDialogOpen(true)}>{session ? ui.accountMenuManage : ui.signIn}</button></section>{session && !session.user.isAnonymous && profileDraft && <section className="profile-editor" aria-labelledby="profile-editor-title"><div className="profile-editor-heading"><div><h2 id="profile-editor-title">{ui.publicProfile}</h2><p>{profileRemoteReady ? ui.publicProfileRemote : ui.publicProfileLocalOnly}</p></div><div className="profile-editor-avatar">{renderAccountAvatar('profile-editor-avatar-image')}<div><label className="profile-file-button">{ui.profileChooseAvatar}<input type="file" accept="image/png,image/jpeg,image/webp" onChange={chooseProfileAvatar} aria-label={ui.profileChooseAvatar} /></label>{profileDraft.avatarDataUrl && <button type="button" className="profile-avatar-remove" onClick={removeProfileAvatar}>{ui.profileRemoveAvatar}</button>}</div></div></div><label className="profile-editor-field"><span>{ui.profilePublicName}</span><input value={profileDraft.nickname} maxLength={80} onChange={(event) => { setProfileDraft({ ...profileDraft, nickname: event.target.value }); setProfileDraftStatus('') }} autoComplete="nickname" /></label><label className="profile-editor-field"><span>{ui.profileBio}</span><textarea value={profileDraft.bio} maxLength={500} rows={3} onChange={(event) => { setProfileDraft({ ...profileDraft, bio: event.target.value }); setProfileDraftStatus('') }} /></label><label className="profile-visibility"><input type="checkbox" checked={profileDraft.isPublic} disabled={!profileRemoteReady} onChange={(event) => { setProfileDraft({ ...profileDraft, isPublic: event.target.checked }); setProfileDraftStatus('') }} /><span><strong>{ui.profileVisibility}</strong><small>{profileRemoteReady ? (profileDraft.isPublic ? ui.profileVisibilityPublic : ui.profileVisibilityPrivate) : ui.profileVisibilityUnavailable}</small></span></label><div className="profile-editor-footer"><p>{profileDraftStatus || (profileRemoteReady ? ui.profileRemoteDraft : ui.profileLocalDraft)}</p><button type="button" onClick={saveProfileDraft}>{profileRemoteReady ? ui.profileSave : ui.profileSaveLocal}</button></div></section>}<AuthPanel uiLocale={uiLocale} onNotice={toast} onSessionChange={handleAuthSessionChange} /><section className="language-section" aria-labelledby="ui-language-title"><div className="language-heading"><h2 id="ui-language-title">{ui.uiLanguageTitle}</h2><p>{ui.uiLanguageCopy}</p></div><InterfaceLanguagePicker value={uiLocale} onChange={changeUiLocale} locale={uiLocale} label={ui.interfaceLanguagePickerLabel} searchLabel={ui.searchInterfaceLanguage} searchPlaceholder={ui.searchInterfaceLanguagePlaceholder} availableLabel={ui.interfaceLanguageAvailable} plannedLabel={ui.interfaceLanguagePlanned} plannedCopy={ui.interfaceLanguagePlannedCopy} emptyLabel={ui.interfaceLanguageEmpty} /></section><section className="language-section" aria-labelledby="reading-language-title"><div className="language-heading"><h2 id="reading-language-title">{ui.readingLanguageTitle}</h2><p>{ui.readingLanguageCopy}</p></div><ReadingLanguagePicker value={language} onChange={changeReadingLanguage} locale={uiLocale} label={ui.readingLanguagePickerLabel} searchLabel={ui.searchReadingLanguage} searchPlaceholder={ui.searchReadingLanguagePlaceholder} /></section><div className="settings-note"><span>◎</span><p><strong>{ui.privacyTitle}</strong><br />{ui.privacyCopy}</p></div></div></section>}
         </Suspense>
       </main>
-      {bookContextMenu && <div className="book-context-menu" role="menu" aria-label={ui.localBooks} style={{ left: bookContextMenu.x, top: bookContextMenu.y }}><strong>{bookContextMenu.book.title}</strong>{bookContextMenu.book.fileName?.toLowerCase().endsWith('.epub') && <button role="menuitem" onClick={() => { void refreshCover(bookContextMenu.book); setBookContextMenu(null) }} disabled={refreshingCoverId === bookContextMenu.book.id}>{refreshingCoverId === bookContextMenu.book.id ? ui.readingCover : ui.manageCover}</button>}<button role="menuitem" onClick={() => { selectCustomCover(bookContextMenu.book); setBookContextMenu(null) }}>{ui.uploadCover}</button><button role="menuitem" onClick={() => { setMetadataDraft(bookContextMenu.book as StoredBook); setBookContextMenu(null) }}>{ui.editInfo}</button>{cloudManifests.some((manifest) => manifest.editionId === bookContextMenu.book.editionId) && <button className="danger" role="menuitem" onClick={() => { void deleteCloudCopy(bookContextMenu.book); setBookContextMenu(null) }}>从云端删除</button>}<button className="danger" role="menuitem" aria-label={ui.delete} onClick={() => { void removeBook(bookContextMenu.book); setBookContextMenu(null) }}>仅从此设备移除</button></div>}
+      {bookContextMenu && <div className="book-context-menu" role="menu" aria-label={ui.localBooks} style={{ left: bookContextMenu.x, top: bookContextMenu.y }}><strong>{bookContextMenu.book.title}</strong>{bookContextMenu.book.fileName?.toLowerCase().endsWith('.epub') && <button role="menuitem" onClick={() => { void refreshCover(bookContextMenu.book); setBookContextMenu(null) }} disabled={refreshingCoverId === bookContextMenu.book.id}>{refreshingCoverId === bookContextMenu.book.id ? ui.readingCover : ui.manageCover}</button>}<button role="menuitem" onClick={() => { selectCustomCover(bookContextMenu.book); setBookContextMenu(null) }}>{ui.uploadCover}</button><button role="menuitem" onClick={() => { setMetadataDraft(bookContextMenu.book as StoredBook); setBookContextMenu(null) }}>{ui.editInfo}</button>{cloudManifests.some((manifest) => manifest.editionId === bookContextMenu.book.editionId) && <button className="danger" role="menuitem" onClick={() => { void deleteCloudCopy(bookContextMenu.book); setBookContextMenu(null) }}>{ui.cloudDelete}</button>}<button className="danger" role="menuitem" aria-label={ui.cloudDeviceRemove} onClick={() => { void removeBook(bookContextMenu.book); setBookContextMenu(null) }}>{ui.cloudDeviceRemove}</button></div>}
       {metadataDraft && <div className="metadata-dialog-backdrop"><form className="metadata-dialog" onSubmit={(event) => { void saveMetadata(event) }} role="dialog" aria-modal="true" aria-labelledby="metadata-dialog-title"><div><h2 id="metadata-dialog-title">校正书籍信息</h2><p>只修改书架显示和本地阅读数据，不会改动或上传原始文件。</p></div><label>书名<input name="title" defaultValue={metadataDraft.title} autoFocus /></label><label>作者<input name="author" defaultValue={metadataDraft.author} /></label><div className="metadata-dialog-actions"><button type="button" onClick={() => setMetadataDraft(null)}>取消</button><button type="submit">保存信息</button></div></form></div>}
       {authDialogOpen && <div className="auth-dialog-backdrop" onMouseDown={(event) => { if (event.currentTarget === event.target) setAuthDialogOpen(false) }}><section className="auth-dialog" role="dialog" aria-modal="true" aria-labelledby="auth-dialog-title"><div className="auth-dialog-heading"><div><h2 id="auth-dialog-title">{ui.accountSync}</h2></div><button type="button" onClick={() => setAuthDialogOpen(false)} aria-label={ui.cancel} title={ui.cancel}>×</button></div><AuthPanel uiLocale={uiLocale} onNotice={toast} onSessionChange={handleAuthSessionChange} autoFocusEmail /></section></div>}
       {notice && <div className="toast" role="status">{notice}</div>}

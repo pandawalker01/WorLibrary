@@ -134,6 +134,9 @@ export type RemoteBookMetadataShadowReimportInput = {
   /** A browser File selected by the user; raw bytes, URLs and fetches are not accepted. */
   file: File
   shadow: RemoteBookMetadataShadowReimport
+  /** Abort this local commit if its initiating session has been invalidated. */
+  isCurrent?: () => boolean
+  signal?: AbortSignal
 }
 
 export type LibraryBackup = { version: 2; exportedAt: string; books: StoredBook[]; highlights: Highlight[]; files: Record<string, string>; works?: Work[]; editions?: Edition[]; alignments?: Alignment[] }
@@ -1439,14 +1442,9 @@ export async function reimportRemoteBookMetadataShadow(input: RemoteBookMetadata
   }
 
   const id = crypto.randomUUID()
-  let storage: StoredBook['storage'] = 'indexeddb'
-  try {
-    storage = await writeToOpfs(id, file) ? 'opfs' : 'indexeddb'
-  } catch {
-    storage = 'indexeddb'
-  }
-  if (storage === 'indexeddb') await transaction(BLOBS_STORE, 'readwrite', (store) => store.put(file, id))
-
+  // Recovery commits bytes and all readable records in one IndexedDB
+  // transaction. A separately awaited OPFS write would escape its rollback.
+  const storage: StoredBook['storage'] = 'indexeddb'
   const workId = crypto.randomUUID()
   const book: StoredBook = {
     id,
@@ -1464,7 +1462,6 @@ export async function reimportRemoteBookMetadataShadow(input: RemoteBookMetadata
     workId,
     editionId: shadow.editionId,
   }
-  await transaction(BOOKS_STORE, 'readwrite', (store) => store.put(book))
   const work: Work = { id: workId, title: book.title, author: book.author, editionIds: [shadow.editionId] }
   const edition: Edition = {
     id: shadow.editionId,
@@ -1476,8 +1473,8 @@ export async function reimportRemoteBookMetadataShadow(input: RemoteBookMetadata
     progress: book.progress,
     location: book.location,
   }
-  await transaction(WORKS_STORE, 'readwrite', (store) => store.put(work))
-  await transaction(EDITIONS_STORE, 'readwrite', (store) => store.put(edition))
+  const { commitRecoveredFile } = await import('./private-file-local-commit')
+  await commitRecoveredFile({ database: await openDatabase(), file, book, work, edition, isCurrent: input.isCurrent, signal: input.signal })
   return book
 }
 
@@ -1678,20 +1675,8 @@ export async function deleteHighlight(id: string): Promise<Highlight | null> {
 }
 
 export async function deleteBook(book: StoredBook): Promise<void> {
-  await transaction(BOOKS_STORE, 'readwrite', (store) => store.delete(book.id))
-  await transaction(BLOBS_STORE, 'readwrite', (store) => store.delete(book.id))
-  await transaction(TEXT_INDEX_STORE, 'readwrite', (store) => store.delete(book.id))
-  const storageManager = navigator.storage as StorageManager & { getDirectory?: () => Promise<FileSystemDirectoryHandle> }
-  if (book.storage === 'opfs' && storageManager.getDirectory) {
-    try {
-      const root = await storageManager.getDirectory()
-      await root.removeEntry(`${book.id}-${book.fileName}`)
-    } catch {
-      // The metadata is already gone; a missing OPFS entry is safe to ignore.
-    }
-  }
-  const highlights = await listHighlights(book.id)
-  await Promise.all(highlights.map((highlight) => deleteHighlight(highlight.id)))
+  const { removeDeviceBook } = await import('./private-file-local-commit')
+  await removeDeviceBook(book, openDatabase)
 }
 
 function encodeBytes(bytes: Uint8Array) {

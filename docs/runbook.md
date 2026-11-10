@@ -181,3 +181,11 @@ Sentry 仅接收错误类型、路由、版本和 request id；过滤选区文�
 Node 24.22.1 下 typecheck、生产 build、bundle budget 通过；完整 Playwright 199/199 通过（含上传任务4项与恢复/删除状态新增回归）。首次 Windows checkout 的4项静态文本断言因 CRLF 失败；仅将工作副本换行恢复为 Git blob 的 LF 后全量通过，没有修改历史 migration 的提交内容。首批 3baf96c GitHub CI quality 两次通过。
 
 本机 `npm run quality` 虽返回0，但 Windows 路径下脚本入口条件未触发，未生成 release-report.json，因此不能记为本地质量门通过；以 PR 的 Linux CI quality 报告为有效质量门，真实环境仍 NOT VERIFIED。该执行器问题已在 PR 交由主 Agent协调，不在个人文件 PR 中顺带修改发布门禁。
+
+### 主 Agent 审查后的本机移除与恢复规则
+
+仅从此设备移除不调用 metadata 删除协议。OPFS 清理遇到 NotFound 可继续，其他清理失败保留书架记录供原入口重试；IndexedDB 原书、书籍、索引与本书摘录在同一事务删除。云端文件与其他设备数据保留。
+
+恢复原书通过大小与 SHA-256 校验后，原书、book/work/edition 在单一 IndexedDB 事务中提交。会话变化会 abort 在途事务，不能留下可读书籍或原书孤儿；新会话同时清空恢复忙状态，包括同账户刷新会话。`tests/private-cloud-local-lifecycle.spec.ts` 使用真实浏览器 IndexedDB，在 put 成功事件注入账户失效，验证四个 store 全部回滚；另验证成功后可读与 OPFS 清理失败可重试。此自动化不是线上 RLS 证据。自动上传尚未接线；接线时必须先持久化本机移除/云端删除的任务抑制标记，禁止旧任务重传或复活删除文件。
+
+2026-11-11 主 Agent 审查修改验证：Node24 typecheck、生产 build 与原 bundle budget 通过，入口约 351.9 kB（未提高预算）；完整 Playwright 在 Agent A 独占本机 4273 端口为 202 PASS / 0 FAIL。首次共用 4173 端口时预览进程在运行中消失，137 PASS / 64 FAIL（连接拒绝），该基础设施失败未被计作通过；隔离端口后完整重跑通过。测试临时把 0012/0017 的工作副本换行按 Git blob LF 读取，随后恢复；历史 migration 没有语义或提交改动。Windows quality/CRLF 永久修复归 Agent B #10，本 PR 不改共享质量门。真实 Supabase/R2 仍 NOT VERIFIED。
