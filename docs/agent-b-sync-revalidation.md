@@ -32,3 +32,13 @@
 依次审计本地实现并对发现的缺陷先补回归测试，再修复；运行类型检查、生产构建、相关测试、完整 Playwright 和最终 `npm run quality`。远端按 runbook 的八项步骤记录 PASS/FAIL/BLOCKED、请求 ID 与 revision/sequence，不保留凭据或敏感 payload。只有已执行的检查才可记为通过。
 
 本记录不改变产品行为、运行步骤或验收标准；已检查 project-guide、runbook、deployment、acceptance-matrix，暂无需因本次审计记录调整其内容。无 DDL、部署或数据变更，无数据库回滚需求；如后续发现数据库缺陷，只提交新的前向迁移。
+
+## 本地验证与协作游标
+
+- Node `24.22.2` 官方 Windows x64 包经官方 SHA-256 清单核对后使用；锁定依赖安装完成，未更改 lockfile。
+- `npm run typecheck`、`npm run build`、`npm run test:bundle` 通过；`npm run test:worker` 为 9/9 通过。
+- 完整 `npx playwright test`：首次 CRLF checkout 为 189 PASS / 4 FAIL；四项为源码读取契约的换行敏感性（删除接线、cursor 类型切片、私有摘录 SQL、文件配额 SQL）。仅本机规范这四份输入的 LF 后，完整重跑 193 PASS / 0 FAIL，无源码或 SQL 语义变更。不能将第一次失败隐去。
+- `npm run quality`：Windows 返回 0，但不生成 `test-results/release-report.json`，因此为 **BLOCKED**，不能据退出码声称通过。入口的 `import.meta.url` 与 `new URL(process.argv[1], 'file:').href` 在 Windows 路径下不匹配，主流程未执行；这是仓库质量门问题，需主 Agent 协调修复归属。没有用模拟生产配置掩盖真实环境缺失。
+- PR #10 初始提交 `1f3d288` 的两个 CI quality 检查均 SUCCESS，无 Review、无冲突。CI 不等于真实 RLS 验收。
+- 已处理/发出的协调评论：`https://github.com/pandawalker01/WorLibrary/pull/10#issuecomment-6776264302`；下一轮从该评论之后检查新增内容。
+- 当前会话 heartbeat `worlibrary-agent-b-pr-10` 已通过内置工具创建并复核 ACTIVE，每 10 分钟执行；主 Agent 的巡检未修改。
