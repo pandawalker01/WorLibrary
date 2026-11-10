@@ -275,3 +275,7 @@ curl -sI https://app.example.com/
 ## 私有原书对象存储
 
 Cloudflare 部署需独立、非公开的 R2 bucket，并以 `USER_BACKUPS` 绑定。它不得用于平台授权内容，也不得配置 public domain、静态 URL 或浏览器直连 CORS。`SUPABASE_SERVICE_ROLE_KEY` 只能是 Worker Secret，绝不使用 `VITE_` 前缀。部署前运行 `npm run test:worker`，并在 staging 完成真实 Supabase/R2 验收；本地合约测试不授权开启“同步完成”文案。
+
+### 本机质量门证据
+
+Windows 与 CI 均通过 npm run quality 生成 test-results/release-report.json。脚本使用当前 Node 执行 npm CLI，并以原生路径创建报告目录。缺少报告不是通过；只有退出码 0 且 releaseReady 为 true 才满足质量门。退出码 2 表示配置/基础设施阻塞。CI 的契约配置不构成 staging 实际迁移或双账户 RLS 证据。

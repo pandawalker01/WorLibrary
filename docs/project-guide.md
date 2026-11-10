@@ -132,3 +132,7 @@ WorLibrary 是本地优先的多语言阅读器：用户导入自己拥有的 EP
 `0014`/`0015` 将 EPUB/PDF manifest、分块账本、配额预留和删除墓碑放在账户隔离表；字节仅进入独立私有的 `USER_BACKUPS` R2 绑定。`/api/user-files/*` 由 Worker 验证稳定账户后代持 R2 与 service-role RPC：浏览器只能得到 manifest ID、状态和进度，绝不得到对象键、签名 URL、桶名或服务端密钥。
 
 当前已有可恢复分块上传/按块恢复的实现和合约测试。稳定账户在新设备只会把同时存在于本人 metadata shadow 与本人 active manifest 的书显示为“云端可恢复”；恢复分块先写入私有临时 IndexedDB，只有最终文件大小与本人 manifest 的 SHA-256 都匹配后才原子写入 OPFS/本地 IndexedDB。中断保留已完成分块；哈希失败会清除该 manifest 的临时分块，下次只从受控网关重新下载，失败绝不产生半成品书籍。真实 Supabase、R2、两设备验收仍为 **NOT VERIFIED**，界面不得称“云端同步已完成”。
+
+### 跨平台质量门
+
+scripts/quality-gate.mjs 通过当前 Node 和 npm JS CLI 执行子检查，并用原生文件 URL/路径处理入口与报告目录；scripts/quality-gate.test.mjs 以临时独立 CLI fixture 覆盖实际执行、报告生成和失败退出码。源码契约读取时规范 CRLF，不能依赖本机改写源码。质量门必须检查报告存在及 releaseReady，不将 Windows 空执行的退出码 0 或 CI 契约通过当真实同步验收。

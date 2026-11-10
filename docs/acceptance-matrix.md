@@ -99,3 +99,7 @@ npm run qa
 - 自动化 fixture 只包含可公开测试的最小 EPUB/PDF 内容；不提交受版权保护的完整书籍。
 - `reader-position.spec.ts` 验证浏览器本地持久化，而非跨设备同步。清除站点数据后位置丢失属于预期，需要通过导出/导入恢复。
 - `mobile-reader.spec.ts` 覆盖窄屏基础可用性，仍需在发布前用真机及 Safari/Android Chrome 进行一次人工体验验收。
+
+## 跨平台质量门执行验收
+
+Windows/Linux 的 npm run quality 必须实际启动所有子检查并生成报告；CLI 回归覆盖带空格路径、成功退出 0、子检查失败退出 1。缺配置生成 blocked 报告并退出 2。四项原有源码/SQL 契约在 CRLF checkout 下直接通过，无需改写源码。自动化：scripts/quality-gate.test.mjs（由质量门执行）、完整 Playwright。真实 RLS/跨设备验收仍独立，不由此替代。

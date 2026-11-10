@@ -215,6 +215,9 @@ test('account controls use one upper-right sized group across the shelf and othe
 })
 
 test('a signed-in reader gets a private account menu with a reachable account center and sign-out', async ({ page }) => {
+  // CI builds have a contract-only Supabase URL. Keep sign-out local to this
+  // UI test instead of waiting on DNS/network for that nonexistent service.
+  await page.route('**/auth/v1/logout', route => route.fulfill({ status: 204 }))
   await page.addInitScript(() => localStorage.setItem('wor-library.auth.session', JSON.stringify({
     accessToken: 'test-access-token',
     refreshToken: 'test-refresh-token',

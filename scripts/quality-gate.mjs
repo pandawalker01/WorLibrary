@@ -2,17 +2,20 @@
 
 import { mkdir, writeFile } from 'node:fs/promises'
 import { spawnSync } from 'node:child_process'
+import { dirname, resolve, join } from 'node:path'
+import { pathToFileURL } from 'node:url'
 
 const reportPath = process.env.QUALITY_REPORT_PATH || 'test-results/release-report.json'
-const npm = process.platform === 'win32' ? 'npm.cmd' : 'npm'
-const npx = process.platform === 'win32' ? 'npx.cmd' : 'npx'
+// npm supplies its JS entry point. Running it with this Node avoids .cmd
+// shell execution and preserves paths containing spaces on Windows.
+const npmCli = process.env.npm_execpath || join(dirname(process.execPath), 'node_modules/npm/bin/npm-cli.js')
 
 function run(command, args) {
   const result = spawnSync(command, args, { encoding: 'utf8', env: process.env })
   return {
     exitCode: result.status ?? 1,
     stdout: result.stdout || '',
-    stderr: result.stderr || '',
+    stderr: `${result.stderr || ''}${result.error ? String(result.error) : ''}`,
   }
 }
 
@@ -56,7 +59,7 @@ function classifyPlaywright(result) {
 }
 
 async function main() {
-  const configurationResult = run('node', ['scripts/validate-env.mjs', '--production', '--json'])
+  const configurationResult = run(process.execPath, ['scripts/validate-env.mjs', '--production', '--json'])
   const configuration = parseConfiguration(configurationResult)
   const checks = [{
     name: 'production-environment',
@@ -66,12 +69,13 @@ async function main() {
   }]
 
   for (const [name, command, args] of [
-    ['typecheck', npm, ['run', 'typecheck']],
-    ['build', npm, ['run', 'build']],
-    ['bundle-budget', npm, ['run', 'test:bundle']],
-    ['cloudflare-worker', npm, ['run', 'test:worker']],
-    ['ai-gateway', npm, ['run', 'test:gateway']],
-    ['playwright', npx, ['playwright', 'test', '--reporter=json']],
+    ['quality-runner', process.execPath, [npmCli, 'run', 'test:quality']],
+    ['typecheck', process.execPath, [npmCli, 'run', 'typecheck']],
+    ['build', process.execPath, [npmCli, 'run', 'build']],
+    ['bundle-budget', process.execPath, [npmCli, 'run', 'test:bundle']],
+    ['cloudflare-worker', process.execPath, [npmCli, 'run', 'test:worker']],
+    ['ai-gateway', process.execPath, [npmCli, 'run', 'test:gateway']],
+    ['playwright', process.execPath, [npmCli, 'exec', '--', 'playwright', 'test', '--reporter=json']],
   ]) {
     const result = run(command, args)
     const classification = name === 'playwright' ? classifyPlaywright(result) : { classification: 'code', status: result.exitCode === 0 ? 'passed' : 'failed' }
@@ -80,7 +84,7 @@ async function main() {
 
   const outcome = summarise(checks)
   const report = { schemaVersion: 1, generatedAt: new Date().toISOString(), reportPath, releaseReady: outcome.status === 'passed', ...outcome, checks }
-  await mkdir(new URL('.', `file://${process.cwd()}/${reportPath}`).pathname, { recursive: true })
+  await mkdir(dirname(resolve(reportPath)), { recursive: true })
   await writeFile(reportPath, `${JSON.stringify(report, null, 2)}\n`)
   process.stdout.write(`Quality gate ${report.status}: ${reportPath}\n`)
   if (outcome.configurationBlocked.length) process.stdout.write(`Configuration blocked: ${outcome.configurationBlocked.join(', ')}\n`)
@@ -89,4 +93,4 @@ async function main() {
   process.exit(outcome.exitCode)
 }
 
-if (import.meta.url === new URL(process.argv[1], 'file:').href) await main()
+if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) await main()
