@@ -118,4 +118,8 @@ npm run qa
 
 ## 私有文件同意与准入草案
 
-`tests/user-file-consent.spec.ts` 覆盖专用RPC最小payload、匿名/失效账户零请求、在途失效丢弃返回和未知/危险字段失败关闭；0018静态契约覆盖RLS、窄授权、本人active edition、描述符幂等、串行begin与删除墓碑不按30天失效。SQL执行、并发配额和真实RLS尚NOT VERIFIED；首次同意产品入口、Worker完整性硬化及真实两设备恢复仍未交付，不把静态断言作为线上证据。
+`tests/user-file-consent.spec.ts` 覆盖专用RPC最小payload、匿名/失效账户零请求、在途失效丢弃返回和未知/危险字段失败关闭；0018静态契约覆盖RLS、窄授权、本人active edition、描述符幂等、串行begin与删除墓碑不按30天失效。真实Supabase上的SQL执行、并发配额和RLS尚NOT VERIFIED；首次同意产品入口、Worker完整性硬化及真实两设备恢复仍未交付，不把静态断言作为线上证据。
+
+## 0019 本机数据库并发证据
+
+`scripts/private-file-postgres.test.mjs` / `npm run test:user-files-db` 已用本机PostgreSQL15.19执行10项真实多连接回归，包含等待中的pause/delete栅栏、旧快照、幂等配额和cleanup状态；不再仅用SQL静态字符串作为并发依据。证据 `docs/evidence/private-file-sql-local-2026-11-11.json` 不含令牌、对象实际地址或完整请求payload。fixture的auth与edition是最小模拟，真实Supabase/RLS、R2并发/完整性与产品双设备仍NOT VERIFIED。新SQL命令未自动纳入共享quality，须主 Agent协调CI集成。

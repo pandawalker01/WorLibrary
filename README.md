@@ -52,3 +52,7 @@ npm run build
 ### 个人云书库前向迁移草案
 
 `0018_private_file_consent.sql` 仅已起草并本地测试，尚未应用远端；它新增专用本人同意/暂停及用量RPC，并要求上传准入已同意且edition归本人。首次同意和自动上传产品入口仍未交付。部署前须按 `docs/release-governance.md` 由主 Agent审阅、核对实际staging migration清单，在完整文件网关验证后执行；不能单独应用此SQL并宣称云书库已上线。无新增前端密钥或环境变量，真实Supabase/R2仍NOT VERIFIED。
+
+## 私有文件本机 SQL 并发回归
+
+已安装 PostgreSQL 的开发者可在当前进程设置 `WORLIBRARY_TEST_PG_BIN` 指向其 `bin` 目录，然后运行 `npm run test:user-files-db`。该命令总是新建只监听 `127.0.0.1` 的临时fixture cluster，使用独立随机端口，不接受远端URL/现有data目录，不读取用户PG连接配置或密码文件，不安装系统服务，结束自动停止。它不运行Supabase/R2验收，也尚未加入共享quality执行器；测试二进制不要提交仓库。Windows可从[PostgreSQL官方页面](https://www.postgresql.org/download/windows/)链接的[EDB二进制页](https://www.enterprisedb.com/download-postgresql-binaries)取得便携包并核对官方SHA-256。

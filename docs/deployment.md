@@ -281,3 +281,9 @@ Cloudflare 部署需独立、非公开的 R2 bucket，并以 `USER_BACKUPS` 绑�
 只新增0018，不修改0014/0015/0017。新表 `user_file_library_preferences` 普通浏览器无直接权限；专用get/set RPC仅本人稳定账户可执行，set只接受boolean，服务端记录首次accepted_at。暂停保留同意和现有云文件，get只返回开关/同意及用量。新begin会拒绝未同意、暂停、他人/已删除edition及不一致的幂等descriptor，用户删除墓碑不因旧expires_at到期恢复上传。
 
 此SQL仅获起草/测试授权，不代表远端已执行。先核对真实staging迁移清单并经主 Agent门禁，验证同意客户端与完整Worker版本兼容；旧客户端没有同意记录会失败关闭。尚未提供产品首次同意入口，不能单独应用0018开启面向用户上传。服务端分块完整性/并发清理与两账户RLS仍需真实验收；不部署Production。
+
+## 0019 账户生命周期串行化（草案，未应用）
+
+仅新增前向0019，保留0018审阅基线。所有私有文件写RPC先共享账户advisory锁并更新内部mutation fence，再处理同意/manifest/配额；record/complete复验同意、active edition、墓碑与状态。对既有文件的读取/删除继续允许暂停账户。finish只结算deleting状态且重复调用不重复扣额，reap保留可重试待清理项。
+
+已使用官方SHA-256验证的本机便携PostgreSQL 15.19、多连接fixture实际执行文件迁移链及并发测试10/10；这是最小auth/edition模拟环境，不代表真实Supabase/RLS或完整项目迁移链。脱敏证据见 `docs/evidence/private-file-sql-local-2026-11-11.json`。新命令未改共享quality流程；主 Agent需复核是否将该独立SQL检查接入CI。0018/0019仍未获远端执行授权，实际staging migration清单、Worker/R2完整协议和真实跨设备验收均需按门禁完成。

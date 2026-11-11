@@ -1,0 +1,62 @@
+{
+  "schemaVersion": 1,
+  "recordedAt": "2026-11-11T09:20:50.779Z",
+  "environment": "local loopback-only disposable PostgreSQL fixture",
+  "postgresVersion": "15.19",
+  "runtimeSource": "https://www.enterprisedb.com/download-postgresql-binaries",
+  "archiveSource": "https://get.enterprisedb.com/postgresql/postgresql-15.19-5-windows-x64-binaries.zip",
+  "archiveSHA256": "49e0690194d9fe2bb4d7d6587fdddaa85a3eaaafe2fd5480e0916fcb25d0143e",
+  "command": "npm run test:user-files-db",
+  "result": {
+    "passed": 10,
+    "failed": 0,
+    "skipped": 0
+  },
+  "subjects": [
+    {
+      "path": "supabase/migrations/0019_private_file_lifecycle_serialization.sql",
+      "sha256": "096e39ca0b937971d83c9e0bfce43ccaf1a5ea1e2e9607adce18940a49c138e6"
+    },
+    {
+      "path": "scripts/private-file-postgres.test.mjs",
+      "sha256": "877239f20c914908d2b954f279ec01fa4579d4f319b0caed5d02af7bb6823f25"
+    }
+  ],
+  "fixtureMigrations": [
+    "0014",
+    "0015",
+    "0017",
+    "0018",
+    "0019"
+  ],
+  "fixtureOnly": [
+    "minimal auth.users and editions tables",
+    "auth.uid/auth.jwt from synthetic local test claims",
+    "local anon/authenticated/service_role roles"
+  ],
+  "verified": [
+    "real concurrent sessions wait on shared account lock",
+    "pause blocks old begin/record/complete without new quota",
+    "cloud tombstone blocks completion/reservation and remains effective after legacy expiry",
+    "identical begin reserves once",
+    "old repeatable-read snapshot fails closed after deletion",
+    "metadata deletion is rechecked after row lock",
+    "paused existing file remains SQL-readable/deletable",
+    "finish releases quota once after deleting state",
+    "pending expiry cleanup is retryable before renewed reservation",
+    "chunk size/key/owner and upload expiry are revalidated",
+    "first consent timestamp is preserved"
+  ],
+  "notVerified": [
+    "real Supabase JWT/RLS and full project schema",
+    "R2 object access, immutable uploads or byte integrity",
+    "Worker and R2 concurrent cleanup",
+    "two-browser/device product flow",
+    "remote migration application"
+  ],
+  "remoteDDLExecuted": false,
+  "systemServiceInstalled": false,
+  "serverStoppedAfterTests": true,
+  "serverIdentityCheckedBeforeDDL": true,
+  "subjectHashNormalization": "UTF-8 LF"
+}

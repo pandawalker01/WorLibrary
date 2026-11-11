@@ -206,6 +206,16 @@ Node 24.22.1 下 typecheck、生产 build、bundle budget 通过；完整 Playwr
 
 0018草案新增私有同意RPC，客户端只发空get或单boolean set，不携带账户ID、原书、书名或metadata payload。RPC不可用/未知响应时失败关闭，不能从本机缓存推断已同意。暂停保留既有accepted_at和云文件；启用仅由用户明确动作发起。new begin还核对本人active edition、descriptor幂等、配额和永久阻止同edition云删除复活；过期上传仅在已完成清理后允许重新预留。
 
-本机未发现psql/docker/supabase运行器，因此新SQL只做静态契约检查，不能称SQL执行/事务/RLS已通过。主 Agent审核并通过迁移门禁后，必须验证：匿名/他人不能读写；暂停与重新开启保留首次同意；并发相同operation/hash不重复扣配额；不一致descriptor拒绝；过期清理后可重试；删除墓碑超过旧30天仍拒绝同edition重传。真实环境目前NOT VERIFIED，未执行任何远端DDL。
+最初未发现psql/docker/supabase运行器，当时只有静态契约，不能据此称SQL执行/事务/RLS通过；0019阶段已补本机PostgreSQL fixture实测，见下方记录，真实Supabase/RLS仍未验收。主 Agent审核并通过迁移门禁后，必须验证：匿名/他人不能读写；暂停与重新开启保留首次同意；并发相同operation/hash不重复扣配额；不一致descriptor拒绝；过期清理后可重试；删除墓碑超过旧30天仍拒绝同edition重传。真实环境目前NOT VERIFIED，未执行任何远端DDL。
 
 2026-11-11 0018草案验证：新同意客户端/迁移静态契约5/5，Node24 typecheck/build/bundle通过；完整Playwright首次记录198 PASS/13 FAIL并出现约12小时时钟跨度、浏览器启动/worker退出超时，不记为通过。环境恢复后独占4273、2 workers完整重跑为211/211通过（约55秒）。新SQL没有本地PostgreSQL执行证据，更没有真实Supabase/RLS或R2验收；不得将211项自动化称为迁移已应用或云书库已可发布。
+
+### 本机真实 PostgreSQL 并发测试与边界
+
+`npm run test:user-files-db` 使用 `WORLIBRARY_TEST_PG_BIN` 指定的本机PG二进制，新建随机临时cluster和loopback端口，忽略继承PG连接变量，不使用现有库或密码文件，不安装服务，finally停止；不能传Supabase连接串。临时数据在被忽略的test-results目录，无生产数据。
+
+0019统一set-enabled/begin/record/complete/delete/finish/reap账户锁，并更新pref内部fence，覆盖锁等待前已有快照。实际多连接回归先持有未提交暂停/删除，验证其他begin/record/complete确实在pg_stat_activity等待锁，然后提交并断言拒绝及配额不增加；另验证旧REPEATABLE READ、新同意时间保留、metadata行删除、准确chunk范围/owner、暂停时读取/删除、finish幂等与失败清理重试。PostgreSQL15.19 fixture为10/10通过，官方包SHA与脚本/迁移hash见脱敏证据JSON。
+
+这取代“只有静态字符串”的本机SQL验证限制，但不取代真实Supabase JWT/RLS、完整schema、R2或两个Profile验收。Worker目前仍需不可变对象写入、全文件校验及R2并发清理硬化；SQL串行化不能被表述为对象并发安全。0018/0019未执行远端DDL，产品上传入口仍未接线；共享Windows quality修复仍归Agent B #10。
+
+2026-11-11 0019提交前验证：本机PostgreSQL15.19实际多连接10/10，完整Playwright211/211（独占4273、2 workers），typecheck/生产build及配置启用bundle budget均通过，入口约350.4kB，预算未提高。SQL runner在任何fixture DDL前还校验随机cluster身份，结束后停止；官方archive SHA与规范LF后的脚本/迁移SHA留在证据JSON。共享Windows quality仍归B，SQL独立命令未加入共享门禁；真实Supabase/R2和远端DDL仍未执行。
