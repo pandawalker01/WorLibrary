@@ -62,7 +62,7 @@ npm run qa
 | 浏览器同步设备注册 | 仅稳定账户且已配置受控远端时才读取或创建本机随机 UUID 并调用 `register_sync_device`；匿名或未配置时不触碰设备存储或网络。持久化 UUID 与请求体不含用户身份、邮箱、书籍 ID、文件名或正文；服务端设备响应只投影安全的设备状态。 | `tests/device-registration-session.spec.ts`、`tests/remote-rpc-client.spec.ts` |
 | 同步基础数据边界 | 同步设备、变更日志、删除墓碑、键级设置与阅读统计事件均以用户 RLS 隔离；普通浏览器会话不能直接写日志/墓碑/统计聚合，迁移不包含任何 EPUB/PDF blob 或对象键 | `tests/metadata-sync-foundation-migration.spec.ts` |
 | 受控元数据同步底座 | RPC 只接受 authenticated 自有未撤销设备的受限 metadata mutation/pull；服务端分配 revision、拒绝陈旧写、保证 operation 幂等并写入墓碑；客户端 outbox 以账户隔离并拒绝二进制、对象定位、数据 URL 和正文。edition 白名单为书名、作者、语言、进度、位置、文件名/类型/大小和安全封面色（这些是文本/数值 metadata，不是原书文件）；阅读进度只含版本 ID、进度与位置；偏好只含 `reader.layout` / `reader.language`。摘录另走 `0012` 的专用 RPC，只接收 `edition_id`、选区文本、位置、笔记、`gold`/`rose`/`blue` 与是否显示高亮，并再次验证本人活跃设备。任何 RPC 均不能接收 EPUB/PDF 或封面二进制、对象键、URL 或整本正文。change-feed 拉取只允许稳定账户，分页 sequence 必须严格递增；调用方拒绝未知/不安全 payload 时不得推进游标。edition 变更仅可投影到账户隔离的 `needsReimport` shadow；未知 entity 不得写入 shadow。迁移 `0016` 修复递归 payload guard 对 JSON 标量 leaf 抛 `case not found` 的缺陷。 | `tests/controlled-metadata-sync-migration.spec.ts`、`tests/private-highlight-sync-migration.spec.ts`、`tests/remote-rpc-client.spec.ts`、`tests/metadata-sync-outbox.spec.ts`、`tests/metadata-sync-engine.spec.ts`、`tests/metadata-sync-edition-shadow.spec.ts` |
-| 页面写入与受控同步衔接（当前阶段） | 稳定已登录账户的本地导入、书目校正、成功持久化的 EPUB/PDF 阅读进度，以及成功保存、改色、改笔记或删除的私有摘录都会在本地事务成功后进入账户隔离 outbox；账户变化会使旧意图/旧运行失效，后台失败不得回退或阻塞本地阅读。同一账户按顺序 flush，成功后才按严格递增 revision 拉取。同一账户同一 entity 的连续 pending upsert 必须合并为最早基线/操作 ID 与最新安全 payload；已发送操作须由本地 lease 精确 claim，回执只能确认该 claim，后续本地编辑必须保留为新 pending 操作并重基到回执 revision。网络失败保留 outbox 并按有限指数退避重试，断网时由 `online` 事件触发重放；登出和账户切换会取消旧账户运行与重试定时器。未知/不安全 payload、非暂时 RPC 错误不推进 pull cursor。本地阅读仍可继续，不能以失败回退覆盖本地未确认改动。远端书籍 shadow 仍作为账户隔离、不可点击的“需重新导入原书”卡片展示；只有用户手选 EPUB/PDF 且格式、文件名、字节大小精确匹配时，才创建本地可读副本。远端私有摘录 shadow 仅限同账户、同版本的文本/位置/笔记/颜色/显示状态，不授予书籍文件读取权。本地书籍删除成功后会先排入本书摘录的空 payload 删除，再排入仅含 `editionId` 与 revision 的空 payload edition tombstone；它只删除当前设备文件，服务端 tombstone 会拒绝旧设备的版本 upsert。阅读偏好只允许 `reader.layout` 与 `reader.language`，按账户缓存和恢复，界面语言不随云端变化。所有 EPUB/PDF、封面二进制、对象键、URL 与整本正文均不得进入 metadata RPC 或同步投影；摘录选区文本只经专用私有 RPC 发送。 | `tests/reading-progress-storage.spec.ts`、`tests/metadata-sync-edition-intent.spec.ts`、`tests/metadata-sync-highlight-intent.spec.ts`、`tests/metadata-sync-preference-intent.spec.ts`、`tests/metadata-sync-preference-shadow.spec.ts`、`tests/metadata-sync-retry.spec.ts`、`tests/metadata-sync-runtime.spec.ts`、`tests/metadata-sync-engine.spec.ts`、`tests/metadata-sync-coordinator.spec.ts`、`tests/private-highlight-sync-migration.spec.ts`、`tests/remote-book-metadata-shadows.spec.ts`、`tests/remote-book-shadow-reimport.spec.ts`、`tests/remote-shadow-shelf-ui.spec.ts` |
+| 页面写入与受控同步衔接（当前阶段） | 稳定已登录账户的本地导入、书目校正、成功持久化的 EPUB/PDF 阅读进度，以及成功保存、改色、改笔记或删除的私有摘录都会在本地事务成功后进入账户隔离 outbox；账户变化会使旧意图/旧运行失效，后台失败不得回退或阻塞本地阅读。同一账户按顺序 flush，成功后才按严格递增 revision 拉取。同一账户同一 entity 的连续 pending upsert 必须合并为最早基线/操作 ID 与最新安全 payload；已发送操作须由本地 lease 精确 claim，回执只能确认该 claim，后续本地编辑必须保留为新 pending 操作并重基到回执 revision。网络失败保留 outbox 并按有限指数退避重试，断网时由 `online` 事件触发重放；登出和账户切换会取消旧账户运行与重试定时器。未知/不安全 payload、非暂时 RPC 错误不推进 pull cursor。本地阅读仍可继续，不能以失败回退覆盖本地未确认改动。远端书籍 shadow 仍作为账户隔离、不可点击的“需重新导入原书”卡片展示；只有用户手选 EPUB/PDF 且格式、文件名、字节大小精确匹配时，才创建本地可读副本。远端私有摘录 shadow 仅限同账户、同版本的文本/位置/笔记/颜色/显示状态，不授予书籍文件读取权。“仅从此设备移除”不发送任何全局 edition/highlight tombstone；仅清理本机文件与相关记录，保留云端恢复入口。既有 metadata 全局删除协议与原书云端删除是独立能力。阅读偏好只允许 `reader.layout` 与 `reader.language`，按账户缓存和恢复，界面语言不随云端变化。所有 EPUB/PDF、封面二进制、对象键、URL 与整本正文均不得进入 metadata RPC 或同步投影；摘录选区文本只经专用私有 RPC 发送。 | `tests/reading-progress-storage.spec.ts`、`tests/metadata-sync-edition-intent.spec.ts`、`tests/metadata-sync-highlight-intent.spec.ts`、`tests/metadata-sync-preference-intent.spec.ts`、`tests/metadata-sync-preference-shadow.spec.ts`、`tests/metadata-sync-retry.spec.ts`、`tests/metadata-sync-runtime.spec.ts`、`tests/metadata-sync-engine.spec.ts`、`tests/metadata-sync-coordinator.spec.ts`、`tests/private-highlight-sync-migration.spec.ts`、`tests/remote-book-metadata-shadows.spec.ts`、`tests/remote-book-shadow-reimport.spec.ts`、`tests/remote-shadow-shelf-ui.spec.ts` |
 | 阅读偏好页面接线 | 稳定登录账户修改主题、字号、PDF 缩放或理解语言后，只有 `reader.layout` / `reader.language` 的白名单 payload 可入队；远端应用先持久化账户专属缓存，且切换账户后恢复目标账户缓存或安全默认值。匿名、登出与界面语言不得触发该同步。 | `tests/metadata-sync-preference-intent.spec.ts`、`tests/metadata-sync-preference-shadow.spec.ts`；契约通过 |
 | 内测元数据同步闭环（真实项目阻塞） | 两个独立浏览器 profile 使用同一稳定测试账户后，书架元数据、进度、摘录/笔记/颜色和必要偏好双向恢复；另用第二账户验证 UI、change feed、RPC 和可读表均不能跨账户读取/写入。匿名会话无设备注册、RPC 或 outbox。断网重放按序提交且同一 operation ID 只应用一次；账户切换/登出阻止旧运行继续 flush、pull、写 revision/cursor 或重试，但保留旧账户队列供其重新登录后恢复。revision 或 shadow 持久化失败时 cursor 不前进，cursor 写失败显式失败；删除墓碑拒绝旧设备用相同 entity ID 复活数据。远端本地书只显示“需重新导入原书”且无法打开；RPC 不得携带 EPUB/PDF 或封面二进制、对象键、URL 或整本正文。具体步骤见 [`docs/runbook.md`](runbook.md#真实-supabase-双-profile-验收步骤)。 | **2026-10-28：BLOCKED。**更新凭据后账户 A/B 登录、设备注册和 change-feed 拉取成功；真实 edition upsert 返回 SQLSTATE `20000` / `case not found`（request ID `01a17e3c-e328-797d-91a5-76ef80fa61a9`）。已添加 scalar-guard migration `0016` 和契约回归测试，但 staging 尚未应用；因此书架/进度/摘录/偏好同步、RLS、匿名、重试、cursor、切换和 tombstone 仍未通过。没有截图；脱敏 RPC 记录见 `docs/evidence/staging-sync-2026-10-28.json`。 |
 | 个人云书库（公开试用门槛） | 用户首次明确同意后，后续自导入 EPUB/PDF 自动进入其账户私有云书库；设备 B 只在本人 metadata shadow 与 active manifest 同时存在时显示“云端可恢复”。按块恢复先保留临时分块，最终文件大小及 SHA-256 与本人 manifest 匹配后才写入 OPFS/IndexedDB；同长度哈希不符会拒绝恢复、清除该 manifest 的临时分块，并让下一次尝试从受控网关重新下载，失败不得产生半成品或宣称同步完成。P0 是私有对象存储，不宣称应用层加密、解密或密钥管理。 | `0014`/`0015`/`0017`、`src/lib/user-file-library.ts` 与 `tests/user-file-library.spec.ts` 覆盖 manifest、分块、最终哈希、临时恢复、配额、过期回收与删除墓碑的代码/合约边界；真实 Supabase/R2 上传/恢复、双账户 RLS 隔离与双设备验收**NOT VERIFIED**。发布前必须验证对象私有、RLS、无长期对象 URL/密钥泄露、删除后拒读与设备 B 恢复。 |
@@ -99,3 +99,55 @@ npm run qa
 - 自动化 fixture 只包含可公开测试的最小 EPUB/PDF 内容；不提交受版权保护的完整书籍。
 - `reader-position.spec.ts` 验证浏览器本地持久化，而非跨设备同步。清除站点数据后位置丢失属于预期，需要通过导出/导入恢复。
 - `mobile-reader.spec.ts` 覆盖窄屏基础可用性，仍需在发布前用真机及 Safari/Android Chrome 进行一次人工体验验收。
+
+## 上传任务 journal 回归
+
+`tests/user-file-upload-task.spec.ts` 覆盖中断续传复用 operation ID、跳过服务端已确认块、账户变化阻止后续 complete/进度、同名同大小但内容不同重新分配 operation、账户隔离、journal 写失败时零远端写入。模块目前尚未接产品入口；真实 Supabase/R2 仍为 NOT VERIFIED。
+
+恢复会话失效与删除状态：`tests/user-file-library.spec.ts` 增加真实异步 fetch 期间账户失效的回归，断言不缓存、不回报进度、不返回原书；云端删除必须保留 deleting/deleted，未知响应不得当作清理完成。importer 在途写入现由同一 IndexedDB 事务和会话 AbortSignal 整体回滚；删除产品重试入口与真实环境仍待完成。
+
+## 本机恢复事务与移除验收
+
+- `tests/private-cloud-local-lifecycle.spec.ts`：在真实 IndexedDB 写请求成功事件触发会话撤销，原书、book、work、edition 一起回滚；成功恢复文件可读取；OPFS 清理失败保留本机书供重试。
+- `tests/book-delete-tombstone-wiring.spec.ts`：仅本机移除不排 edition/highlight 全局 tombstone，既有 metadata 删除协议不被删除。
+- `tests/smoke.spec.ts`：菜单可访问名称明确使用“仅从此设备移除”。恢复/移除的持久化 helper 按需加载，首屏包体仍须满足原预算。首次同意、上传调度与可见失败重试仍待接线；本机上传抑制已有代码/自动化，真实 Supabase/R2 闭环仍待验收。
+
+## 删除后的本机上传抑制验收
+
+`tests/user-file-upload-task.spec.ts` 新增在途分块时删除、陈旧失败回执、重试/内容变化仍拒绝和账户隔离；`tests/private-cloud-local-lifecycle.spec.ts` 用真实IndexedDB验证重开store以及陈旧active/failed写入均不能覆盖suppressed；`tests/user-file-library.spec.ts` 验证抑制落盘失败时不发云删除请求。本机/云端删除入口均先写本机抑制。此阶段自动上传产品入口尚未接线，跨设备永久删除和R2清理/配额真实验收仍NOT VERIFIED。
+
+## 私有文件同意与准入草案
+
+`tests/user-file-consent.spec.ts` 覆盖专用RPC最小payload、匿名/失效账户零请求、在途失效丢弃返回和未知/危险字段失败关闭；0018静态契约覆盖RLS、窄授权、本人active edition、描述符幂等、串行begin与删除墓碑不按30天失效。真实Supabase上的SQL执行、并发配额和RLS尚NOT VERIFIED；首次同意产品入口、Worker完整性硬化及真实两设备恢复仍未交付，不把静态断言作为线上证据。
+
+## 0019 本机数据库并发证据
+
+`scripts/private-file-postgres.test.mjs` / `npm run test:user-files-db` 已用本机PostgreSQL15.19执行10项真实多连接回归，包含等待中的pause/delete栅栏、旧快照、幂等配额和cleanup状态；不再仅用SQL静态字符串作为并发依据。证据 `docs/evidence/private-file-sql-local-2026-11-11.json` 不含令牌、对象实际地址或完整请求payload。fixture的auth与edition是最小模拟，真实Supabase/RLS、R2并发/完整性与产品双设备仍NOT VERIFIED。新SQL命令未自动纳入共享quality，须主 Agent协调CI集成。
+
+## Worker 实际字节完整性原语
+
+`npm run test:worker` 增加7项流式单元测试及1项原生workerd/模拟R2测试：同大小损坏必须拒绝，逐块摘要不能替代整书摘要，顺序读取不得整书缓冲，未知/缺失/超长正文失败关闭，内部地址不出错误。该helper尚未接完成路由，验收范围仅本机原语；不可变对象、generation CAS和真实Supabase/R2/两设备仍NOT VERIFIED，不能据此启用自动上传。
+
+## 0020 校验窗口内的数据库竞争
+
+本机PostgreSQL回归现为15项，新增验证快照权限/旧complete关闭、generation变化、错误回执和并发幂等收费。真实多连接在record未提交时让旧快照完成请求等待，提交后必须拒绝旧generation并维持reserved配额；暂停/删除/过期及metadata删除均不能凭旧快照激活。合成hash回执不是字节证明，R2不可变性与完成端点仍待接线，不可单独应用0020。
+
+目录smoke隔离边界：两项OpenLibrary搜索用例现在明确mock同源/api/catalog回退和Google Books空结果，并断言两条分支被调用，避免等待真实第二来源导致5秒断言抖动。受控慢来源已复现旧fixture失败；不修改目录产品逻辑或由Agent B维护的logout mock。#9未合入当前基线，不以模块归属代替失败归因。
+
+## 条件创建防覆盖原语
+
+Worker测试增加原生R2并发条件创建：同内容重试只有一次created，不同内容不得改变原etag/正文，空对象不能冒充已上传块；输入buffer/descriptor在await后被修改也不能改变落盘对象。23项Worker测试覆盖此独立helper，尚无端点/持久intent或清理策略接线，真实R2与完整删除竞态仍NOT VERIFIED。
+
+## 0021 intent 与正文删除的并发验收
+
+本机PG验证随机intent先于ledger、普通角色/表直读与旧record拒绝、暂停/删除后的旧receipt拒绝、等待删除锁的新prepare/commit拒绝、全部intent确认前配额不释放，以及过期重试不复用旧随机key。legacy记录拒绝门禁必须保持，不得拿清空fixture流程当真实迁移。
+
+原生workerd经真实Worker路由测试：delete先于慢PUT（无对象先建栅栏）、PUT先于delete、重复删除、部分清理失败与配额重试、暂停后旧写回执、校验窗口删除、同大小损坏不发激活RPC、空栅栏拒绝读和读期间删除后复核。SQL服务为合成模型，独立PG证明锁/权限；两者不替代真实staging R2/Supabase/RLS。删除只承诺正文清零，永久保留0-byte内部栅栏及随机定位/请求成本，TTL/GC禁止移除。
+
+## 设置页首次授权与暂停
+
+新 `tests/private-cloud-preferences.spec.ts` 包含5个浏览器用例：匿名不见入口、首次未选中checkbox与取消零写、boolean-only启用/暂停/恢复、危险响应不渲染且模糊set后只能重读、账户切换隔离和英文等价边界。RPC交互用例仅在公开模拟Supabase配置的构建与测试中运行，无配置明确skip；配置独立5/5通过。授权页不发文件上传请求，自动导入队列仍待交付，真实后端权限/双设备验收没有因此通过。
+
+## 0022 云删除重试产品验收
+
+本机PG合计23项，新增本人最小清理投影与匿名/service/跨账户边界。删除任务7项 + 实际App删除UI4项 + 授权5项合计16/16：新设备无正文也能发现/重试，失败跨刷新保留，IndexedDB按本人键范围隔离，存储失败不发DELETE，未知状态/错误不露定位，书籍菜单删除保留本机原书，终态后刷新配额。只有deleted清任务，不以列表消失判断清理完成；代际/A→B→A丢弃旧回执。所有远端均fixture，真实RLS/R2及完整双设备仍NOT VERIFIED。

@@ -4,6 +4,21 @@ import { test, expect } from '@playwright/test'
 
 const fixturePath = resolve('tests/fixtures/reader-fixture.epub.b64')
 
+async function mockCatalogFallback(page: import('@playwright/test').Page) {
+  const requests = { proxy: 0, google: 0 }
+  // These scenarios test Open Library's direct adapter. Explicitly exercise
+  // proxy fallback and settle every other registered source without live IO.
+  await page.route('**/api/catalog?**', async (route) => {
+    requests.proxy += 1
+    await route.fulfill({ status: 404, json: { error: 'LOCAL_ADAPTER_FIXTURE' } })
+  })
+  await page.route('https://www.googleapis.com/books/v1/volumes**', async (route) => {
+    requests.google += 1
+    await route.fulfill({ json: { items: [] } })
+  })
+  return requests
+}
+
 async function importFixture(page: import('@playwright/test').Page) {
   const encoded = await readFile(fixturePath, 'utf8')
   await page.locator('input[data-testid="library-import"]').setInputFiles({
@@ -37,6 +52,7 @@ test('primary pages omit decorative micro-labels and serial numbers', async ({ p
 })
 
 test('world library saves a source-labelled catalog book to my library', async ({ page }) => {
+  const requests = await mockCatalogFallback(page)
   await page.route('https://openlibrary.org/search.json**', async (route) => {
     await route.fulfill({ json: { docs: [{ key: '/works/OLfixtureW', title: 'World Fixture', author_name: ['Catalog Author'], first_publish_year: 2024, language: ['eng'] }] } })
   })
@@ -45,6 +61,7 @@ test('world library saves a source-labelled catalog book to my library', async (
   await page.getByRole('textbox', { name: '搜索世界书库' }).fill('fixture')
   await page.getByRole('button', { name: '搜索世界书库' }).click()
   await expect(page.getByRole('heading', { name: 'World Fixture' })).toBeVisible()
+  expect(requests).toEqual({ proxy: 1, google: 1 })
   await page.getByRole('button', { name: '加入我的书库' }).click()
   await page.getByRole('tab', { name: '我的书库' }).click()
   await expect(page.getByRole('heading', { name: 'World Fixture' })).toBeVisible()
@@ -52,6 +69,7 @@ test('world library saves a source-labelled catalog book to my library', async (
 })
 
 test('world library filters catalog search by language and multilingual availability', async ({ page }) => {
+  const requests = await mockCatalogFallback(page)
   let requestedUrl = ''
   await page.route('https://openlibrary.org/search.json**', async (route) => {
     requestedUrl = route.request().url()
@@ -67,6 +85,7 @@ test('world library filters catalog search by language and multilingual availabi
   await page.getByRole('textbox', { name: '搜索世界书库' }).fill('fixture')
   await page.getByRole('button', { name: '搜索世界书库' }).click()
   await expect(page.getByRole('heading', { name: 'Multilingual Fixture' })).toBeVisible()
+  expect(requests).toEqual({ proxy: 1, google: 1 })
   await expect(page.getByText('2 种语言 · 7 个版本')).toBeVisible()
   expect(requestedUrl).toContain('language=eng')
 })
@@ -113,7 +132,7 @@ test('local book actions are available from the library card context menu', asyn
   await page.getByRole('button', { name: /Reader Fixture/ }).click({ button: 'right' })
   await expect(page.getByRole('menu', { name: '本地书籍管理' })).toBeVisible()
   await expect(page.getByRole('menuitem', { name: '编辑信息' })).toBeVisible()
-  await expect(page.getByRole('menuitem', { name: '删除' })).toBeVisible()
+  await expect(page.getByRole('menuitem', { name: '仅从此设备移除' })).toBeVisible()
   await page.getByRole('button', { name: '设置' }).click()
   await expect(page.getByRole('heading', { name: '本地书籍管理' })).toHaveCount(0)
 })

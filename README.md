@@ -48,3 +48,19 @@ npm run build
 书籍文件、封面、进度与摘录保存在本机的 OPFS / IndexedDB；Service Worker 只缓存应用壳和静态资源，绝不缓存或上传原始书籍。离线时可继续打开已导入书籍。Cloudflare Worker 部署后，世界书库查询经同源 `/api/catalog` 访问已审核书目来源；平台自有或已授权内容仅能经私有 R2 的受控 `/api/reader/content` 交付，需先完成许可、来源哈希、授权服务与 R2 绑定配置。已审核的平台目录可由 Worker 的 `PLATFORM_CATALOG_JSON` 公开其安全书目投影，但只有同时存在匹配的 `PLATFORM_CONTENT_ACCESS_JSON` 策略时才会显示为 WorLibrary 平台版本；它不能把第三方“免费”标签自动变成可分发正文。已授权 EPUB/PDF 在平台阅读器中只进入当前会话内存并可翻页，不写入本地书库、缓存或下载路径。真实 AI/OCR 与云端同步仍需按部署文档配置服务端环境变量。清除站点数据会清除本地原书与本地状态；云端同步只恢复已完成并经真实跨设备验收的元数据，不能替代原书备份。
 
 无需云配置也可以部署并使用本地阅读核心。运行 `npm run validate:env -- --staging --json` 可获得机器可读的已关闭能力与缺失项；完整认证、同步、AI/OCR 上线前使用 `npm run validate:env -- --production --json`。AI 网关的健康、翻译与解释响应均禁止共享 HTTP 缓存，保护用户主动发送的选区文本与错误信息。变量分类与安全边界见 `docs/deployment.md`，不要把任意密钥写入 `VITE_*` 或提交 `.env`。
+
+### 个人云书库前向迁移草案
+
+`0018_private_file_consent.sql` 仅已起草并本地测试，尚未应用远端；它新增专用本人同意/暂停及用量RPC，并要求上传准入已同意且edition归本人。首次同意和自动上传产品入口仍未交付。部署前须按 `docs/release-governance.md` 由主 Agent审阅、核对实际staging migration清单，在完整文件网关验证后执行；不能单独应用此SQL并宣称云书库已上线。无新增前端密钥或环境变量，真实Supabase/R2仍NOT VERIFIED。
+
+## 私有文件本机 SQL 并发回归
+
+已安装 PostgreSQL 的开发者可在当前进程设置 `WORLIBRARY_TEST_PG_BIN` 指向其 `bin` 目录，然后运行 `npm run test:user-files-db`。该命令总是新建只监听 `127.0.0.1` 的临时fixture cluster，使用独立随机端口，不接受远端URL/现有data目录，不读取用户PG连接配置或密码文件，不安装系统服务，结束自动停止。它不运行Supabase/R2验收，也尚未加入共享quality执行器；测试二进制不要提交仓库。Windows可从[PostgreSQL官方页面](https://www.postgresql.org/download/windows/)链接的[EDB二进制页](https://www.enterprisedb.com/download-postgresql-binaries)取得便携包并核对官方SHA-256。
+
+`npm run test:worker` 还会用本机Miniflare/workerd及模拟R2执行私有原书流式SHA-256回归；无需远端凭据。0021阶段原语已接入新版完成接口，本机测试不代表真实Supabase/R2或跨设备验收通过。
+
+0020校验快照草案会关闭旧无摘要complete RPC；现已与0021及新版Worker在本机成套接线，仍不能单独应用。0020阶段SQL fixture覆盖15项；实际对象字节验证在0021本机接线，仍需真实staging门禁。
+
+个人文件0021草案与新版Worker已接持久写intent、条件创建、实际字节验证和零字节删除栅栏。**不得单独应用0020/21或与旧Worker混用**；0021对已有任何私有manifest/chunk拒绝切换，需先审查存量。private-intents/的零字节栅栏禁止TTL/生命周期/GC删除，会保留内部随机定位及对象/请求成本，只承诺删除正文。详见deployment/runbook；真实环境仍未验收。
+
+0022草案提供本人稳定账户的待清理任务最小查询；设置页支持跨刷新和无本机书的删除重试，第一次DELETE前持久本机任务。只有deleted回执才清任务，配额结算/永久零字节栅栏/存量切换门禁不变。无新配置，未执行远端迁移；详见runbook/deployment。

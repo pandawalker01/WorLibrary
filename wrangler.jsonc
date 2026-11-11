@@ -9,6 +9,8 @@
   },
   // USER_BACKUPS must be a separate, private R2 bucket. It is only bound to
   // this Worker; browser clients never receive its name, object keys, or R2 credentials.
+  // private-intents/ keeps empty deletion fences: NO TTL/lifecycle/GC removal.
+  // Removing a fence could let a delayed conditional PUT recreate private bytes.
   "r2_buckets": [
     { "binding": "USER_BACKUPS", "bucket_name": "worlibrary-user-backups" }
   ],

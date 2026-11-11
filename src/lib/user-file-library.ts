@@ -1,4 +1,5 @@
 import type { AuthSession } from './auth'
+import type { UploadTaskStore } from './user-file-upload-task'
 
 export const USER_FILE_CHUNK_SIZE = 8 * 1024 * 1024
 /** Matches the server-side P0 safety ceiling; larger files must be rejected before reading. */
@@ -74,7 +75,7 @@ async function sha256Hex(source: Blob): Promise<string> {
   return [...new Uint8Array(digest)].map((value) => value.toString(16).padStart(2, '0')).join('')
 }
 
-export type UserFileClientConfig = { url?: string; anonKey?: string; gatewayUrl?: string; fetch?: typeof globalThis.fetch; recoveryCache?: UserFileRecoveryCache }
+export type UserFileClientConfig = { url?: string; anonKey?: string; gatewayUrl?: string; fetch?: typeof globalThis.fetch; recoveryCache?: UserFileRecoveryCache; isCurrent?: () => boolean; uploadTaskStore?: UploadTaskStore }
 
 export function createUserFileClient(session: AuthSession, config: UserFileClientConfig = {}) {
   if (session.user.isAnonymous) throw new TypeError('匿名试用不能使用个人云书库')
@@ -84,6 +85,7 @@ export function createUserFileClient(session: AuthSession, config: UserFileClien
   const anonKey = config.anonKey ?? env.VITE_SUPABASE_ANON_KEY
   const request = config.fetch ?? globalThis.fetch
   const recoveryCache = config.recoveryCache ?? { get: readRecoveryChunk, put: writeRecoveryChunk, clear: clearRecoveryChunks }
+  const assertCurrent = () => { if (config.isCurrent && !config.isCurrent()) throw new Error('个人云书库会话已失效') }
   if (!url || !anonKey || !gatewayUrl) throw new Error('尚未配置个人云书库')
   const headers = { apikey: anonKey, Authorization: `Bearer ${session.accessToken}`, 'Content-Type': 'application/json' }
   async function responseValue(response: Response): Promise<any> {
@@ -134,21 +136,27 @@ export function createUserFileClient(session: AuthSession, config: UserFileClien
       return started.manifestId
     },
     async restore(manifest: Pick<UserFileManifest, 'id' | 'fileName' | 'mediaType' | 'size' | 'plaintextHash'>, onProgress?: (progress: UserFileUploadProgress) => void): Promise<File> {
-      if (!uuidPattern.test(manifest.id) || !Number.isSafeInteger(manifest.size) || manifest.size < 1 || !USER_FILE_TYPES.includes(manifest.mediaType) || !/^[0-9a-f]{64}$/i.test(manifest.plaintextHash)) throw new TypeError('云端文件清单无效')
+      assertCurrent()
+      if (!uuidPattern.test(manifest.id) || !Number.isSafeInteger(manifest.size) || manifest.size < 1 || manifest.size > USER_FILE_MAX_BYTES || !fileNamePattern.test(manifest.fileName) || !USER_FILE_TYPES.includes(manifest.mediaType) || !/^[0-9a-f]{64}$/i.test(manifest.plaintextHash)) throw new TypeError('云端文件清单无效')
       const chunks: Blob[] = []; const count = Math.ceil(manifest.size / USER_FILE_CHUNK_SIZE); let restored = 0
       for (let index = 0; index < count; index += 1) {
+        assertCurrent()
         const expectedSize = Math.min(USER_FILE_CHUNK_SIZE, manifest.size - index * USER_FILE_CHUNK_SIZE)
         let chunk = await recoveryCache.get(manifest.id, index)
+        assertCurrent()
         if (chunk?.size !== expectedSize) chunk = undefined
         if (!chunk) {
           const response = await request(`${gatewayUrl}/api/user-files/${encodeURIComponent(manifest.id)}/chunks/${index}`, { headers: { apikey: anonKey, Authorization: `Bearer ${session.accessToken}` } })
+          assertCurrent()
           if (!response.ok) throw new Error('无法恢复云端原书，请稍后重试')
           chunk = await response.blob()
+          assertCurrent()
           if (chunk.size !== expectedSize) throw new Error('恢复的文件分块校验失败')
           // Persist each size-validated chunk before fetching the next one so
           // interruption resumes from missing chunks. Final plaintext SHA-256
           // verification below decides whether anything can enter the shelf.
           await recoveryCache.put(manifest.id, index, chunk)
+          assertCurrent()
         }
         chunks.push(chunk); restored += chunk.size
         onProgress?.({ completedChunks: index + 1, totalChunks: count, uploadedBytes: restored, totalBytes: manifest.size })
@@ -161,12 +169,22 @@ export function createUserFileClient(session: AuthSession, config: UserFileClien
         await recoveryCache.clear(manifest.id, count)
         throw new Error('恢复的文件完整性校验失败，请重试')
       }
+      assertCurrent()
       await recoveryCache.clear(manifest.id, count)
+      assertCurrent()
       return restoredFile
     },
-    async deleteFromCloud(manifestId: string): Promise<void> {
+    async deleteFromCloud(manifestId: string, editionId: string): Promise<'deleting' | 'deleted'> {
       if (!uuidPattern.test(manifestId)) throw new TypeError('文件清单 ID 无效')
-      await responseValue(await request(`${gatewayUrl}/api/user-files/${encodeURIComponent(manifestId)}`, { method: 'DELETE', headers }))
+      assertOwnedEditionId(editionId)
+      assertCurrent()
+      const { createUploadTaskStore, suppressUserFileUploadTask } = await import('./user-file-upload-task')
+      await suppressUserFileUploadTask(config.uploadTaskStore ?? createUploadTaskStore(), session.user.id, editionId)
+      assertCurrent()
+      const value = await responseValue(await request(`${gatewayUrl}/api/user-files/${encodeURIComponent(manifestId)}`, { method: 'DELETE', headers }))
+      assertCurrent()
+      if (value?.status !== 'deleting' && value?.status !== 'deleted') throw new Error('云端删除状态无效')
+      return value.status
     },
   }
 }

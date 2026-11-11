@@ -6,8 +6,8 @@
 
 | 配置 | 当前值 | 保存位置 | 影响范围 |
 | --- | --- | --- | --- |
-| 界面语言 | 简体中文、English | localStorage，键为 wor-library-ui-locale | 书库、阅读器、摘录、设置、登录同步、导入导出等可见文案 |
-| AI 理解/翻译目标语言 | 可搜索的全球语言列表 | localStorage，键为 wor-library-reading-language | 划词翻译、解释与 OCR 文本的输出目标 |
+| 界面语言 | 简体中文、English | localStorage，键为 worlibrary.ui-locale | 书库、阅读器、摘录、设置、登录同步、导入导出等可见文案 |
+| AI 理解/翻译目标语言 | 可搜索的全球语言列表 | localStorage，键为 worlibrary.reading-language | 划词翻译、解释与 OCR 文本的输出目标 |
 
 界面语言切换不会改变 AI 输出语言；反过来也一样。新功能必须遵守这一规则。
 
@@ -15,7 +15,7 @@
 
 | 文件 | 职责 |
 | --- | --- |
-| src/lib/i18n.ts | UiLocale、UI_LOCALES、copy 文案语言包与读写函数的唯一来源 |
+| src/lib/i18n.ts | UiLocale、UI_LOCALES、全局copy语言包及读写入口；惰性子包见下文 |
 | src/components/ReadingLanguagePicker.tsx | 以完整名称显示、搜索和选择全球 AI 理解语言；对外保存稳定英文语言名称，不展示裸 ISO 代码 |
 | src/lib/interface-locale-registry.ts | 全球界面语言的可用/规划元数据、回退解析与 RTL 方向；不承载用户可见译文 |
 | src/App.tsx | 读取 uiLocale，将 copy[uiLocale] 注入我的书库、世界书库（含来源/版权边界提示）、我的页（含近 7 天轨迹和每本书阅读时长）、设置、导航与 PWA 更新提示；顶栏理解语言弹窗与设置页复用同一全球语言选择器 |
@@ -75,3 +75,15 @@
 - 失败提示、空状态、确认框和 Toast 也必须本地化。
 - 账号与同步的状态同样必须从 `i18n.ts` 取值：匿名试用不可称为可云同步，已登录的元数据同步也不可称为完整跨设备恢复；登录回调应保留当前查询参数路由，不能因为语言或认证文案改动而跳回首页。
 - 日期、数字和复数规则较复杂时，优先引入成熟的 Intl 或 FormatJS 方案，不要手写多语言分支。
+
+## 个人云书库本机生命周期（Agent A）
+
+本机移除和云端删除的菜单、确认及状态文案使用 `i18n.ts` 中 `cloudDeviceRemove`、`cloudDelete` 等中英文键；可访问名称明确为“仅从此设备移除”，不再以“删除”混淆范围。会话失效产生内部错误码，由当前会话的通用本地化失败提示处理；旧会话取消不向新账户发提示。
+
+云端删除待确认与本机移除成功状态使用简洁双语文案；确认框仍明确本机/云端保留范围。验证包体时同时使用 CI 的公开模拟远端配置，以覆盖配置启用后的实际入口大小。
+
+### 私有云书库懒加载文案子包
+
+`src/lib/private-cloud-copy.ts` 是私有设置子树的中英双语文案，随 `PrivateCloudPreferences` 懒加载以遵守首屏包体预算；不加入全局copy热路径。它只接收既有UiLocale，必须同时维护两种语言的同字段，不另存语言选择、不改变AI理解/翻译语言。新入口的标题、授权说明、checkbox、错误重读和暂停/恢复均在该子包集中维护，英语真实浏览器用例验证同意边界。全局UI文案仍以i18n.ts为入口；以后扩展该子树语言时需同步维护相应子包和测试。
+
+删除任务UI与授权卡片共用private-cloud-copy.ts惰性子包；中英文同时维护待确认/失败/重试/重读/处理回执，不使用“备份完成”文案。书籍菜单的简短删除回执由全局i18n.ts维护cloudDeleteAcknowledged，仍使用同一UiLocale；原始服务错误不拼入可见文案。

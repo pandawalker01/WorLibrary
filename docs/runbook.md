@@ -169,3 +169,117 @@ Sentry 仅接收错误类型、路由、版本和 request id；过滤选区文�
 3. 恢复中断网络，在已收取至少一个分块后重试；确认仅缺失分块再次请求，恢复失败前书架不出现本地书籍。
 4. 设备 B 使用另一稳定账户，确认 manifest 列表为空，读取 A 的 manifest、分块与字节均被拒绝。删除云端副本后同一账户读取也必须被拒绝；复查 used/reserved quota 和 tombstone。
 5. 分别执行“仅从此设备移除”与“从云端删除”：前者保留设备 A/B 的恢复入口，后者保留当前设备本地文件但撤销后续恢复。Worker 完成删除和数据库复核前，UI 只能显示请求已提交。
+
+## Agent A 上传任务验证
+
+上传任务 journal 使用独立数据库 `worlibrary-private-upload-tasks`，不调整 metadata 数据库版本。上传请求前必须已持久化 operation ID；本地 journal 无法写入时，不开始远端上传。断网后保留本机文件与 journal，重试复用 operation；不要通过清除站点数据处理失败，否则无法保证续用原操作。产品入口仍待接线，不能宣称备份完成。真实 Supabase/R2 两账户/两 Profile 验收仍为 NOT VERIFIED。
+
+恢复失败排查：账户切换或登出会使仍在下载的旧任务失效，保留已校验临时分块供原账户重新登录重试；不能把取消提示视为原书丢失。云端删除的 deleting 表示对象/配额清理尚未确认，不能因 HTTP 202 就宣称已清理；deleted 才是网关确认，仍须真实环境验收。
+
+### Agent A 2026-11-11 验证记录
+
+Node 24.22.1 下 typecheck、生产 build、bundle budget 通过；完整 Playwright 199/199 通过（含上传任务4项与恢复/删除状态新增回归）。首次 Windows checkout 的4项静态文本断言因 CRLF 失败；仅将工作副本换行恢复为 Git blob 的 LF 后全量通过，没有修改历史 migration 的提交内容。首批 3baf96c GitHub CI quality 两次通过。
+
+本机 `npm run quality` 虽返回0，但 Windows 路径下脚本入口条件未触发，未生成 release-report.json，因此不能记为本地质量门通过；以 PR 的 Linux CI quality 报告为有效质量门，真实环境仍 NOT VERIFIED。该执行器问题已在 PR 交由主 Agent协调，不在个人文件 PR 中顺带修改发布门禁。
+
+### 主 Agent 审查后的本机移除与恢复规则
+
+仅从此设备移除不调用 metadata 删除协议。OPFS 清理遇到 NotFound 可继续，其他清理失败保留书架记录供原入口重试；IndexedDB 原书、书籍、索引与本书摘录在同一事务删除。云端文件与其他设备数据保留。
+
+恢复原书通过大小与 SHA-256 校验后，原书、book/work/edition 在单一 IndexedDB 事务中提交。会话变化会 abort 在途事务，不能留下可读书籍或原书孤儿；新会话同时清空恢复忙状态，包括同账户刷新会话。`tests/private-cloud-local-lifecycle.spec.ts` 使用真实浏览器 IndexedDB，在 put 成功事件注入账户失效，验证四个 store 全部回滚；另验证成功后可读与 OPFS 清理失败可重试。此自动化不是线上 RLS 证据。自动上传尚未接线；本机移除与云端删除现在先持久化账户/版本级 suppressed 标记，再执行清理请求。未来调度必须复用受控 runner 的持久抑制检查，不能自行绕过；这只是本设备防重传机制，不替代服务端墓碑或跨设备删除验收。
+
+2026-11-11 主 Agent 审查修改验证：Node24 typecheck、生产 build 与原 bundle budget 通过，入口约 351.9 kB（未提高预算）；完整 Playwright 在 Agent A 独占本机 4273 端口为 202 PASS / 0 FAIL。首次共用 4173 端口时预览进程在运行中消失，137 PASS / 64 FAIL（连接拒绝），该基础设施失败未被计作通过；隔离端口后完整重跑通过。测试临时把 0012/0017 的工作副本换行按 Git blob LF 读取，随后恢复；历史 migration 没有语义或提交改动。Windows quality/CRLF 永久修复归 Agent B #10，本 PR 不改共享质量门。真实 Supabase/R2 仍 NOT VERIFIED。
+
+### CI 模拟构建包体复测（2026-11-11）
+
+8bc680a 的 Linux quality 失败项只有 bundle-budget；用仓库 workflow 的公开模拟 `VITE_SUPABASE_URL`/`VITE_SUPABASE_ANON_KEY` 本机复现入口 352,027 bytes，说明无远端配置的 351.9 kB 构建不能替代已配置构建。移除重复忙状态清空并精简本次新增中英文状态文案后，相同模拟配置入口 351,954 bytes，原 352,000/110,000 预算通过；没有提高预算或修改质量门。后续产品接线需保持按需加载并再次验证配置构建。
+
+恢复/本机菜单/国际化受影响回归通过。扩大到旧 sign-out 用例时，模拟 Supabase URL 的 logout 请求等待网络导致1项失败；Agent B #10 已有该用例的专用 logout mock，本 PR 不重复修改其时序修复。该失败未作为通过记录；完整集成质量以新提交 CI 和 B 合入后的 quality 为准。
+
+### 上传抑制故障处理
+
+本机移除/云端删除前必须先写入账户隔离的suppressed journal；journal不可用时动作失败并保留文件/云端状态，恢复本地存储后从原入口重试。远端删除网络失败时抑制仍保留，避免后台上传抵消用户删除意图；重试云删除不会清除标记。不要用删除journal作为重试方式。同一版本不会因刷新、旧回执或文件内容变化自动恢复上传；重新导入必须产生新版本，并按首次同意与当前账户策略处理。当前尚无自动上传产品入口，真实服务端墓碑与其他设备仍须验收。
+
+2026-11-11 持久上传抑制验证：typecheck、生产build及CI公开模拟配置的原bundle budget通过，配置入口约350.4kB（恢复逻辑按需加载后留出余量，预算未增加）。完整Playwright在独占4273端口为206/206通过，含真实journal的抑制持久化、陈旧回执和重开store验证；SQL换行仅临时用于既有契约读取，未更改历史迁移。自动上传与首次同意仍未接产品入口，不能据本机标记声称跨设备云删除已经验证。
+
+### 0018 同意状态与准入验收计划
+
+0018草案新增私有同意RPC，客户端只发空get或单boolean set，不携带账户ID、原书、书名或metadata payload。RPC不可用/未知响应时失败关闭，不能从本机缓存推断已同意。暂停保留既有accepted_at和云文件；启用仅由用户明确动作发起。new begin还核对本人active edition、descriptor幂等、配额和永久阻止同edition云删除复活；过期上传仅在已完成清理后允许重新预留。
+
+最初未发现psql/docker/supabase运行器，当时只有静态契约，不能据此称SQL执行/事务/RLS通过；0019阶段已补本机PostgreSQL fixture实测，见下方记录，真实Supabase/RLS仍未验收。主 Agent审核并通过迁移门禁后，必须验证：匿名/他人不能读写；暂停与重新开启保留首次同意；并发相同operation/hash不重复扣配额；不一致descriptor拒绝；过期清理后可重试；删除墓碑超过旧30天仍拒绝同edition重传。真实环境目前NOT VERIFIED，未执行任何远端DDL。
+
+2026-11-11 0018草案验证：新同意客户端/迁移静态契约5/5，Node24 typecheck/build/bundle通过；完整Playwright首次记录198 PASS/13 FAIL并出现约12小时时钟跨度、浏览器启动/worker退出超时，不记为通过。环境恢复后独占4273、2 workers完整重跑为211/211通过（约55秒）。新SQL没有本地PostgreSQL执行证据，更没有真实Supabase/RLS或R2验收；不得将211项自动化称为迁移已应用或云书库已可发布。
+
+### 本机真实 PostgreSQL 并发测试与边界
+
+`npm run test:user-files-db` 使用 `WORLIBRARY_TEST_PG_BIN` 指定的本机PG二进制，新建随机临时cluster和loopback端口，忽略继承PG连接变量，不使用现有库或密码文件，不安装服务，finally停止；不能传Supabase连接串。临时数据在被忽略的test-results目录，无生产数据。
+
+0019统一set-enabled/begin/record/complete/delete/finish/reap账户锁，并更新pref内部fence，覆盖锁等待前已有快照。实际多连接回归先持有未提交暂停/删除，验证其他begin/record/complete确实在pg_stat_activity等待锁，然后提交并断言拒绝及配额不增加；另验证旧REPEATABLE READ、新同意时间保留、metadata行删除、准确chunk范围/owner、暂停时读取/删除、finish幂等与失败清理重试。PostgreSQL15.19 fixture为10/10通过，官方包SHA与脚本/迁移hash见脱敏证据JSON。
+
+这取代“只有静态字符串”的本机SQL验证限制，但不取代真实Supabase JWT/RLS、完整schema、R2或两个Profile验收。Worker目前仍需不可变对象写入、全文件校验及R2并发清理硬化；SQL串行化不能被表述为对象并发安全。0018/0019未执行远端DDL，产品上传入口仍未接线；共享Windows quality修复仍归Agent B #10。
+
+2026-11-11 0019提交前验证：本机PostgreSQL15.19实际多连接10/10，完整Playwright211/211（独占4273、2 workers），typecheck/生产build及配置启用bundle budget均通过，入口约350.4kB，预算未提高。SQL runner在任何fixture DDL前还校验随机cluster身份，结束后停止；官方archive SHA与规范LF后的脚本/迁移SHA留在证据JSON。共享Windows quality仍归B，SQL独立命令未加入共享门禁；真实Supabase/R2和远端DDL仍未执行。
+
+### 原生 Worker 完整性回归
+
+`npm run test:worker` 同时运行网关契约与 `worker/user-file-integrity.test.mjs`。直接锁定已有Wrangler依赖版本的Miniflare作为测试依赖，在本机workerd与临时R2模拟绑定中执行真正的DigestStream；不需账户或远端凭据，不创建远端桶。回归覆盖已知SHA向量、8MiB多块顺序读取、同大小损坏、块摘要正确但整书错误、缺失/截断/超长正文、账本无效零读取和SDK错误脱敏。运行后dispose本机runtime。
+
+这是本机字节验证原语测试，当前尚未接完成接口，不代表不可变写入/最终CAS、对象删除竞态、真实R2或两设备验收通过。README、deployment的远端配置与发布门禁未变，本次不新增迁移/远端绑定；共享quality执行器仍由Agent B #10负责，复用已有test:worker门禁入口。
+
+2026-11-11 流式原语验证：test:worker **17/17**（含原生workerd/R2模拟），typecheck、生产build及配置启用原bundle预算通过，入口350.4kB。完整Playwright本轮为 **209 PASS / 2 FAIL**，失败仅既有世界书库两项OpenLibrary fixture（等待结果5秒超时），不记全绿；当时未独立复测，不能归因于未合入的目录PR #9；后续主 Agent审查要求的独立trace已确认fixture遗漏Google Books mock，见下方修复记录。Windows测试预览退出挂起，核对本轮PID后仅清理该预览进程树；无远端操作。npm run quality仍退出0但无报告，不能据此称quality通过，依赖Agent B #10修复及PR Linux CI。此前211/211是9788db9记录，不冒充本轮结果。
+
+### 0020 校验快照草案与本机回归
+
+0020仅service可读内部验证快照并按generation/实际摘要完成；旧complete不再授权。必须与实现不可变对象/流式校验/最终CAS的Worker成套发布，当前组合尚不兼容部署，**禁止单独应用0020**。不会新增客户端配置或将generation/对象键送入metadata。
+
+`npm run test:user-files-db` 当前在新fixture应用14/15/17/18/19/20，共15项真实SQL回归通过。新增实际锁等待覆盖在途record提交后旧generation拒绝、重复完成仅收费一次；覆盖服务专权/旧接口关闭、跨账户已知manifest、错误大小/摘要、空generation、暂停/删除/过期/metadata删除及不完整账本。fixture中的verified摘要是合成服务回执，只证明数据库CAS/计费，不是实际R2字节证明；原生字节原语证据另由test:worker提供，两者还没有端点接线。首轮运行器使用service直接SELECT generation因无表权限失败，已改为专用snapshot RPC重跑，未扩大表权限。临时cluster确认关闭。
+
+0020阶段未改变前端入口，不重复已知目录fixture的无关全量测试；最近完整Playwright仍为97ff52b的209/211，不称当前全绿。真实Supabase/RLS/R2及跨设备仍NOT VERIFIED。历史0019的10项证据保留，其脚本hash对应当时提交；新15项及当前runner/0020 hash另存快照证据JSON。
+
+### 两项目录 smoke fixture 的独立复测与修复
+
+按主 Agent审查在当前A分支独立运行原两用例并打开trace，两项均通过，但实际请求为：同源/api/catalog 404，OpenLibrary mock 200，Google Books真实429（约1.36/1.41秒）。当前基线的目录搜索等待所有启用来源settled；原fixture只mock OpenLibrary，受Google外部延迟影响。受控将第二来源延迟6.5秒，原5秒heading断言稳定失败，确认测试未隔离全部来源。此前不能将失败归责未合入的#9，已在PR纠正。
+
+最小修复仅在两项smoke用例mock同源404和Google空结果，断言两个分支各调用一次，保留OpenLibrary原有来源/语言断言；不改变目录产品行为、超时或B的sign-out fixture。修复后的独立用例2/2通过，无真实Google请求。受控失败trace保存在本机忽略目录，不提交完整网络trace；仅提交不含query值/headers/body的脱敏请求摘要JSON。
+
+修复后完整Playwright **211/211通过，0 flaky/skip**（独占4273、2 workers，约54秒），typecheck通过；最近生产构建为同一b34110d代码，测试-only修复不改变产品产物。历史迁移换行临时规范后已恢复，未提交改写。脱敏证据 `docs/evidence/catalog-smoke-fixture-local-2026-11-11.json` 记录独立重跑的实际来源摘要、受控失败和修复后结果；不上传原始trace。npm run quality仍无Windows报告，集成依赖B #10及Linux CI，不据211项称真实云书库验收完成。
+
+### 不可变条件写回归与尚待决定的清理策略
+
+`npm run test:worker` 新增6项条件写测试：无效输入/内容错误零IO，await前复制正文与descriptor，实际字节幂等验证，冲突/缺失/空对象不删除或覆盖，固定错误码，以及真正workerd/R2中的并发相同PUT仅一次创建、不同内容不能改写etag/正文。与既有网关/完整性测试合计23项。使用已有Miniflare测试依赖，不访问真实R2。
+
+4080b01阶段尚无持久intent RPC/端点接线（后续0021已补）。删除枚举后慢PUT迟到的问题不能用任意lease TTL当作已解决；当时在PR交主 Agent明确“清零后保留内部删除栅栏”是否符合删除要求；后续已确认并按0021节实现。保持deleting/配额保守原则，禁止据该helper称文件物理清理/真实云书库完成。与前端代码无交叉，最近完整Playwright为05a10c7的211/211；共享Windows质量门仍依赖B #10。
+
+## 0021 正文删除栅栏运维约束
+
+主 Agent已在PR确认P0保留零字节内部删除栅栏的方向，仅授权起草/实现/本机测试。Worker只允许持久登记随机intent后的条件正文PUT；删除先deleting、穷尽intent、逐key写0-byte并head确认、ack、全部确认后finish结算。失败不释放配额，重复DELETE或initiate过期清理可继续。无需正文hash/文件名/custom敏感metadata，不向浏览器返回定位。
+
+**禁止TTL、对象生命周期或后台GC移除private-intents/下的删除栅栏**。即使数据库记录过期、用户删除或清理成功也不能凭任意时间删除栅栏，否则仍在途的条件PUT可能重建正文。当前不会物理删除这些key；保留随机定位、对象数量及R2请求成本，原书正文大小归零后才结算用户文件配额，不把零字节对象称“对象键已消失”。运维需监控对象/请求成本并区分正文用量与marker数量，不能以普通GC节省成本破坏安全语义。没有新增定时清理服务，重试入口当前为DELETE/下一次initiate。
+
+切换前必须停用旧无条件写路径并证明其请求不再写入；仅撤销旧SQL RPC或等待任意TTL不足以阻止此前R2 PUT。0021若发现任何legacy manifest/chunk直接拒绝，不删改数据；即使DB空，也需主 Agent协调只读检查旧私有桶孤立对象/写身份。若非空，另提经审查的迁移/隔离切换方案，绝不可用本机fixture的清空步骤处理真实环境。0020/21与新版Worker须成套经门禁，未获远端DDL授权。
+
+SQL runner分两阶段：先在最小fixture验证0018-20共15项，然后证明0021拒绝旧记录；只在已核实随机本机cluster中清理合成旧fixture数据，再应用0021并验证6项intent协议子用例（计父用例合计22）。这是测试fixture重置，不是升级手册。workerd测试使用真实Worker入口、R2与DigestStream，但SQL服务是合成模型；真实数据库行为由独立PG多连接测试证明，两者不等于真实完整Supabase/R2联调。
+
+0021提交前：本机PG **22/22**（含intent协议6子用例与父用例），原生Worker **32/32**（9项真实入口/本机R2场景），完整Playwright **211/211、0 flaky/skip**；Node24 typecheck、生产build、CI模拟配置原bundle预算通过（350.4kB），Wrangler本机dry-run打包约48.8KiB/12.46KiB gzip，未部署。SQL临时cluster已停止。脱敏证据见 `docs/evidence/private-file-intent-gateway-local-2026-11-11.json`。Windowsnpm quality仍无报告，依赖B集成；4080b01的CI在浏览器依赖安装因security.ubuntu.com DNS失败而结束，quality未运行，不记通过；不因基础设施失败降低门禁。新提交需重新跑CI。
+
+## 私有云书库设置页的授权验收
+
+登录稳定账户→设置→私有云书库→开启原书上传，说明仅授权以后导入；勾选同意前确认按钮禁用。取消不写入，确认仅发专用boolean set，暂停/恢复同样明确点击，展示正文/待处理用量。当前仅授权入口，自动导入队列与可见上传进度仍待接线；不会把权限状态当备份完成证据。
+
+`tests/private-cloud-preferences.spec.ts` 用真实App入口验证匿名零授权请求、首次同意/取消/暂停/恢复、未知响应失败关闭、模糊set响应后显式重读、账户切换丢弃旧回执/用量，以及英语同意边界。4项RPC交互场景要求构建和测试进程均设置CI公开模拟VITE_SUPABASE_URL/VITE_SUPABASE_ANON_KEY，路由全部fixture；本机无配置时这4项明确skip，不能当已运行。配置后的独立5/5通过，原bundle预算通过（入口约350.7kB，文案/组件按需加载）。真实Supabase/R2仍NOT VERIFIED。
+
+9c05be4 CI再次失败在Ubuntu浏览器依赖源DNS，quality未执行；未调整门禁规避安装。Windowsquality无报告仍由B #10集成解决。后续导入adapter已在PR向Agent B确认edition ack/revision的只读就绪信号，不修改其协议。
+
+本次授权UI提交前完整回归使用CI公开模拟配置构建与测试，**216/216通过，0 flaky/skip**（约59秒），包括新增全部5项；不是无配置skip结果。typecheck、生产build、原bundle预算通过（350.7kB）。历史SQL临时换行已恢复。npm run quality仍无Windows报告，未作为通过；无远端DDL/部署，自动导入调度仍待接线。
+
+## 云端正文删除失败与重试
+
+本机书菜单“从云端删除”确认后先提交本机删除journal，再发受控DELETE；journal失败时本机书/云端状态都保留，原菜单可重试。deleting或网络失败时进入设置→私有云书库→云端正文删除，点击对应书的“重试删除”；任务跨刷新保留。新设备通过0022本人专用最小RPC可发现远端deleting请求，无需原书本机副本；只读失败不表示任务为空，界面保留本机任务及错误提示。
+
+只有deleted回执才移除任务并重读配额；不以active manifest消失推断物理清理完成。服务端仍使用零字节永久栅栏及全部intent ack后结算规则，删除只是正文清零，保留内部随机定位/对象和请求成本，TTL/GC约束不变。本机书保留；仅移除此设备仍是另一个入口。失败提示固定，不显示服务端原始消息或内部定位。
+
+`tests/user-file-delete-task.spec.ts` 7项验证事务先于网络、存储失败零DELETE、网络失败持久任务、代际/A→B→A、无owner参数的最小RPC与匿名/未知字段拒绝、文件payload不入journal。`tests/private-cloud-deletion-ui.spec.ts` 4项真实App测试覆盖新设备无本机书重试、刷新续试与配额重读、真实IndexedDB账户范围、恶意状态字段/错误不显示、存储失败零请求、实际书籍菜单首次删除及本机原书保留。与授权回归合计16/16，使用公开模拟配置/fixture，无真实Supabase/R2数据。
+
+本机PG suite在0021阶段追加应用0022并实测本人最小投影、匿名/service拒绝、暂停仍可读、完成后消失及另一账户保留，合计23/23；SQL fixture不是完整Supabase JWT/RLS验收。后续上传就绪信号已获主 Agent采纳B的保守active投影门禁，无需新增operation receipt；上传队列尚未接线。
+
+本轮配置构建完整Playwright为 **226 PASS / 1 FAIL，0 skip/flaky**；失败是既有smoke的sign-out等待登录按钮5秒。独立复测仍失败，trace显示未mock的POST /auth/v1/logout在ci.example.test等待（status -1、约4.64秒，测试结束时未完成）。已只读核对B #10确有204 logout mock；依赖其集成，不在A重复改共享fixture，也不将226/227记全绿。新增16项相关回归全部通过。typecheck/生产build/原bundle预算通过，入口约351.4kB；Windowsquality无报告不记通过。仅上传去凭据/headers/query/body的请求摘要，原trace本机忽略保存。证据见 `docs/evidence/private-file-deletion-ui-local-2026-11-11.json`。

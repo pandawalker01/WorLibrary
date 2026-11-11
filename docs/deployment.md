@@ -275,3 +275,32 @@ curl -sI https://app.example.com/
 ## 私有原书对象存储
 
 Cloudflare 部署需独立、非公开的 R2 bucket，并以 `USER_BACKUPS` 绑定。它不得用于平台授权内容，也不得配置 public domain、静态 URL 或浏览器直连 CORS。`SUPABASE_SERVICE_ROLE_KEY` 只能是 Worker Secret，绝不使用 `VITE_` 前缀。部署前运行 `npm run test:worker`，并在 staging 完成真实 Supabase/R2 验收；本地合约测试不授权开启“同步完成”文案。
+
+## 0018 私有文件同意准入（草案，未应用）
+
+只新增0018，不修改0014/0015/0017。新表 `user_file_library_preferences` 普通浏览器无直接权限；专用get/set RPC仅本人稳定账户可执行，set只接受boolean，服务端记录首次accepted_at。暂停保留同意和现有云文件，get只返回开关/同意及用量。新begin会拒绝未同意、暂停、他人/已删除edition及不一致的幂等descriptor，用户删除墓碑不因旧expires_at到期恢复上传。
+
+此SQL仅获起草/测试授权，不代表远端已执行。先核对真实staging迁移清单并经主 Agent门禁，验证同意客户端与完整Worker版本兼容；旧客户端没有同意记录会失败关闭。尚未提供产品首次同意入口，不能单独应用0018开启面向用户上传。服务端分块完整性/并发清理与两账户RLS仍需真实验收；不部署Production。
+
+## 0019 账户生命周期串行化（草案，未应用）
+
+仅新增前向0019，保留0018审阅基线。所有私有文件写RPC先共享账户advisory锁并更新内部mutation fence，再处理同意/manifest/配额；record/complete复验同意、active edition、墓碑与状态。对既有文件的读取/删除继续允许暂停账户。finish只结算deleting状态且重复调用不重复扣额，reap保留可重试待清理项。
+
+已使用官方SHA-256验证的本机便携PostgreSQL 15.19、多连接fixture实际执行文件迁移链及并发测试10/10；这是最小auth/edition模拟环境，不代表真实Supabase/RLS或完整项目迁移链。脱敏证据见 `docs/evidence/private-file-sql-local-2026-11-11.json`。新命令未改共享quality流程；主 Agent需复核是否将该独立SQL检查接入CI。0018/0019仍未获远端执行授权，实际staging migration清单、Worker/R2完整协议和真实跨设备验收均需按门禁完成。
+
+## 0020 激活快照 CAS（草案，未应用）
+
+0020新增内部generation与仅service的快照/verified-complete RPC，撤销旧complete的service授权并将其实现改为拒绝。旧Worker调用旧RPC，因此 **0020不能单独应用**；0021阶段已与新版Worker在本机成套接线，仍须主 Agent审查并考虑staging迁移门禁。无远端DDL授权，无Production操作。回滚应用代码不得重新打开无验证complete；数据库问题只用新前向修复。新15项本机PG fixture不替代真实完整schema/JWT/RLS/R2验收。
+
+
+## 0021 与 Worker 的成套切换门禁
+
+0021新增service专权intent及fence ack，旧record RPC关闭；新版Worker同时接prepare/条件PUT/commit、实际字节snapshot CAS和逐intent零字节栅栏清理，浏览器API不变。**0020/21不得与旧Worker分开部署**；先停止旧无条件正文PUT/物理DELETE路径及确认旧请求不能再写，不能以任意TTL替代证据。
+
+0021对任何现有user_file_manifests或user_file_chunks记录拒绝执行且不改写数据。主 Agent应先只读盘点实际迁移/manifest/chunk与旧R2对象及写入身份；非空时另立保留数据的迁移/隔离切换方案，不得清空旧数据迁就草案。空DB不证明桶无旧孤立对象。当前均NOT VERIFIED，未执行远端DDL或Production操作。
+
+R2生命周期要求：private-intents/永久保留零字节删除栅栏，**不得配置TTL/生命周期/后台GC移除它们**。栅栏无原文/文件名/hash自定义metadata；删除只承诺正文被清除，不称key消失。用户正文配额清零后仍有内部随机定位、对象数量/请求成本，应在运维容量与成本监控中单独计数；wrangler注释同步提醒，无新binding/secret。回滚须关闭个人文件写入口，不允许重新启用旧无条件PUT或移除栅栏；数据库只做新前向修复。
+
+## 0022 待清理状态查询
+
+新增仅authenticated稳定本人可调用的无参 `list_private_file_cleanup_jobs()`；只返回本人deleting的manifest/edition/文件名，不给对象键/hash或其他账户。暂停仍可查询/删除。沿用0018-21+新版Worker的存量/旧写身份和真实staging门禁，不授权远端DDL。设置页合并远端查询与独立本机journal，无新环境变量/绑定。回滚应用入口保留本机journal/服务端墓碑与栅栏，不能清空任务/移除栅栏作为重试；SQL只前向修复。

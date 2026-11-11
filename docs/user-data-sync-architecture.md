@@ -237,3 +237,19 @@ WorLibrary 使用魔法链接，不假定用户具有可用于派生密钥的账
 `0015_private_user_file_gateway.sql` 是 `0014` 的后继，必须按编号执行。它只向 `service_role` 授权上传、分块记录、完成和删除 RPC；authenticated/anon 不能读分块或对象键。Worker 同时需要私有 `USER_BACKUPS`、`SUPABASE_URL`、`SUPABASE_ANON_KEY` 和 Secret `SUPABASE_SERVICE_ROLE_KEY`。同一 idempotency key 重新 initiate 会返回已上传索引，客户端跳过它们继续；完成前 manifest 不会 active。恢复逐块经 Worker 重验账户与 active 状态，不提供下载 URL。
 
 删除顺序是 tombstone/标记 deleting、删除 R2 对象、标记 deleted/结算配额。R2 删除失败必须保留 deleting 与 tombstone 并由受控重试任务继续；不能以删除表或 tombstone 作为回滚。真实两账户/两设备验收完成前，任何用户文案仍不得称“同步完成”。
+
+## P0 同意准入实施补充（未部署）
+
+0018草案将账户同意/暂停从metadata同步协议分离：稳定本人JWT调用专用get/set RPC，首次接受时间保留，暂停不删除云文件；前向begin要求已同意/开启且edition归本人。客户端严格投影开关和用量，不接文件字节/对象定位。用户云删除墓碑不因旧30天过期而重新授权同edition上传；过期未完成上传仅在已确认清理/配额释放后重建预留。该草案不修改metadata outbox/revision，不提供应用层或端到端加密。产品入口与完整服务端网关、真实Supabase/R2验收仍待完成，未执行远端DDL。
+
+0019并发边界补充：所有私有文件写RPC使用同一账户advisory锁和持久mutation fence，锁后复验同意/active edition/墓碑及上传状态；旧快照失败关闭。暂停仍允许本人读取/删除既有云文件；元数据协议不变。最小本机PG多连接行为测试通过，不将其等同真实Supabase/R2或产品验收。Worker跨对象存储的不可变写入/完成校验/清理时序仍须另行解决。
+
+0020激活CAS草案用私有manifest generation关联service快照与Worker字节验证回执，锁内重新检查同意、edition、删除/过期与账本；块变更让旧快照失效，重复active回执计费幂等。普通浏览器不能调用内部快照或完成，也不得接收其中对象定位；metadata协议无变更。旧无摘要complete关闭，须与不可变R2及新Worker成套接线再部署。SQL不能证明R2实际内容，产品入口与真实验收仍未完成。
+
+## 0021 对象写入与删除协调
+
+主 Agent选择P0保留零字节R2删除栅栏。先持久登记仅随机UUID定位的intent，再条件创建正文并锁内确认；完成必须实际R2字节校验后按snapshot generation激活。删除先阻止新intent，对包括未确认/失败/在途的所有登记key写入并确认0-byte栅栏，全部ack后才结算；晚到条件PUT只能失败，不能覆盖已存在栅栏。SQL/Worker旧无摘要complete、直接record和无条件正文写路径关闭。正文恢复仍只向本人active manifest供给，空对象失败关闭。
+
+栅栏不携带正文、文件名或原文hash/custom敏感metadata；保留内部随机定位及对象/请求成本，不宣称对象键物理消失。任何TTL/生命周期/后台GC均不得移除仍用于阻挡迟到写入的栅栏。该保留策略不提供应用层或端到端加密。0018-21及Worker尚未真实联调，0021拒绝任何legacy manifest/chunk，需另行审查实际存量切换；当前不获远端DDL/部署批准。
+
+0022提供本人稳定JWT的待删除状态投影，暴露范围仅manifestId/editionId/fileName，解决新设备看不到deleting记录而无法重试的问题。首次云DELETE前持久本机五字段journal，按账户范围读取；deleted回执前保留，RPC失败/列表消失不替代完成证明。删除回执按session代际隔离，A→B→A不复活旧动作；metadata协议、永久零字节栅栏与配额结算门禁不变。真实Supabase/R2与生命周期仍未验收。

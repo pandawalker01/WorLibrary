@@ -23,7 +23,7 @@ WorLibrary 是本地优先的多语言阅读器：用户导入自己拥有的 EP
 - 页面状态通过 URL 查询参数恢复：书库、世界书库、摘录、我的、设置以及已导入书籍的阅读器在刷新、复制链接和浏览器前进后退后回到对应位置；路由不占用认证魔法链接使用的 hash。
 - “我的”本地阅读页：统计本设备中的累计阅读时长、书籍、正在读、已完成与摘录数量；另以本地持久化的近 7 天阅读时长展示阅读轨迹，并记录本地导入书籍及已收藏平台版本的阅读时长、按最后阅读时间提供最近阅读记录。平台记录只保存稳定的版本 ID、书目元数据与时长，不保存正文、阅读位置、交付 URL 或授权信息。仅在阅读器所在的浏览器标签页处于前台可见时计时。这些数据不伪装成云端账户数据。账户入口显示会话身份的首字母或本机头像：在个人书库首页它与理解语言位于主标题右侧；其他页面位于右上角，同一账户与语言控件组保持统一高度与间距。未登录时会直接打开可关闭的邮箱登录／注册弹窗；已登录时头像打开可 Escape/点击外部关闭的私密账户菜单，提供账户中心、我的阅读、摘录、云端书库与同步、隐私与数据及退出登录。菜单顶端的头像、昵称和私密邮箱摘要是可访问的“前往个人主页”入口，会关闭菜单并路由至“我的阅读”；账户中心仍只负责资料、登录与隐私设置。顶部只显示公开昵称，绑定邮箱仅在私密菜单及设置内显示；角色和管理员入口不由浏览器暴露或决定。账户中心现在可编辑公开昵称、可选简介、私有头像和默认关闭的社区资料开关：账户字段只保存到本人 `profiles` 行；`0013` 把用户明确公开的昵称/简介投影到独立 `public_profiles`，用不等于认证 ID 的 `public_id` 对外标识，关闭开关即删除投影。公开查询没有 `owner_id`、邮箱、角色、设备、书架、阅读数据、原书或头像对象路径的列权限。头像先校验真实 JPEG/PNG/WebP 文件头及 5 MiB 上限，再上传至 `profile-avatars/<本人 UUID>/avatar/<随机 UUID>` 私有对象；公开客户端不能直接读取这个含账户 UUID 的路径，后续只能由按 `public_id` 校验的媒体网关提供公开头像。资料不应用于登录、授权或员工角色判定。
 - 键盘与辅助技术基础支持：主导航和筛选会暴露当前状态；阅读器目录、选区操作与元数据对话框可用 Escape 关闭；阅读器翻页快捷键只在阅读内容区域生效，目录、工具栏与 OCR 编辑控件保留自身键盘交互；所有交互控件有高对比度可见焦点。
-- 匿名/魔法链接认证、Supabase 同步基础、AI 额度账本与受控 API 网关。匿名试用没有云端数据所有权边界，客户端不会为其排队或上传同步数据；当前也不提供匿名试用原地升级到账户的迁移。邮箱魔法链接会保留当前的查询参数页面路由，不复用认证 hash。旧的全表 REST 同步已在客户端关闭：它不具备账户隔离队列、服务端 revision 或“仅元数据、需重新导入”的书籍表示。客户端已具备与书籍二进制分离、按账户隔离的 metadata outbox、顺序 flush 和受控 change-feed 分页拉取协调器；拉取器只接受稳定账户、严格递增的服务端 sequence，并在调用方拒绝未知/不安全 payload 时不推进游标。对同一账户、同一版本的连续本地待发送更新，outbox 只保留最早乐观 revision/操作 ID 与最新安全 metadata，避免在首次 flush 前产生多条 `baseRevision=0` 写入；一条已被发送的操作会被本地 lease 精确认领，随后新编辑另建 pending 操作，旧回执只能删除自己的 lease 并把后续操作重基到回执 revision。每条已安全投影的远端 edition 变更还会持久化该账户、版本的服务器 revision 与 sequence；落盘失败则本页游标不前移。版本变更只经严格白名单投影到按账户隔离的 shadow store：仅接受书名、作者、语言、进度、位置、文件元数据和封面色，未知实体会被忽略且由上层决定是否推进游标；字节、封面二进制、对象键、URL 和正文一律拒绝。shadow 条目永远带 `needsReimport`，没有文件、封面二进制或可读权限，因此不能交给本地阅读器打开。运行中的同步可按账户失效：登出或切换账户后，旧会话不会继续 flush、pull、投影或写游标/revision。当前已把本地导入、书目校正和“成功持久化后的”EPUB/PDF 阅读进度接入 edition metadata outbox：只有稳定已登录账户会在本地写入成功后排队，延迟合并后顺序 flush；异步读取 revision 期间发生登出/账户切换也不得向新账户排入旧数据。远端 `needsReimport` shadow 已在个人书库作为账户隔离、不可点击的“需重新导入原书”卡片展示，绝不混入本地 `StoredBook` 或阅读器路由。用户必须主动选取 EPUB/PDF，且格式、文件名和字节大小与影子精确匹配，才会先在本机创建同一 `editionId` 的可读副本；匹配失败不写入任何文件，成功后影子只因同版本的本地文件存在而从视图隐藏，绝不被删除或误作下载。摘录页面写入将使用 `0012` 的专用私有 RPC：仅 authenticated 的本人未撤销设备能以稳定摘录 ID 提交版本、选区文本、位置、笔记、颜色和是否显示高亮；版本关联只使用 `edition_id`，不额外同步本机书籍 ID。服务端将其映射到既有 revision、幂等和删除墓碑机制。该端点没有泛化 metadata 参数，不能接收 EPUB/PDF、封面二进制、对象键、文件元数据、URL 或整本正文。拉取的远端摘录影子现在仅在同一稳定账户的摘录页只读展示：它显示已同步的选区文字、笔记与颜色，但永远不创建本地 `Highlight`、不提供编辑/删除/改色或“打开原文”入口，也不携带书籍文件读取权。本地删除一本已同步的导入书后，应用只会在本机移除其原书、封面与索引；随后先按同一 `edition_id` 排入该书摘录的空载删除墓碑，再排入仅含版本 UUID 与 revision 的 edition 删除墓碑。服务端 tombstone 会拒绝旧设备的后续 upsert，因此不能复活已删除元数据；删除流程不会读取、上传或删除任何云端/其他设备的原始 EPUB/PDF。阅读偏好同步仅允许两个固定 key：`reader.layout`（主题、字号、PDF 缩放）与 `reader.language`（理解语言）；界面语言仍是本机选择。远端值必须通过精确对象 allowlist、长度/数值校验并由应用以当前账户身份持久化后，才可推进游标；它没有泛化 key/value、文件或正文入口。真实双浏览器 RLS 验收和用户可见“已同步”状态尚未完成，不能承诺跨设备恢复。
+- 匿名/魔法链接认证、Supabase 同步基础、AI 额度账本与受控 API 网关。匿名试用没有云端数据所有权边界，客户端不会为其排队或上传同步数据；当前也不提供匿名试用原地升级到账户的迁移。邮箱魔法链接会保留当前的查询参数页面路由，不复用认证 hash。旧的全表 REST 同步已在客户端关闭：它不具备账户隔离队列、服务端 revision 或“仅元数据、需重新导入”的书籍表示。客户端已具备与书籍二进制分离、按账户隔离的 metadata outbox、顺序 flush 和受控 change-feed 分页拉取协调器；拉取器只接受稳定账户、严格递增的服务端 sequence，并在调用方拒绝未知/不安全 payload 时不推进游标。对同一账户、同一版本的连续本地待发送更新，outbox 只保留最早乐观 revision/操作 ID 与最新安全 metadata，避免在首次 flush 前产生多条 `baseRevision=0` 写入；一条已被发送的操作会被本地 lease 精确认领，随后新编辑另建 pending 操作，旧回执只能删除自己的 lease 并把后续操作重基到回执 revision。每条已安全投影的远端 edition 变更还会持久化该账户、版本的服务器 revision 与 sequence；落盘失败则本页游标不前移。版本变更只经严格白名单投影到按账户隔离的 shadow store：仅接受书名、作者、语言、进度、位置、文件元数据和封面色，未知实体会被忽略且由上层决定是否推进游标；字节、封面二进制、对象键、URL 和正文一律拒绝。shadow 条目永远带 `needsReimport`，没有文件、封面二进制或可读权限，因此不能交给本地阅读器打开。运行中的同步可按账户失效：登出或切换账户后，旧会话不会继续 flush、pull、投影或写游标/revision。当前已把本地导入、书目校正和“成功持久化后的”EPUB/PDF 阅读进度接入 edition metadata outbox：只有稳定已登录账户会在本地写入成功后排队，延迟合并后顺序 flush；异步读取 revision 期间发生登出/账户切换也不得向新账户排入旧数据。远端 `needsReimport` shadow 已在个人书库作为账户隔离、不可点击的“需重新导入原书”卡片展示，绝不混入本地 `StoredBook` 或阅读器路由。用户必须主动选取 EPUB/PDF，且格式、文件名和字节大小与影子精确匹配，才会先在本机创建同一 `editionId` 的可读副本；匹配失败不写入任何文件，成功后影子只因同版本的本地文件存在而从视图隐藏，绝不被删除或误作下载。摘录页面写入将使用 `0012` 的专用私有 RPC：仅 authenticated 的本人未撤销设备能以稳定摘录 ID 提交版本、选区文本、位置、笔记、颜色和是否显示高亮；版本关联只使用 `edition_id`，不额外同步本机书籍 ID。服务端将其映射到既有 revision、幂等和删除墓碑机制。该端点没有泛化 metadata 参数，不能接收 EPUB/PDF、封面二进制、对象键、文件元数据、URL 或整本正文。拉取的远端摘录影子现在仅在同一稳定账户的摘录页只读展示：它显示已同步的选区文字、笔记与颜色，但永远不创建本地 `Highlight`、不提供编辑/删除/改色或“打开原文”入口，也不携带书籍文件读取权。“仅从此设备移除”只清理本机原书、封面、索引与摘录，不再发送全局 edition/highlight tombstone，因此保留其他设备的书架与云端恢复入口。既有 metadata 全局删除协议仍由 Agent B 维护；云端原书删除是独立动作。阅读偏好同步仅允许两个固定 key：`reader.layout`（主题、字号、PDF 缩放）与 `reader.language`（理解语言）；界面语言仍是本机选择。远端值必须通过精确对象 allowlist、长度/数值校验并由应用以当前账户身份持久化后，才可推进游标；它没有泛化 key/value、文件或正文入口。真实双浏览器 RLS 验收和用户可见“已同步”状态尚未完成，不能承诺跨设备恢复。
 
 - 同步页面接线状态更新：稳定登录账户在本地修改阅读主题、字号、PDF 缩放或理解语言后，会以账户隔离、字段白名单的 `setting` 意图异步入队；远端设置先写入该账户专属缓存，再且仅在当前账户仍匹配时更新页面。界面语言仍严格本机化。此阶段仍未完成真实双 profile 验收，不能显示“同步完成”。
 
@@ -78,7 +78,7 @@ WorLibrary 是本地优先的多语言阅读器：用户导入自己拥有的 EP
 | AI 客户端 | src/lib/translation.ts、src/lib/explanation.ts、src/lib/ai-result-cache.ts | 调网关、缓存、错误与重试信息 | 浏览器不能保存供应商密钥；仅传选区和必要上下文 |
 | OCR 客户端 | src/lib/ocr.ts、docs/ocr.md | 当前 PDF 页转数据并请求 OCR | 只发送用户主动选定的页；不要上传整本书；校正草稿不可自动发给 AI |
 | 认证与同步 | src/App.tsx、src/components/AuthPanel.tsx、src/lib/auth.ts、src/lib/remote.ts、src/lib/device-registration-session.ts、src/lib/metadata-sync-runtime.ts、src/lib/metadata-sync-engine.ts、src/lib/metadata-sync-edition-intent.ts、src/lib/metadata-sync-edition-shadow.ts、src/lib/metadata-sync-retry.ts、src/lib/account-reader-preferences.ts、supabase/migrations/0008_metadata_sync_foundation.sql、0009_controlled_metadata_sync_rpc.sql、0016_metadata_sync_scalar_payload_guard.sql | 未登录账户入口的邮箱登录／注册弹窗、匿名/魔法链接会话、最小设备注册 RPC、稳定账户的浏览器设备会话协调、账户隔离 outbox 的顺序 flush、受控远端 mutation/pull 与安全 shadow 投影 | 顶栏账户按钮在未登录时必须打开可关闭、可 Escape 退出的对话框，登录成功后关闭；已登录时才进入设置。设备协调器只在稳定账户且调用方已验证远端配置时读取/创建随机本机 UUID；该 UUID 不得含用户、邮箱、书籍或正文，服务器以 JWT 绑定账户。edition 白名单仅含书名、作者、语言、进度、位置、文件名/类型/大小和安全封面色 metadata；这些字段不允许文件字节、对象定位、URL 或正文。导入、书目校正和成功持久化的阅读进度只在稳定账户下入队；先持久化本地记录再排队，排队/read-revision 异步期间账户变化必须取消旧账户意图。版本 shadow projector 只能向隔离 store 写入白名单元数据，未知实体不写入，禁止构造 StoredBook 或接受二进制/URL/正文；可选位置为空字符串时须在持久化前归一化为 `undefined`。摘录使用专用 RPC 同步，字段限定为版本、选区文本、位置、笔记、颜色与显示状态。阅读偏好只同步 `reader.layout` 与 `reader.language`，并按账户恢复缓存；旧 sequence 的重复 upsert/clear 必须作为成功的幂等 no-op，不覆盖较新的缓存值，以免阻塞 feed/cursor。账户切换或登出会失效旧运行并取消其重试定时器。网络错误保留 outbox 并按有上限的指数退避重试，断网时等待 `online` 事件，恢复后继续顺序 flush。匿名会话不得启动同步；同步适配器必须使用与本地存储相同的 IndexedDB schema version；只能调用明确白名单的 RPC。真实双 Profile Supabase/RLS 验收通过前不得展示同步完成 |
-| 个人云书库（待实现） | docs/user-data-sync-architecture.md、未来的 user-files Worker/API 与 Supabase migrations | 已登录用户的书架/阅读数据同步、无感跨设备原书访问，以及可选端到端加密原书备份 | 默认托管加密必须让新设备仅登录即可按需打开文件；高级端到端加密必须明确恢复码/设备确认成本。用户文件与平台正文必须用不同私有 bucket、表、权限和审计流；客户端不保存恢复码或明文密钥到 localStorage |
+| 个人云书库（待真实验收） | src/lib/user-file-library.ts、user-file-consent.ts、user-file-upload-task.ts、private-file-local-commit.ts、worker/index.mjs、0014/0015/0017/0018/0019 migrations | 私有原书准入、账户同意与用量、上传任务/抑制、完整性恢复和本机清理；产品上传入口仍待接线 | P0是private-r2-v1，不宣称应用层/端到端加密；原书不进metadata RPC，0018/0019仅起草测试、未执行远端DDL。用户文件与平台正文使用不同私有bucket；真实两账户/设备验收前不能承诺备份完成 |
 | 国际化 | src/lib/i18n.ts、src/lib/interface-locale-registry.ts、src/components/ReadingLanguagePicker.tsx 与各组件 | 界面语言和全球 AI 输出语言；界面语言的可用/规划状态、稳定回退与 RTL 方向 | 先读 docs/i18n-extension.md；两种语言配置独立；planned 语言没有完整文案前不得出现在可切换列表 |
 | API 与额度 | worker/、api/、server/、supabase/migrations/ | Worker 路由、平台版本访问策略、受保护正文 Range 交付、JWT 校验、额度扣减、目录代理、健康检查 | 密钥仅在环境变量；`/api/reader/access` 只返回策略，`/api/reader/content` 每次复验后才从私有 R2 读取允许的 EPUB/PDF；两者不得返回正文定位信息或对象存储位置；平台动态交付只能经内部 Service Binding resolver 调用 `resolve_platform_reader_delivery`，不得让浏览器或主 Worker 获得 Supabase service-role key；额度操作需服务端原子化 |
 | Cloudflare 部署 | worker/index.mjs、wrangler.jsonc、scripts/verify-deployment.mjs、.github/workflows/ci.yml | 同域静态 SPA、`/api/catalog`、`/api/translate`、`/api/explain`、健康/翻译就绪探针、真实目录发布验证与 Worker 安全头 | 手动部署必须从 Wrangler 输出提取地址，并由 GitHub Runner 验证健康、翻译配置状态和真实目录查询；公共书目结果可短期缓存；AI/OCR、认证和错误响应不得共享缓存；生产端点必须 HTTPS。当前 Worker 的边缘限流是每 isolate 的基础防护，公开启用付费 AI 前还必须接入全局限流/WAF 与账户额度边界 |
@@ -132,3 +132,73 @@ WorLibrary 是本地优先的多语言阅读器：用户导入自己拥有的 EP
 `0014`/`0015` 将 EPUB/PDF manifest、分块账本、配额预留和删除墓碑放在账户隔离表；字节仅进入独立私有的 `USER_BACKUPS` R2 绑定。`/api/user-files/*` 由 Worker 验证稳定账户后代持 R2 与 service-role RPC：浏览器只能得到 manifest ID、状态和进度，绝不得到对象键、签名 URL、桶名或服务端密钥。
 
 当前已有可恢复分块上传/按块恢复的实现和合约测试。稳定账户在新设备只会把同时存在于本人 metadata shadow 与本人 active manifest 的书显示为“云端可恢复”；恢复分块先写入私有临时 IndexedDB，只有最终文件大小与本人 manifest 的 SHA-256 都匹配后才原子写入 OPFS/本地 IndexedDB。中断保留已完成分块；哈希失败会清除该 manifest 的临时分块，下次只从受控网关重新下载，失败绝不产生半成品书籍。真实 Supabase、R2、两设备验收仍为 **NOT VERIFIED**，界面不得称“云端同步已完成”。
+
+## 上传任务 journal（Agent A，待产品接线）
+
+`src/lib/user-file-upload-task.ts` 使用独立 IndexedDB 保存账户、版本、文件指纹与幂等 operation ID，不保存原书字节或对象地址。先提交 journal 才发远端写入；重试复用 operation 并跳过已确认分块。调用方必须串行调度，并在登出、账户/会话切换或暂停时使任务失效；每个异步边界后重新检查，避免旧任务继续上传或 complete。该模块尚待产品接线；active 仅表示网关确认，不能作为真实备份验收证据。
+
+恢复会话边界：`createUserFileClient` 支持 `isCurrent`，下载前、每次网络/缓存异步之后以及最终返回前检查当前会话。App 仅允许当前账户的 shadow，并在下载完成后再次检查会话再调用 importer；旧运行不得继续进度提示或覆盖新账户的恢复状态。恢复 importer 将原书、book、work、edition 在同一 IndexedDB 事务提交；会话变更通过 AbortSignal 中止在途事务，每次请求成功事件也复核会话并可整体回滚。恢复不再分离写 OPFS，以避免留下不可回滚的正文。真实账户隔离仍须 staging 验收。删除客户端保留 `deleting`/`deleted` 返回状态，未知成功响应失败关闭；产品重试入口待接线。
+
+恢复与本机清理 helper 为 `src/lib/private-file-local-commit.ts`，仅在操作时加载。恢复的文件、book/work/edition 一次事务提交，重复恢复在同一写事务内再次校验，避免并发产生两条本机书籍；账户 AbortSignal 与请求成功事件双重校验可整体回滚。仅本机移除先清理 OPFS，实际清理失败保留可重试入口，再原子删除本机记录；不调用全局 metadata 删除协议。
+
+上传任务抑制：`user-file-upload-task.ts` 为每个账户/版本持久保存 `suppressed` 状态，即使尚未上传也可先建立标记。本机移除和云端删除在文件清理/远端删除前写入标记，写入失败不继续破坏性动作。runner 在每次远端请求前后检查 journal，抑制后停止后续块、complete、进度和自动重试；IndexedDB 写事务拒绝陈旧 active/failed 回执覆盖 suppressed。重新打开 journal 仍拒绝同版本任务，即使文件内容变化；不同账户互不影响。新导入的新版本 ID 不复用旧抑制记录。这不是服务端全局永久删除证明，仍需服务端墓碑和真实跨设备验收。
+
+恢复的全部校验/构造与原子落库现在按需加载到 `private-file-local-commit.ts`，storage.ts 仅保留公开入口与只读/校验依赖注入；不改变 metadata 数据库版本，不把正文送入 metadata RPC。配置启用的首屏包体仍须通过原预算。
+
+## 私有文件同意状态（0018 草案）
+
+`0018_private_file_consent.sql` 与 `src/lib/user-file-consent.ts` 建立专用私有文件状态，不复用 metadata settings/RPC。稳定账户只能通过无user参数的get RPC和单一boolean的set RPC读取/设置本人同意与暂停；首次接受时间保留，暂停不抹去已同意记录。普通浏览器无表直接权限，匿名被拒；返回只有enabled/consented与三项用量计数，未知字段失败关闭。客户端在请求前后复核会话。
+
+前向begin准入要求本人未删除edition与已接受/开启的同意，幂等键重复时精确匹配全部descriptor；按账户串行begin，避免重复预留配额。相同edition/hash可复用已存manifest，过期上传只有对象清理/配额释放已确认且不存在用户删除墓碑才可重新预留；用户删除墓碑过30天也不允许同edition自动复活。无远端执行或真实Supabase/RLS验收；Worker完整性/并发硬化与产品同意/上传入口仍待交付。
+
+### 0019 私有文件生命周期串行化（未部署）
+
+`0019_private_file_lifecycle_serialization.sql` 为同意切换、begin、record、complete、请求/完成删除及过期回收提供统一“账户advisory lock → 账户mutation fence → 业务行/配额”的入口顺序。fence是内部计数，不进入metadata同步或客户端state响应；旧REPEATABLE READ快照在等待后必须序列化失败，不能用旧同意/删除状态授权新预留。chunk/complete每次重新核对同意、本人active edition、墓碑、有效期和manifest状态；本人的既有读取与删除不要求开关enabled。metadata edition只加行锁复验，不修改Agent B协议。
+
+请求删除先进入deleting，finish仅允许deleting后结算且幂等；reap返回全部待删除项，使先前对象清理失败可以重试。它不证明R2物理清理/字节完整性：Worker不可变写入、完整性验证与对象并发清理仍待实现，产品上传入口不得据此启用。0018/0019都未执行远端DDL。
+
+### Worker 流式完整性原语（尚未接完成接口）
+
+`worker/user-file-integrity.mjs` 顺序读取实际R2正文，以原生 `crypto.DigestStream('SHA-256')` 同时校验每块及整书大小/摘要；无整书缓冲，不使用对象metadata摘要作为字节证明。描述符和有序账本先校验，读取失败只返回固定错误码，不传播SDK中的内部地址。原生API说明见 https://developers.cloudflare.com/workers/runtime-apis/web-crypto/ 。
+
+该内部helper不写存储、不结算配额、不激活manifest，0021阶段已接入user-files完成接口，须与新迁移成套验证。调用方仍需本人/versioned snapshot、不可变对象写入及校验后generation/state CAS；SQL锁不能跨R2读取保护对象，不能用此原语宣称上传闭环已完成。
+
+### 0020 校验快照与激活 CAS（未部署）
+
+`0020_private_file_verification_snapshot.sql` 为块账本insert/update/delete递增manifest的内部chunk_generation；块所属账户/manifest/version禁止原地迁移。service-only快照返回本人当前可校验manifest的有序账本与descriptor，generation和对象定位仅供Worker内部使用，不进入浏览器或metadata协议。缺块、尺寸/索引不符、暂停、墓碑或过期拒绝快照。
+
+完成RPC必须提交Worker实际字节校验所得size/hash和原snapshot generation，在同一账户锁/manifest锁内重新核对当前状态和完整账本；generation变化拒绝，重复已active回执不再计费。旧无摘要complete RPC撤销service权限且函数体失败关闭，避免旧路径绕过。0021阶段新版Worker已接新RPC，仍不能单独部署0020；generation只保护SQL账本，仍需不可变R2对象和并发清理协议，不能证明实际对象在校验后未变。
+
+目录测试边界：两项smoke的OpenLibrary fixture需同时隔离同源代理回退与Google Books来源，不能只mock其中一个adapter而等待真实网络。当前最小修复及脱敏请求证据见runbook/acceptance；产品目录逻辑与metadata协议不变。
+
+### 条件创建原语（尚未接上传端点）
+
+`worker/user-file-immutable-write.mjs` 在首个await前复制至多8MiB正文与intent descriptor，计算实际SHA-256，并用R2 `onlyIf.etagDoesNotMatch='*'` 和checksum条件创建。已存在时必须读回实际字节验证后才接受幂等重试；同大小冲突、缺失或空对象失败关闭。错误不携带定位，不做无条件覆盖或删除。官方条件API：https://developers.cloudflare.com/r2/api/workers/workers-api-reference/#conditional-operations 。
+
+该helper不分配intent、不做鉴权或SQL记账，0021阶段已在prepare持久登记之后接入Worker，写入后commit复验。主 Agent已确认零字节栅栏方向，清理实现与门禁见0021节；条件创建本身仍不证明真实删除竞态或产品可发布。
+
+## 0021 持久写入 intent 与正文删除栅栏（未部署）
+
+`0021_private_file_write_intents.sql` 为每个账户/manifest/version/块持久登记随机UUID写入身份，key仅含随机身份，不含owner/文件名/正文hash；相同descriptor重试复用同一未fenced intent，冲突拒绝，已fenced身份永不重用。prepare先锁内复验本人同意/edition/墓碑/上传状态与准确块范围，登记提交后Worker才条件PUT；写成功后commit再复验，只有此时进入块账本。普通浏览器无intent表或RPC权限，service也无表直读权。旧record RPC关闭。
+
+Worker的user-files路径现已接线：有界读取至多8MiB→service prepare→不可变条件写→commit；complete获取本人snapshot，实际R2正文流式校验块/整书大小及SHA，再按generation CAS激活；旧无条件正文PUT与head-only完成路径移除。GET在R2读取后再次复核本人active状态，拒绝空对象/尺寸错误。未改变浏览器接口或metadata协议。
+
+云删除先标记deleting阻止新intent，再列举全部已登记身份（含未确认/失败/在途/已fenced）；`user-file-body-fence.mjs`对每个key写零字节且无敏感custom metadata的对象并确认size=0，之后才ack。SQL finish要求所有intent均确认fenced才结算，任何部分失败保持deleting与原配额，DELETE可幂等重试；initiate过期回收复用同一清理路径。栅栏永久保留，晚到条件PUT不能重建正文；删除承诺是正文删除，不是对象键物理消失。尚无定时服务端清理调度，重试来自DELETE或initiate回收。
+
+0021对任何已有私有manifest/chunk记录拒绝切换，避免旧确定性key或未登记旧PUT混入；不自动丢弃/转换旧数据。即使数据库空，也须核对旧R2孤立对象及停止旧无条件写身份。三份新迁移未执行远端，新网关/SQL尚未真实Supabase/R2验收；产品同意/上传进度入口仍待完成，不能称云书库闭环交付。
+
+## 私有云书库授权入口（设置页）
+
+稳定账户在设置页通过按需加载的 `PrivateCloudPreferences` 查看本人专用RPC授权与用量。首次开启必须打开说明、主动勾选未预选的同意框并点击确认；取消/打开页面均不写授权。再次恢复沿用服务端首次同意，暂停保留已有云文件的读取/删除权限。授权设置不通过metadata RPC，不从本机缓存推断允许上传。
+
+请求覆盖JSON读取的8秒超时，切换账户/会话或离开入口会中止请求并丢弃旧回执；失败显示通用提示。set回执不确定时只提供显式重新读取，不自动重发或宣称已开启。卡片按账户key隔离用量；匿名账户没有该入口。中英文文案在 `private-cloud-copy.ts` 懒加载子包，仍以UiLocale为唯一界面语言输入，不增加首屏全局语言包。
+
+当前只交付授权设置，导入自动调度/进度/重试尚未接线；已有导入继续本地保存，不能据“已允许上传”称已备份或完整跨设备交付。后续仅对同意后当前稳定账户的新导入登记队列，不把新登录账号与这台设备旧书自动关联，上传前edition就绪信号已获主 Agent采纳B的保守active投影方案，尚待调度接线，不称本次operation ack。
+
+## 0022 云删除状态与持久重试入口（未部署）
+
+`list_private_file_cleanup_jobs()` 只允许本人稳定JWT、无owner参数，返回deleting的manifestId/editionId/fileName三字段，匿名和service直接执行均拒绝；不包含对象定位/hash/正文。新设备即使没有本机书，也能在设置页发现本人未完成清理。状态读取不把active列表消失当删除完成。
+
+`user-file-delete-task.ts` 使用独立 `worlibrary-private-deletions` IndexedDB，首次DELETE前事务提交仅含账户、manifest/edition、显示标签与状态的五字段任务；写失败零DELETE。设置页惰性子组件 `PrivateCloudDeletionJobs` 合并本人远端待清理和按账户键范围读取的本机任务；RPC失败仍保留本机项。重试仍先由原客户端持久suppressed，deleting/失败保留任务，只有显式deleted回执才移除并重新读用量。文件和本机书不因云删除而移除；新设备重试也不需下载原书。
+
+App首次删除捕获既有会话AbortSignal，设置页重试捕获独立session代际；A→B→A也不能接受旧回执清除任务或更新新账户界面。未知字段/原始服务错误不渲染；页面/账户失效中止网络，刷新和窗口回焦重读本人任务。无metadata协议变更，0022未远端执行。

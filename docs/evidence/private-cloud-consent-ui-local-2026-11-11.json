@@ -1,0 +1,66 @@
+{
+  "schemaVersion": 1,
+  "recordedAt": "2026-11-11T15:25:33.200Z",
+  "environment": "local production preview with public CI Supabase fixture configuration; all RPC responses synthetic",
+  "scope": "settings permission only; no upload queue wiring",
+  "uiTests": {
+    "passed": 5,
+    "failed": 0,
+    "verified": [
+      "anonymous has no permission entry or requests",
+      "first unchecked agreement and cancel make no writes",
+      "enable/pause/resume use boolean-only private RPCs",
+      "unknown fields fail closed and are not rendered",
+      "ambiguous write response requires explicit reread; no automatic retry",
+      "account switch aborts old request and isolates usage",
+      "English explicit agreement boundary",
+      "zero file upload POSTs from permission UI"
+    ]
+  },
+  "fullPlaywright": {
+    "passed": 216,
+    "failed": 0,
+    "skipped": 0,
+    "flaky": 0,
+    "durationMs": 58763.202000000005
+  },
+  "validation": {
+    "typecheck": "PASS",
+    "productionBuild": "PASS",
+    "configuredOriginalBundleBudget": "PASS entry approximately350.7kB",
+    "windowsQuality": "exit0 without report NOT VERIFIED; depends on Agent B integration",
+    "ci9c05be4": "browser dependency install DNS failure security.ubuntu.com; quality did not run"
+  },
+  "subjects": [
+    {
+      "path": "src/App.tsx",
+      "sha256": "32f22daa98588add8f4499a766fc284056017a61ccbf04c826fc2497bb612c8d"
+    },
+    {
+      "path": "src/components/PrivateCloudPreferences.tsx",
+      "sha256": "d460bbf18c8fcd923ebc0182887ddbb80efac27f01ab318ee9c134f67c46213a"
+    },
+    {
+      "path": "src/components/private-cloud.css",
+      "sha256": "ba9116d3d015bcd660de550b85e4c872088c83d05c31271ef6f207f8a33ac9a0"
+    },
+    {
+      "path": "src/lib/private-cloud-copy.ts",
+      "sha256": "dd1264cd90dd55ba9a409d11e6aec0891182acccc007fa1f25ebba97f8646f5d"
+    },
+    {
+      "path": "tests/private-cloud-preferences.spec.ts",
+      "sha256": "82ff1f4d1b84618635a5f3a39728d6b30a2f39b4f69c5de627cae5594c28cc9f"
+    }
+  ],
+  "hashNormalization": "UTF-8 LF",
+  "notVerified": [
+    "real Supabase/RLS/R2",
+    "actual first import automatic upload/progress/retry",
+    "two-device product acceptance",
+    "Agent B edition readiness adapter confirmation"
+  ],
+  "remoteDDLExecuted": false,
+  "remoteDeploymentExecuted": false,
+  "credentialsRecorded": false
+}
