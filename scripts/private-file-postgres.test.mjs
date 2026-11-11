@@ -65,7 +65,9 @@ async function serviceOk(sql) { return ok(sql, { role: 'service_role' }) }
 function beginSql(fixture, operation = fixture.operation, name = 'fixture.pdf') {
   return `select manifest_id from public.begin_user_file_upload('${fixture.user}', '${fixture.edition}', ${literal(name)}, 'application/pdf', 4, 8388608, 1, '${operation}', '${'a'.repeat(64)}');`
 }
-const completeSql = (fixture) => `select public.complete_user_file_upload('${fixture.user}', '${fixture.manifest}');`
+// Fixture receipts are synthetic: these tests prove SQL/CAS, not actual R2 bytes.
+const completeSql = (fixture, generation = `((public.get_private_file_verification_snapshot('${fixture.user}', '${fixture.manifest}')->>'generation')::bigint)`) =>
+  `select public.complete_verified_user_file_upload('${fixture.user}', '${fixture.manifest}', ${generation}, 4, '${'a'.repeat(64)}');`
 const deleteSql = (fixture) => `select manifest_id from public.request_user_file_delete('${fixture.user}', '${fixture.manifest}');`
 const finishSql = (fixture) => `select public.finish_user_file_delete('${fixture.user}', '${fixture.manifest}');`
 function recordSql(fixture, size = 4) {
@@ -140,7 +142,7 @@ before(async () => {
     create function auth.jwt() returns jsonb language sql stable as $$ select coalesce(nullif(current_setting('request.jwt.claims',true),'')::jsonb,'{}'::jsonb) $$;
     grant usage on schema auth to anon,authenticated,service_role;
     create table public.editions(id uuid primary key, user_id uuid references auth.users(id), deleted_at timestamptz);`)
-  for (const migration of ['0014_private_user_file_library.sql', '0015_private_user_file_gateway.sql', '0017_private_user_file_storage_and_quota_fix.sql', '0018_private_file_consent.sql', '0019_private_file_lifecycle_serialization.sql']) {
+  for (const migration of ['0014_private_user_file_library.sql', '0015_private_user_file_gateway.sql', '0017_private_user_file_storage_and_quota_fix.sql', '0018_private_file_consent.sql', '0019_private_file_lifecycle_serialization.sql', '0020_private_file_verification_snapshot.sql']) {
     await ok(await readFile(join('supabase/migrations', migration), 'utf8'))
   }
 }, { timeout: 60000 })
@@ -180,7 +182,7 @@ test('local SQL concurrency: committed cloud deletion rejects old completion and
     const names = [randomUUID(), randomUUID()]
     const pending = [service(completeSql(f), names[0]), service(beginSql(f), names[1])]
     await blocked(names); await holder.send('commit;')
-    for (const result of await Promise.all(pending)) { assert.notEqual(result.code, 0); assert.match(errorSummary(result), /tombstone|not uploadable/) }
+    for (const result of await Promise.all(pending)) { assert.notEqual(result.code, 0); assert.match(errorSummary(result), /tombstone|not verifiable/) }
     assert.deepEqual(await quota(f), { used: 0, reserved: 4 })
     await serviceOk(finishSql(f)); await serviceOk(finishSql(f))
     assert.deepEqual(await quota(f), { used: 0, reserved: 0 })
@@ -256,7 +258,7 @@ test('local SQL: record rejects incorrect size, key and owner, and expired compl
   await serviceOk(recordSql(f))
   await ok(`update public.user_file_manifests set upload_expires_at=now()-interval '1 hour' where id='${f.manifest}';`)
   await denied(recordSql(f), { role: 'service_role' }, /not active/)
-  await denied(completeSql(f), { role: 'service_role' }, /not uploadable/)
+  await denied(completeSql(f), { role: 'service_role' }, /not verifiable/)
   assert.deepEqual(await quota(f), { used: 0, reserved: 4 })
 })
 
@@ -272,4 +274,80 @@ test('local SQL concurrency: metadata deletion is rechecked after its row lock; 
     await serviceOk(deleteSql(f)); await serviceOk(finishSql(f))
     assert.deepEqual(await quota(f), { used: 0, reserved: 0 })
   } finally { await holder.close() }
+})
+
+const snapshotSql = (f) => `select public.get_private_file_verification_snapshot('${f.user}', '${f.manifest}');`
+async function snapshot(f) { return JSON.parse(await serviceOk(snapshotSql(f))) }
+
+test('local SQL verification: snapshot and completion are service-only and legacy completion is closed', async () => {
+  const f = await fixture()
+  for (const role of ['anon', 'authenticated']) {
+    await denied(snapshotSql(f), { role, user: f.user }, /permission denied/)
+    await denied(completeSql(f, '1'), { role, user: f.user }, /permission denied/)
+  }
+  await denied(`select public.complete_user_file_upload('${f.user}', '${f.manifest}');`, { role: 'service_role' }, /permission denied/)
+  await denied(`select public.complete_user_file_upload('${f.user}', '${f.manifest}');`, {}, /verified completion required/)
+  const other = await fixture({ manifest: false })
+  await denied(snapshotSql({ ...f, user: other.user }), { role: 'service_role' }, /manifest not found/)
+  await denied(completeSql({ ...f, user: other.user }, '1'), { role: 'service_role' }, /manifest not found/)
+  const s = await snapshot(f)
+  assert.deepEqual(Object.keys(s).sort(), ['chunks', 'generation', 'manifest'])
+  assert.deepEqual(s.manifest, { size: 4, hash: 'a'.repeat(64), chunkSize: 8388608, chunkCount: 1 })
+  assert.equal(s.chunks.length, 1); assert.equal(s.generation, 1)
+  assert.deepEqual(await quota(f), { used: 0, reserved: 4 })
+})
+
+test('local SQL verification: changed ledger invalidates prior snapshot; fresh receipt activates once', async () => {
+  const f = await fixture(); const s = await snapshot(f)
+  await serviceOk(recordSql(f))
+  const next = await snapshot(f); assert.equal(next.generation, s.generation + 1)
+  await denied(completeSql(f, s.generation), { role: 'service_role' }, /snapshot changed/)
+  await denied(completeSql(f, 'null'), { role: 'service_role' }, /snapshot changed/)
+  await denied(completeSql(f, next.generation).replace(', 4,', ', 3,'), { role: 'service_role' }, /descriptor mismatch/)
+  await denied(completeSql(f, next.generation).replace('a'.repeat(64), 'c'.repeat(64)), { role: 'service_role' }, /descriptor mismatch/)
+  assert.deepEqual(await quota(f), { used: 0, reserved: 4 })
+  const holder = await hold(completeSql(f, next.generation), { role: 'service_role' })
+  try {
+    const name = randomUUID(); const pending = service(completeSql(f, next.generation), name)
+    await blocked([name]); await holder.send('commit;')
+    const result = await pending; assert.equal(result.code, 0, errorSummary(result))
+    assert.deepEqual(await quota(f), { used: 4, reserved: 0 })
+    assert.equal(await ok(`select upload_state from public.user_file_manifests where id='${f.manifest}';`), 'active')
+  } finally { await holder.close() }
+})
+
+test('local SQL verification concurrency: in-flight chunk commit invalidates a previously read snapshot', async () => {
+  const f = await fixture(); const s = await snapshot(f)
+  const holder = await hold(recordSql(f), { role: 'service_role' })
+  try {
+    const name = randomUUID(); const pending = service(completeSql(f, s.generation), name)
+    await blocked([name]); await holder.send('commit;')
+    const result = await pending; assert.notEqual(result.code, 0); assert.match(errorSummary(result), /snapshot changed/)
+    assert.deepEqual(await quota(f), { used: 0, reserved: 4 })
+  } finally { await holder.close() }
+})
+
+test('local SQL verification: a saved snapshot cannot activate after pause, deletion, expiry or metadata deletion', async () => {
+  for (const action of ['pause', 'delete', 'expire', 'metadata-delete']) {
+    const f = await fixture(); const s = await snapshot(f)
+    if (action === 'pause') await ok('select public.set_private_file_library_enabled(false);', { role: 'authenticated', user: f.user })
+    if (action === 'delete') await serviceOk(deleteSql(f))
+    if (action === 'expire') await ok(`update public.user_file_manifests set upload_expires_at=now()-interval '1 hour' where id='${f.manifest}';`)
+    if (action === 'metadata-delete') await ok(`update public.editions set deleted_at=now() where id='${f.edition}';`)
+    await denied(completeSql(f, s.generation), { role: 'service_role' }, /consent|required|tombstone|not verifiable|owned active edition/)
+    assert.deepEqual(await quota(f), { used: 0, reserved: 4 })
+  }
+})
+
+test('local SQL verification: incomplete or malformed current ledger cannot produce a snapshot', async () => {
+  const f = await fixture({ chunk: false })
+  await denied(snapshotSql(f), { role: 'service_role' }, /incomplete/)
+  await serviceOk(recordSql(f)); const initial = await snapshot(f)
+  await ok(`update public.user_file_chunks set ciphertext_size=3 where manifest_id='${f.manifest}';`)
+  await denied(snapshotSql(f), { role: 'service_role' }, /incomplete/)
+  await ok(`update public.user_file_chunks set ciphertext_size=4, chunk_index=2 where manifest_id='${f.manifest}';`)
+  await denied(snapshotSql(f), { role: 'service_role' }, /incomplete/)
+  await ok(`delete from public.user_file_chunks where manifest_id='${f.manifest}';`)
+  assert.equal(await ok(`select chunk_generation from public.user_file_manifests where id='${f.manifest}';`), String(initial.generation + 3))
+  await denied(snapshotSql(f), { role: 'service_role' }, /incomplete/)
 })

@@ -127,3 +127,7 @@ npm run qa
 ## Worker 实际字节完整性原语
 
 `npm run test:worker` 增加7项流式单元测试及1项原生workerd/模拟R2测试：同大小损坏必须拒绝，逐块摘要不能替代整书摘要，顺序读取不得整书缓冲，未知/缺失/超长正文失败关闭，内部地址不出错误。该helper尚未接完成路由，验收范围仅本机原语；不可变对象、generation CAS和真实Supabase/R2/两设备仍NOT VERIFIED，不能据此启用自动上传。
+
+## 0020 校验窗口内的数据库竞争
+
+本机PostgreSQL回归现为15项，新增验证快照权限/旧complete关闭、generation变化、错误回执和并发幂等收费。真实多连接在record未提交时让旧快照完成请求等待，提交后必须拒绝旧generation并维持reserved配额；暂停/删除/过期及metadata删除均不能凭旧快照激活。合成hash回执不是字节证明，R2不可变性与完成端点仍待接线，不可单独应用0020。

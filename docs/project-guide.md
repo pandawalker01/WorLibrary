@@ -162,3 +162,9 @@ WorLibrary 是本地优先的多语言阅读器：用户导入自己拥有的 EP
 `worker/user-file-integrity.mjs` 顺序读取实际R2正文，以原生 `crypto.DigestStream('SHA-256')` 同时校验每块及整书大小/摘要；无整书缓冲，不使用对象metadata摘要作为字节证明。描述符和有序账本先校验，读取失败只返回固定错误码，不传播SDK中的内部地址。原生API说明见 https://developers.cloudflare.com/workers/runtime-apis/web-crypto/ 。
 
 该内部helper不写存储、不结算配额、不激活manifest，目前尚未接入user-files完成接口。调用方仍需本人/versioned snapshot、不可变对象写入及校验后generation/state CAS；SQL锁不能跨R2读取保护对象，不能用此原语宣称上传闭环已完成。
+
+### 0020 校验快照与激活 CAS（未部署）
+
+`0020_private_file_verification_snapshot.sql` 为块账本insert/update/delete递增manifest的内部chunk_generation；块所属账户/manifest/version禁止原地迁移。service-only快照返回本人当前可校验manifest的有序账本与descriptor，generation和对象定位仅供Worker内部使用，不进入浏览器或metadata协议。缺块、尺寸/索引不符、暂停、墓碑或过期拒绝快照。
+
+完成RPC必须提交Worker实际字节校验所得size/hash和原snapshot generation，在同一账户锁/manifest锁内重新核对当前状态和完整账本；generation变化拒绝，重复已active回执不再计费。旧无摘要complete RPC撤销service权限且函数体失败关闭，避免旧路径绕过。**当前Worker尚未接新RPC**，不能单独部署0020；generation只保护SQL账本，仍需不可变R2对象和并发清理协议，不能证明实际对象在校验后未变。

@@ -227,3 +227,11 @@ Node 24.22.1 下 typecheck、生产 build、bundle budget 通过；完整 Playwr
 这是本机字节验证原语测试，当前尚未接完成接口，不代表不可变写入/最终CAS、对象删除竞态、真实R2或两设备验收通过。README、deployment的远端配置与发布门禁未变，本次不新增迁移/远端绑定；共享quality执行器仍由Agent B #10负责，复用已有test:worker门禁入口。
 
 2026-11-11 流式原语验证：test:worker **17/17**（含原生workerd/R2模拟），typecheck、生产build及配置启用原bundle预算通过，入口350.4kB。完整Playwright本轮为 **209 PASS / 2 FAIL**，失败仅既有世界书库两项OpenLibrary fixture（等待结果5秒超时），不记全绿；本次未修改目录实现/测试，交主 Agent与目录PR #9协调。Windows测试预览退出挂起，核对本轮PID后仅清理该预览进程树；无远端操作。npm run quality仍退出0但无报告，不能据此称quality通过，依赖Agent B #10修复及PR Linux CI。此前211/211是9788db9记录，不冒充本轮结果。
+
+### 0020 校验快照草案与本机回归
+
+0020仅service可读内部验证快照并按generation/实际摘要完成；旧complete不再授权。必须与实现不可变对象/流式校验/最终CAS的Worker成套发布，当前组合尚不兼容部署，**禁止单独应用0020**。不会新增客户端配置或将generation/对象键送入metadata。
+
+`npm run test:user-files-db` 当前在新fixture应用14/15/17/18/19/20，共15项真实SQL回归通过。新增实际锁等待覆盖在途record提交后旧generation拒绝、重复完成仅收费一次；覆盖服务专权/旧接口关闭、跨账户已知manifest、错误大小/摘要、空generation、暂停/删除/过期/metadata删除及不完整账本。fixture中的verified摘要是合成服务回执，只证明数据库CAS/计费，不是实际R2字节证明；原生字节原语证据另由test:worker提供，两者还没有端点接线。首轮运行器使用service直接SELECT generation因无表权限失败，已改为专用snapshot RPC重跑，未扩大表权限。临时cluster确认关闭。
+
+0020阶段未改变前端入口，不重复已知目录fixture的无关全量测试；最近完整Playwright仍为97ff52b的209/211，不称当前全绿。真实Supabase/RLS/R2及跨设备仍NOT VERIFIED。历史0019的10项证据保留，其脚本hash对应当时提交；新15项及当前runner/0020 hash另存快照证据JSON。

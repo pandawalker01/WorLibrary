@@ -287,3 +287,7 @@ Cloudflare 部署需独立、非公开的 R2 bucket，并以 `USER_BACKUPS` 绑�
 仅新增前向0019，保留0018审阅基线。所有私有文件写RPC先共享账户advisory锁并更新内部mutation fence，再处理同意/manifest/配额；record/complete复验同意、active edition、墓碑与状态。对既有文件的读取/删除继续允许暂停账户。finish只结算deleting状态且重复调用不重复扣额，reap保留可重试待清理项。
 
 已使用官方SHA-256验证的本机便携PostgreSQL 15.19、多连接fixture实际执行文件迁移链及并发测试10/10；这是最小auth/edition模拟环境，不代表真实Supabase/RLS或完整项目迁移链。脱敏证据见 `docs/evidence/private-file-sql-local-2026-11-11.json`。新命令未改共享quality流程；主 Agent需复核是否将该独立SQL检查接入CI。0018/0019仍未获远端执行授权，实际staging migration清单、Worker/R2完整协议和真实跨设备验收均需按门禁完成。
+
+## 0020 激活快照 CAS（草案，未应用）
+
+0020新增内部generation与仅service的快照/verified-complete RPC，撤销旧complete的service授权并将其实现改为拒绝。当前旧Worker调用旧RPC，因此 **0020不能单独应用**，必须等不可变对象、实际字节验证、最终CAS与清理协议成套完成、经主 Agent审查后再考虑staging迁移门禁。无远端DDL授权，无Production操作。回滚应用代码不得重新打开无验证complete；数据库问题只用新前向修复。新15项本机PG fixture不替代真实完整schema/JWT/RLS/R2验收。
