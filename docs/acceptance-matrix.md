@@ -137,3 +137,9 @@ npm run qa
 ## 条件创建防覆盖原语
 
 Worker测试增加原生R2并发条件创建：同内容重试只有一次created，不同内容不得改变原etag/正文，空对象不能冒充已上传块；输入buffer/descriptor在await后被修改也不能改变落盘对象。23项Worker测试覆盖此独立helper，尚无端点/持久intent或清理策略接线，真实R2与完整删除竞态仍NOT VERIFIED。
+
+## 0021 intent 与正文删除的并发验收
+
+本机PG验证随机intent先于ledger、普通角色/表直读与旧record拒绝、暂停/删除后的旧receipt拒绝、等待删除锁的新prepare/commit拒绝、全部intent确认前配额不释放，以及过期重试不复用旧随机key。legacy记录拒绝门禁必须保持，不得拿清空fixture流程当真实迁移。
+
+原生workerd经真实Worker路由测试：delete先于慢PUT（无对象先建栅栏）、PUT先于delete、重复删除、部分清理失败与配额重试、暂停后旧写回执、校验窗口删除、同大小损坏不发激活RPC、空栅栏拒绝读和读期间删除后复核。SQL服务为合成模型，独立PG证明锁/权限；两者不替代真实staging R2/Supabase/RLS。删除只承诺正文清零，永久保留0-byte内部栅栏及随机定位/请求成本，TTL/GC禁止移除。

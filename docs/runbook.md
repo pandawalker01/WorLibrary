@@ -248,4 +248,16 @@ Node 24.22.1 下 typecheck、生产 build、bundle budget 通过；完整 Playwr
 
 `npm run test:worker` 新增6项条件写测试：无效输入/内容错误零IO，await前复制正文与descriptor，实际字节幂等验证，冲突/缺失/空对象不删除或覆盖，固定错误码，以及真正workerd/R2中的并发相同PUT仅一次创建、不同内容不能改写etag/正文。与既有网关/完整性测试合计23项。使用已有Miniflare测试依赖，不访问真实R2。
 
-当前尚无持久intent RPC/端点接线。删除枚举后慢PUT迟到的问题不能用任意lease TTL当作已解决；已在PR交主 Agent明确“清零后保留内部删除栅栏”是否符合删除要求，未作架构决定或实现删除策略。保持deleting/配额保守原则，禁止据该helper称文件物理清理/真实云书库完成。与前端代码无交叉，最近完整Playwright为05a10c7的211/211；共享Windows质量门仍依赖B #10。
+4080b01阶段尚无持久intent RPC/端点接线（后续0021已补）。删除枚举后慢PUT迟到的问题不能用任意lease TTL当作已解决；当时在PR交主 Agent明确“清零后保留内部删除栅栏”是否符合删除要求；后续已确认并按0021节实现。保持deleting/配额保守原则，禁止据该helper称文件物理清理/真实云书库完成。与前端代码无交叉，最近完整Playwright为05a10c7的211/211；共享Windows质量门仍依赖B #10。
+
+## 0021 正文删除栅栏运维约束
+
+主 Agent已在PR确认P0保留零字节内部删除栅栏的方向，仅授权起草/实现/本机测试。Worker只允许持久登记随机intent后的条件正文PUT；删除先deleting、穷尽intent、逐key写0-byte并head确认、ack、全部确认后finish结算。失败不释放配额，重复DELETE或initiate过期清理可继续。无需正文hash/文件名/custom敏感metadata，不向浏览器返回定位。
+
+**禁止TTL、对象生命周期或后台GC移除private-intents/下的删除栅栏**。即使数据库记录过期、用户删除或清理成功也不能凭任意时间删除栅栏，否则仍在途的条件PUT可能重建正文。当前不会物理删除这些key；保留随机定位、对象数量及R2请求成本，原书正文大小归零后才结算用户文件配额，不把零字节对象称“对象键已消失”。运维需监控对象/请求成本并区分正文用量与marker数量，不能以普通GC节省成本破坏安全语义。没有新增定时清理服务，重试入口当前为DELETE/下一次initiate。
+
+切换前必须停用旧无条件写路径并证明其请求不再写入；仅撤销旧SQL RPC或等待任意TTL不足以阻止此前R2 PUT。0021若发现任何legacy manifest/chunk直接拒绝，不删改数据；即使DB空，也需主 Agent协调只读检查旧私有桶孤立对象/写身份。若非空，另提经审查的迁移/隔离切换方案，绝不可用本机fixture的清空步骤处理真实环境。0020/21与新版Worker须成套经门禁，未获远端DDL授权。
+
+SQL runner分两阶段：先在最小fixture验证0018-20共15项，然后证明0021拒绝旧记录；只在已核实随机本机cluster中清理合成旧fixture数据，再应用0021并验证6项intent协议子用例（计父用例合计22）。这是测试fixture重置，不是升级手册。workerd测试使用真实Worker入口、R2与DigestStream，但SQL服务是合成模型；真实数据库行为由独立PG多连接测试证明，两者不等于真实完整Supabase/R2联调。
+
+0021提交前：本机PG **22/22**（含intent协议6子用例与父用例），原生Worker **32/32**（9项真实入口/本机R2场景），完整Playwright **211/211、0 flaky/skip**；Node24 typecheck、生产build、CI模拟配置原bundle预算通过（350.4kB），Wrangler本机dry-run打包约48.8KiB/12.46KiB gzip，未部署。SQL临时cluster已停止。脱敏证据见 `docs/evidence/private-file-intent-gateway-local-2026-11-11.json`。Windowsnpm quality仍无报告，依赖B集成；4080b01的CI在浏览器依赖安装因security.ubuntu.com DNS失败而结束，quality未运行，不记通过；不因基础设施失败降低门禁。新提交需重新跑CI。

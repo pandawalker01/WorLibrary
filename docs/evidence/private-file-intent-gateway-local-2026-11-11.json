@@ -1,0 +1,118 @@
+{
+  "schemaVersion": 1,
+  "recordedAt": "2026-11-11T15:04:56.272Z",
+  "environment": "local loopback-only disposable PostgreSQL and native workerd/R2 simulation",
+  "postgres": {
+    "version": "15.19",
+    "archiveSource": "https://get.enterprisedb.com/postgresql/postgresql-15.19-5-windows-x64-binaries.zip",
+    "archiveSHA256": "49e0690194d9fe2bb4d7d6587fdddaa85a3eaaafe2fd5480e0916fcb25d0143e",
+    "stages": [
+      {
+        "migrations": [
+          "0014",
+          "0015",
+          "0017",
+          "0018",
+          "0019",
+          "0020"
+        ],
+        "tests": 15
+      },
+      {
+        "migration": "0021",
+        "cutover": "legacy rows rejected; synthetic disposable fixtures reset before applying",
+        "protocolSubtests": 6,
+        "parentTests": 1
+      }
+    ],
+    "passed": 22,
+    "failed": 0,
+    "serverStoppedAfterTests": true
+  },
+  "worker": {
+    "passed": 32,
+    "failed": 0,
+    "nativeGatewayScenarios": 9,
+    "sqlService": "synthetic model, not real Supabase",
+    "verified": [
+      "actual byte digest before activation; corrupt bytes issue no complete receipt",
+      "intent registered before object PUT",
+      "delete before delayed conditional PUT leaves empty object",
+      "PUT before delete clears body",
+      "missing objects receive empty fences",
+      "repeat and partial failure retry retains quota until all fences ack",
+      "paused old write receipt rejected",
+      "verification held across deletion cannot activate",
+      "empty fence is not readable body",
+      "read rechecks active owner after object IO",
+      "foreign identity and oversize body fail closed"
+    ]
+  },
+  "playwright": {
+    "passed": 211,
+    "failed": 0,
+    "flaky": 0,
+    "skipped": 0,
+    "durationMs": 54212.724
+  },
+  "validation": {
+    "typecheck": "PASS",
+    "productionBuild": "PASS",
+    "configuredBundle": "PASS original budget 350.4kB",
+    "wrangler": "local dry-run PASS 48.80KiB / gzip12.46KiB, no deployment",
+    "windowsQuality": "exit0 without report, NOT VERIFIED; Agent B integration dependency",
+    "previousCI": "4080b01 browser dependency installation failed: security.ubuntu.com DNS; quality did not run"
+  },
+  "deletionSemantics": {
+    "body": "zeroed after all registered intents fenced",
+    "objectKeys": "retained internal random locations",
+    "sensitiveCustomMetadata": false,
+    "ttlAndGC": "must not remove fences",
+    "cost": "object count and request overhead retained"
+  },
+  "subjects": [
+    {
+      "path": "supabase/migrations/0021_private_file_write_intents.sql",
+      "sha256": "a526a527b255ae7e298ebd2109774d0f0c1b25b7fdffb2b29daf5b0e805b71c5"
+    },
+    {
+      "path": "scripts/private-file-postgres.test.mjs",
+      "sha256": "013a90d28c8c2d17820a6631668e581340fdc22564d8cda94e35ffdba1df66b8"
+    },
+    {
+      "path": "worker/index.mjs",
+      "sha256": "631a4feb9a6dac7f080c4bfafa2b376a4fd732720f4558625862efa9e5d21c0f"
+    },
+    {
+      "path": "worker/user-file-body-fence.mjs",
+      "sha256": "eb29d9d94860d75637f7c236ef77fdfcf98703ac38d3b925e4048b80533c43df"
+    },
+    {
+      "path": "worker/user-file-integrity.mjs",
+      "sha256": "b915ed7f5a70f51ce3627fd43e93b772278327bb193df3625b3849945d7d3576"
+    },
+    {
+      "path": "worker/user-file-immutable-write.mjs",
+      "sha256": "3467debbde06b197a9a1472e5e2d4b522d738c44b67c5b757ef6bd2ae13343b6"
+    },
+    {
+      "path": "worker/user-file-gateway-native.test.mjs",
+      "sha256": "2dffeb6d13bbdc5662b55a402574f89c42bf7dbd4383848ceed2718d27e69276"
+    },
+    {
+      "path": "wrangler.jsonc",
+      "sha256": "59f8f0750377ff2bcf870e2af4c67280de50a85158b4be4f4a9356441b984c4c"
+    }
+  ],
+  "subjectHashNormalization": "UTF-8 LF",
+  "notVerified": [
+    "real Supabase JWT/RLS/full schema",
+    "real staging R2 consistency and lifecycle policy",
+    "legacy manifest/chunk/R2 inventory and old writer drain",
+    "two-device product flow",
+    "production deployment",
+    "UI consent/upload queue/progress/retry delivery"
+  ],
+  "remoteDDLExecuted": false,
+  "remoteDeploymentExecuted": false
+}

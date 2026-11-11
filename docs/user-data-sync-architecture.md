@@ -245,3 +245,9 @@ WorLibrary 使用魔法链接，不假定用户具有可用于派生密钥的账
 0019并发边界补充：所有私有文件写RPC使用同一账户advisory锁和持久mutation fence，锁后复验同意/active edition/墓碑及上传状态；旧快照失败关闭。暂停仍允许本人读取/删除既有云文件；元数据协议不变。最小本机PG多连接行为测试通过，不将其等同真实Supabase/R2或产品验收。Worker跨对象存储的不可变写入/完成校验/清理时序仍须另行解决。
 
 0020激活CAS草案用私有manifest generation关联service快照与Worker字节验证回执，锁内重新检查同意、edition、删除/过期与账本；块变更让旧快照失效，重复active回执计费幂等。普通浏览器不能调用内部快照或完成，也不得接收其中对象定位；metadata协议无变更。旧无摘要complete关闭，须与不可变R2及新Worker成套接线再部署。SQL不能证明R2实际内容，产品入口与真实验收仍未完成。
+
+## 0021 对象写入与删除协调
+
+主 Agent选择P0保留零字节R2删除栅栏。先持久登记仅随机UUID定位的intent，再条件创建正文并锁内确认；完成必须实际R2字节校验后按snapshot generation激活。删除先阻止新intent，对包括未确认/失败/在途的所有登记key写入并确认0-byte栅栏，全部ack后才结算；晚到条件PUT只能失败，不能覆盖已存在栅栏。SQL/Worker旧无摘要complete、直接record和无条件正文写路径关闭。正文恢复仍只向本人active manifest供给，空对象失败关闭。
+
+栅栏不携带正文、文件名或原文hash/custom敏感metadata；保留内部随机定位及对象/请求成本，不宣称对象键物理消失。任何TTL/生命周期/后台GC均不得移除仍用于阻挡迟到写入的栅栏。该保留策略不提供应用层或端到端加密。0018-21及Worker尚未真实联调，0021拒绝任何legacy manifest/chunk，需另行审查实际存量切换；当前不获远端DDL/部署批准。

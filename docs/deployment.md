@@ -290,4 +290,13 @@ Cloudflare 部署需独立、非公开的 R2 bucket，并以 `USER_BACKUPS` 绑�
 
 ## 0020 激活快照 CAS（草案，未应用）
 
-0020新增内部generation与仅service的快照/verified-complete RPC，撤销旧complete的service授权并将其实现改为拒绝。当前旧Worker调用旧RPC，因此 **0020不能单独应用**，必须等不可变对象、实际字节验证、最终CAS与清理协议成套完成、经主 Agent审查后再考虑staging迁移门禁。无远端DDL授权，无Production操作。回滚应用代码不得重新打开无验证complete；数据库问题只用新前向修复。新15项本机PG fixture不替代真实完整schema/JWT/RLS/R2验收。
+0020新增内部generation与仅service的快照/verified-complete RPC，撤销旧complete的service授权并将其实现改为拒绝。旧Worker调用旧RPC，因此 **0020不能单独应用**；0021阶段已与新版Worker在本机成套接线，仍须主 Agent审查并考虑staging迁移门禁。无远端DDL授权，无Production操作。回滚应用代码不得重新打开无验证complete；数据库问题只用新前向修复。新15项本机PG fixture不替代真实完整schema/JWT/RLS/R2验收。
+
+
+## 0021 与 Worker 的成套切换门禁
+
+0021新增service专权intent及fence ack，旧record RPC关闭；新版Worker同时接prepare/条件PUT/commit、实际字节snapshot CAS和逐intent零字节栅栏清理，浏览器API不变。**0020/21不得与旧Worker分开部署**；先停止旧无条件正文PUT/物理DELETE路径及确认旧请求不能再写，不能以任意TTL替代证据。
+
+0021对任何现有user_file_manifests或user_file_chunks记录拒绝执行且不改写数据。主 Agent应先只读盘点实际迁移/manifest/chunk与旧R2对象及写入身份；非空时另立保留数据的迁移/隔离切换方案，不得清空旧数据迁就草案。空DB不证明桶无旧孤立对象。当前均NOT VERIFIED，未执行远端DDL或Production操作。
+
+R2生命周期要求：private-intents/永久保留零字节删除栅栏，**不得配置TTL/生命周期/后台GC移除它们**。栅栏无原文/文件名/hash自定义metadata；删除只承诺正文被清除，不称key消失。用户正文配额清零后仍有内部随机定位、对象数量/请求成本，应在运维容量与成本监控中单独计数；wrangler注释同步提醒，无新binding/secret。回滚须关闭个人文件写入口，不允许重新启用旧无条件PUT或移除栅栏；数据库只做新前向修复。

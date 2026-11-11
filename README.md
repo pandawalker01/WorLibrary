@@ -57,6 +57,8 @@ npm run build
 
 已安装 PostgreSQL 的开发者可在当前进程设置 `WORLIBRARY_TEST_PG_BIN` 指向其 `bin` 目录，然后运行 `npm run test:user-files-db`。该命令总是新建只监听 `127.0.0.1` 的临时fixture cluster，使用独立随机端口，不接受远端URL/现有data目录，不读取用户PG连接配置或密码文件，不安装系统服务，结束自动停止。它不运行Supabase/R2验收，也尚未加入共享quality执行器；测试二进制不要提交仓库。Windows可从[PostgreSQL官方页面](https://www.postgresql.org/download/windows/)链接的[EDB二进制页](https://www.enterprisedb.com/download-postgresql-binaries)取得便携包并核对官方SHA-256。
 
-`npm run test:worker` 还会用本机Miniflare/workerd及模拟R2执行私有原书流式SHA-256回归；无需远端凭据。原语尚未接入上传完成接口，本机测试不代表真实Supabase/R2或跨设备验收通过。
+`npm run test:worker` 还会用本机Miniflare/workerd及模拟R2执行私有原书流式SHA-256回归；无需远端凭据。0021阶段原语已接入新版完成接口，本机测试不代表真实Supabase/R2或跨设备验收通过。
 
-0020校验快照草案会关闭旧无摘要complete RPC；当前Worker尚未接新协议，不能单独应用。最新SQL fixture命令覆盖15项，实际对象字节验证仍需另行接线并通过真实staging门禁。
+0020校验快照草案会关闭旧无摘要complete RPC；现已与0021及新版Worker在本机成套接线，仍不能单独应用。0020阶段SQL fixture覆盖15项；实际对象字节验证在0021本机接线，仍需真实staging门禁。
+
+个人文件0021草案与新版Worker已接持久写intent、条件创建、实际字节验证和零字节删除栅栏。**不得单独应用0020/21或与旧Worker混用**；0021对已有任何私有manifest/chunk拒绝切换，需先审查存量。private-intents/的零字节栅栏禁止TTL/生命周期/GC删除，会保留内部随机定位及对象/请求成本，只承诺删除正文。详见deployment/runbook；真实环境仍未验收。

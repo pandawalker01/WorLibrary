@@ -161,13 +161,13 @@ WorLibrary 是本地优先的多语言阅读器：用户导入自己拥有的 EP
 
 `worker/user-file-integrity.mjs` 顺序读取实际R2正文，以原生 `crypto.DigestStream('SHA-256')` 同时校验每块及整书大小/摘要；无整书缓冲，不使用对象metadata摘要作为字节证明。描述符和有序账本先校验，读取失败只返回固定错误码，不传播SDK中的内部地址。原生API说明见 https://developers.cloudflare.com/workers/runtime-apis/web-crypto/ 。
 
-该内部helper不写存储、不结算配额、不激活manifest，目前尚未接入user-files完成接口。调用方仍需本人/versioned snapshot、不可变对象写入及校验后generation/state CAS；SQL锁不能跨R2读取保护对象，不能用此原语宣称上传闭环已完成。
+该内部helper不写存储、不结算配额、不激活manifest，0021阶段已接入user-files完成接口，须与新迁移成套验证。调用方仍需本人/versioned snapshot、不可变对象写入及校验后generation/state CAS；SQL锁不能跨R2读取保护对象，不能用此原语宣称上传闭环已完成。
 
 ### 0020 校验快照与激活 CAS（未部署）
 
 `0020_private_file_verification_snapshot.sql` 为块账本insert/update/delete递增manifest的内部chunk_generation；块所属账户/manifest/version禁止原地迁移。service-only快照返回本人当前可校验manifest的有序账本与descriptor，generation和对象定位仅供Worker内部使用，不进入浏览器或metadata协议。缺块、尺寸/索引不符、暂停、墓碑或过期拒绝快照。
 
-完成RPC必须提交Worker实际字节校验所得size/hash和原snapshot generation，在同一账户锁/manifest锁内重新核对当前状态和完整账本；generation变化拒绝，重复已active回执不再计费。旧无摘要complete RPC撤销service权限且函数体失败关闭，避免旧路径绕过。**当前Worker尚未接新RPC**，不能单独部署0020；generation只保护SQL账本，仍需不可变R2对象和并发清理协议，不能证明实际对象在校验后未变。
+完成RPC必须提交Worker实际字节校验所得size/hash和原snapshot generation，在同一账户锁/manifest锁内重新核对当前状态和完整账本；generation变化拒绝，重复已active回执不再计费。旧无摘要complete RPC撤销service权限且函数体失败关闭，避免旧路径绕过。0021阶段新版Worker已接新RPC，仍不能单独部署0020；generation只保护SQL账本，仍需不可变R2对象和并发清理协议，不能证明实际对象在校验后未变。
 
 目录测试边界：两项smoke的OpenLibrary fixture需同时隔离同源代理回退与Google Books来源，不能只mock其中一个adapter而等待真实网络。当前最小修复及脱敏请求证据见runbook/acceptance；产品目录逻辑与metadata协议不变。
 
@@ -175,4 +175,14 @@ WorLibrary 是本地优先的多语言阅读器：用户导入自己拥有的 EP
 
 `worker/user-file-immutable-write.mjs` 在首个await前复制至多8MiB正文与intent descriptor，计算实际SHA-256，并用R2 `onlyIf.etagDoesNotMatch='*'` 和checksum条件创建。已存在时必须读回实际字节验证后才接受幂等重试；同大小冲突、缺失或空对象失败关闭。错误不携带定位，不做无条件覆盖或删除。官方条件API：https://developers.cloudflare.com/r2/api/workers/workers-api-reference/#conditional-operations 。
 
-该helper不分配intent、不做鉴权或SQL记账，**尚未接Worker端点**；调用方必须先持久登记本人唯一写入intent并在写入后锁内复验。删除与在途PUT的物理清理策略已在PR向主 Agent提出具体问题，未采纳零字节栅栏策略、未新增配置或迁移。条件创建本身不证明删除竞态安全，不能开启上传入口。
+该helper不分配intent、不做鉴权或SQL记账，0021阶段已在prepare持久登记之后接入Worker，写入后commit复验。主 Agent已确认零字节栅栏方向，清理实现与门禁见0021节；条件创建本身仍不证明真实删除竞态或产品可发布。
+
+## 0021 持久写入 intent 与正文删除栅栏（未部署）
+
+`0021_private_file_write_intents.sql` 为每个账户/manifest/version/块持久登记随机UUID写入身份，key仅含随机身份，不含owner/文件名/正文hash；相同descriptor重试复用同一未fenced intent，冲突拒绝，已fenced身份永不重用。prepare先锁内复验本人同意/edition/墓碑/上传状态与准确块范围，登记提交后Worker才条件PUT；写成功后commit再复验，只有此时进入块账本。普通浏览器无intent表或RPC权限，service也无表直读权。旧record RPC关闭。
+
+Worker的user-files路径现已接线：有界读取至多8MiB→service prepare→不可变条件写→commit；complete获取本人snapshot，实际R2正文流式校验块/整书大小及SHA，再按generation CAS激活；旧无条件正文PUT与head-only完成路径移除。GET在R2读取后再次复核本人active状态，拒绝空对象/尺寸错误。未改变浏览器接口或metadata协议。
+
+云删除先标记deleting阻止新intent，再列举全部已登记身份（含未确认/失败/在途/已fenced）；`user-file-body-fence.mjs`对每个key写零字节且无敏感custom metadata的对象并确认size=0，之后才ack。SQL finish要求所有intent均确认fenced才结算，任何部分失败保持deleting与原配额，DELETE可幂等重试；initiate过期回收复用同一清理路径。栅栏永久保留，晚到条件PUT不能重建正文；删除承诺是正文删除，不是对象键物理消失。尚无定时服务端清理调度，重试来自DELETE或initiate回收。
+
+0021对任何已有私有manifest/chunk记录拒绝切换，避免旧确定性key或未登记旧PUT混入；不自动丢弃/转换旧数据。即使数据库空，也须核对旧R2孤立对象及停止旧无条件写身份。三份新迁移未执行远端，新网关/SQL尚未真实Supabase/R2验收；产品同意/上传进度入口仍待完成，不能称云书库闭环交付。

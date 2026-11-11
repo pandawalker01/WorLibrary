@@ -351,3 +351,111 @@ test('local SQL verification: incomplete or malformed current ledger cannot prod
   assert.equal(await ok(`select chunk_generation from public.user_file_manifests where id='${f.manifest}';`), String(initial.generation + 3))
   await denied(snapshotSql(f), { role: 'service_role' }, /incomplete/)
 })
+
+test('0021 local SQL: intent cutover and deletion-fence protocol', async (t) => {
+  const migration = await readFile('supabase/migrations/0021_private_file_write_intents.sql', 'utf8')
+  // Previous tests deliberately left legacy fixture rows. Cutover must refuse
+  // them without changing data; only this disposable, identity-checked cluster
+  // is reset afterward. Never use this fixture reset against a real database.
+  await denied(`begin; ${migration} commit;`, {}, /legacy private chunks/)
+  assert.equal(await ok("select to_regclass('public.private_file_write_intents') is null;"), 't')
+  await ok('delete from public.editions; delete from auth.users;')
+  await ok(migration)
+  const prepare = (f, index = 0, size = 4, hash = 'b'.repeat(64)) => `select public.prepare_private_file_chunk('${f.user}','${f.manifest}',${index},'${hash}',${size});`
+  const prepared = async (f, index = 0, size = 4) => JSON.parse(await serviceOk(prepare(f, index, size)))
+  const commit = (f, i) => `select public.commit_private_file_chunk('${f.user}','${i.id}');`
+  const cleanup = f => `select public.get_private_file_cleanup_intents('${f.user}','${f.manifest}');`
+  const ack = (f, i) => `select public.ack_private_file_body_fence('${f.user}','${i.id}');`
+  const fresh = () => fixture({ chunk: false })
+
+  await t.test('durable intent is service-only, random, stable for identical retry and precedes ledger', async () => {
+    const f = await fresh(); const i = await prepared(f)
+    assert.match(i.id, /^[0-9a-f-]{36}$/); assert.equal(i.key, `private-intents/${i.id}`)
+    assert.doesNotMatch(i.key, new RegExp(f.user)); assert.deepEqual(await prepared(f), i)
+    assert.equal(await ok(`select count(*) from public.user_file_chunks where manifest_id='${f.manifest}';`), '0')
+    await denied(prepare(f, 0, 3), { role: 'service_role' }, /invalid chunk/)
+    await denied(prepare(f, 0, 4, 'c'.repeat(64)), { role: 'service_role' }, /intent conflict/)
+    for (const role of ['anon', 'authenticated']) {
+      await denied(prepare(f), { role, user: f.user }, /permission denied/)
+      await denied(commit(f, i), { role, user: f.user }, /permission denied/)
+      await denied(cleanup(f), { role, user: f.user }, /permission denied/)
+      await denied(ack(f, i), { role, user: f.user }, /permission denied/)
+    }
+    await denied('select * from public.private_file_write_intents;', { role: 'service_role' }, /permission denied/)
+    await denied(recordSql(f), { role: 'service_role' }, /permission denied/)
+    const other = await fixture({ manifest: false })
+    await denied(commit(other, i), { role: 'service_role' }, /intent not found/)
+    await denied(ack(other, i), { role: 'service_role' }, /intent not found/)
+    await serviceOk(commit(f, i)); await serviceOk(commit(f, i))
+    assert.equal((await snapshot(f)).generation, 1)
+  })
+
+  await t.test('pause rejects new and old writes; deletion enumerates unconfirmed intents and gates quota release', async () => {
+    const f = await fresh(); const i = await prepared(f)
+    await ok('select public.set_private_file_library_enabled(false);', { role: 'authenticated', user: f.user })
+    await denied(prepare(f), { role: 'service_role' }, /consent required/)
+    await denied(commit(f, i), { role: 'service_role' }, /consent required/)
+    await serviceOk(deleteSql(f))
+    assert.deepEqual(JSON.parse(await serviceOk(cleanup(f))), [{ id: i.id, key: i.key }])
+    await denied(finishSql(f), { role: 'service_role' }, /cleanup is incomplete/)
+    assert.deepEqual(await quota(f), { used: 0, reserved: 4 })
+    // Synthetic service ack only; actual R2 fence is tested in workerd.
+    await serviceOk(ack(f, i)); await serviceOk(ack(f, i)); await serviceOk(finishSql(f)); await serviceOk(finishSql(f))
+    assert.deepEqual(await quota(f), { used: 0, reserved: 0 })
+    await denied(commit(f, i), { role: 'service_role' }, /consent|required|tombstone/)
+  })
+
+  await t.test('committed delete rejects waiting prepare and receipt under the same real lock', async () => {
+    const f = await fresh(); const i = await prepared(f)
+    const holder = await hold(deleteSql(f), { role: 'service_role' })
+    try {
+      const names = [randomUUID(), randomUUID()]
+      const pending = [service(prepare(f), names[0]), service(commit(f, i), names[1])]
+      await blocked(names); await holder.send('commit;')
+      for (const result of await Promise.all(pending)) { assert.notEqual(result.code, 0); assert.match(errorSummary(result), /tombstone|not active/) }
+      assert.equal(JSON.parse(await serviceOk(cleanup(f))).length, 1)
+      assert.deepEqual(await quota(f), { used: 0, reserved: 4 })
+    } finally { await holder.close() }
+  })
+
+  await t.test('committed pause rejects waiting intent admission and old receipt without quota changes', async () => {
+    const f = await fresh(); const i = await prepared(f)
+    const holder = await hold('select public.set_private_file_library_enabled(false);', { role: 'authenticated', user: f.user })
+    try {
+      const names = [randomUUID(), randomUUID()]
+      const pending = [service(prepare(f), names[0]), service(commit(f, i), names[1])]
+      await blocked(names); await holder.send('commit;')
+      for (const result of await Promise.all(pending)) { assert.notEqual(result.code, 0); assert.match(errorSummary(result), /consent required/) }
+      assert.equal(await ok(`select count(*) from public.user_file_chunks where manifest_id='${f.manifest}';`), '0')
+      assert.deepEqual(await quota(f), { used: 0, reserved: 4 })
+    } finally { await holder.close() }
+  })
+
+  await t.test('all registered identities including unconfirmed chunks must be fenced before used quota settles', async () => {
+    const f = await fixture({ manifest: false })
+    f.manifest = await serviceOk(beginSql(f).replace(', 4, 8388608, 1,', ', 8388612, 8388608, 2,'))
+    const a = await prepared(f, 0, 8388608); const b = await prepared(f, 1, 4)
+    await serviceOk(commit(f, a)); await serviceOk(commit(f, b))
+    const s = await snapshot(f)
+    await serviceOk(`select public.complete_verified_user_file_upload('${f.user}','${f.manifest}',${s.generation},8388612,'${'a'.repeat(64)}');`)
+    await serviceOk(deleteSql(f)); await serviceOk(ack(f, a))
+    await denied(finishSql(f), { role: 'service_role' }, /cleanup is incomplete/)
+    assert.deepEqual(await quota(f), { used: 8388612, reserved: 0 })
+    assert.equal(JSON.parse(await serviceOk(cleanup(f))).length, 2)
+    await serviceOk(ack(f, b)); await serviceOk(finishSql(f)); await serviceOk(finishSql(f))
+    assert.deepEqual(await quota(f), { used: 0, reserved: 0 })
+  })
+
+  await t.test('expired renewal never recycles fenced intent identities', async () => {
+    const f = await fresh(); const first = await prepared(f)
+    await ok(`update public.user_file_manifests set upload_expires_at=now()-interval '1 hour' where id='${f.manifest}';`)
+    await serviceOk(`select manifest_id from public.reap_expired_user_file_uploads('${f.user}');`)
+    await denied(finishSql(f), { role: 'service_role' }, /cleanup is incomplete/)
+    await serviceOk(ack(f, first)); await serviceOk(finishSql(f))
+    assert.equal(await serviceOk(beginSql(f)), f.manifest)
+    const second = await prepared(f); assert.notEqual(second.id, first.id); assert.notEqual(second.key, first.key)
+    assert.equal(await ok(`select count(*) from public.private_file_write_intents where manifest_id='${f.manifest}';`), '2')
+    await denied(commit(f, first), { role: 'service_role' }, /not active/)
+    await serviceOk(commit(f, second)); assert.equal((await snapshot(f)).chunks[0].key, second.key)
+  })
+})
