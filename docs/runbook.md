@@ -271,3 +271,15 @@ SQL runner分两阶段：先在最小fixture验证0018-20共15项，然后证明
 9c05be4 CI再次失败在Ubuntu浏览器依赖源DNS，quality未执行；未调整门禁规避安装。Windowsquality无报告仍由B #10集成解决。后续导入adapter已在PR向Agent B确认edition ack/revision的只读就绪信号，不修改其协议。
 
 本次授权UI提交前完整回归使用CI公开模拟配置构建与测试，**216/216通过，0 flaky/skip**（约59秒），包括新增全部5项；不是无配置skip结果。typecheck、生产build、原bundle预算通过（350.7kB）。历史SQL临时换行已恢复。npm run quality仍无Windows报告，未作为通过；无远端DDL/部署，自动导入调度仍待接线。
+
+## 云端正文删除失败与重试
+
+本机书菜单“从云端删除”确认后先提交本机删除journal，再发受控DELETE；journal失败时本机书/云端状态都保留，原菜单可重试。deleting或网络失败时进入设置→私有云书库→云端正文删除，点击对应书的“重试删除”；任务跨刷新保留。新设备通过0022本人专用最小RPC可发现远端deleting请求，无需原书本机副本；只读失败不表示任务为空，界面保留本机任务及错误提示。
+
+只有deleted回执才移除任务并重读配额；不以active manifest消失推断物理清理完成。服务端仍使用零字节永久栅栏及全部intent ack后结算规则，删除只是正文清零，保留内部随机定位/对象和请求成本，TTL/GC约束不变。本机书保留；仅移除此设备仍是另一个入口。失败提示固定，不显示服务端原始消息或内部定位。
+
+`tests/user-file-delete-task.spec.ts` 7项验证事务先于网络、存储失败零DELETE、网络失败持久任务、代际/A→B→A、无owner参数的最小RPC与匿名/未知字段拒绝、文件payload不入journal。`tests/private-cloud-deletion-ui.spec.ts` 4项真实App测试覆盖新设备无本机书重试、刷新续试与配额重读、真实IndexedDB账户范围、恶意状态字段/错误不显示、存储失败零请求、实际书籍菜单首次删除及本机原书保留。与授权回归合计16/16，使用公开模拟配置/fixture，无真实Supabase/R2数据。
+
+本机PG suite在0021阶段追加应用0022并实测本人最小投影、匿名/service拒绝、暂停仍可读、完成后消失及另一账户保留，合计23/23；SQL fixture不是完整Supabase JWT/RLS验收。后续上传就绪信号已获主 Agent采纳B的保守active投影门禁，无需新增operation receipt；上传队列尚未接线。
+
+本轮配置构建完整Playwright为 **226 PASS / 1 FAIL，0 skip/flaky**；失败是既有smoke的sign-out等待登录按钮5秒。独立复测仍失败，trace显示未mock的POST /auth/v1/logout在ci.example.test等待（status -1、约4.64秒，测试结束时未完成）。已只读核对B #10确有204 logout mock；依赖其集成，不在A重复改共享fixture，也不将226/227记全绿。新增16项相关回归全部通过。typecheck/生产build/原bundle预算通过，入口约351.4kB；Windowsquality无报告不记通过。仅上传去凭据/headers/query/body的请求摘要，原trace本机忽略保存。证据见 `docs/evidence/private-file-deletion-ui-local-2026-11-11.json`。

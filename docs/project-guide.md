@@ -193,4 +193,12 @@ Worker的user-files路径现已接线：有界读取至多8MiB→service prepare
 
 请求覆盖JSON读取的8秒超时，切换账户/会话或离开入口会中止请求并丢弃旧回执；失败显示通用提示。set回执不确定时只提供显式重新读取，不自动重发或宣称已开启。卡片按账户key隔离用量；匿名账户没有该入口。中英文文案在 `private-cloud-copy.ts` 懒加载子包，仍以UiLocale为唯一界面语言输入，不增加首屏全局语言包。
 
-当前只交付授权设置，导入自动调度/进度/重试尚未接线；已有导入继续本地保存，不能据“已允许上传”称已备份或完整跨设备交付。后续仅对同意后当前稳定账户的新导入登记队列，不把新登录账号与这台设备旧书自动关联，上传前edition就绪信号待Agent B确认。
+当前只交付授权设置，导入自动调度/进度/重试尚未接线；已有导入继续本地保存，不能据“已允许上传”称已备份或完整跨设备交付。后续仅对同意后当前稳定账户的新导入登记队列，不把新登录账号与这台设备旧书自动关联，上传前edition就绪信号已获主 Agent采纳B的保守active投影方案，尚待调度接线，不称本次operation ack。
+
+## 0022 云删除状态与持久重试入口（未部署）
+
+`list_private_file_cleanup_jobs()` 只允许本人稳定JWT、无owner参数，返回deleting的manifestId/editionId/fileName三字段，匿名和service直接执行均拒绝；不包含对象定位/hash/正文。新设备即使没有本机书，也能在设置页发现本人未完成清理。状态读取不把active列表消失当删除完成。
+
+`user-file-delete-task.ts` 使用独立 `worlibrary-private-deletions` IndexedDB，首次DELETE前事务提交仅含账户、manifest/edition、显示标签与状态的五字段任务；写失败零DELETE。设置页惰性子组件 `PrivateCloudDeletionJobs` 合并本人远端待清理和按账户键范围读取的本机任务；RPC失败仍保留本机项。重试仍先由原客户端持久suppressed，deleting/失败保留任务，只有显式deleted回执才移除并重新读用量。文件和本机书不因云删除而移除；新设备重试也不需下载原书。
+
+App首次删除捕获既有会话AbortSignal，设置页重试捕获独立session代际；A→B→A也不能接受旧回执清除任务或更新新账户界面。未知字段/原始服务错误不渲染；页面/账户失效中止网络，刷新和窗口回焦重读本人任务。无metadata协议变更，0022未远端执行。

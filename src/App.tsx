@@ -939,18 +939,23 @@ function App() {
 
   async function deleteCloudCopy(book: DisplayBook) {
     const current = sessionRef.current
+    const signal = recoveryAbortRef.current.signal
     const manifest = cloudManifests.find((item) => item.editionId === book.editionId)
     if (!current || current.user.isAnonymous || !manifest) return
     if (!window.confirm(interpolate(ui.cloudDeleteConfirm, { title: book.title }))) return
     try {
-      await (await createCloudFileClient(current, () => sessionRef.current === current)).deleteFromCloud(manifest.id, manifest.editionId)
-      if (sessionRef.current !== current) return
+      const { createPrivateFileDeletionStore, runPrivateFileDeletion } = await import('./lib/user-file-delete-task')
+      const status = await runPrivateFileDeletion({
+        job: { userId: current.user.id, manifestId: manifest.id, editionId: manifest.editionId,
+          label: book.title.replace(/[\u0000-\u001f]/g, ' ').trim().slice(0, 240) || manifest.fileName, state: 'pending' },
+        store: createPrivateFileDeletionStore(), isCurrent: () => sessionRef.current === current && !signal.aborted,
+        client: await createCloudFileClient(current, () => sessionRef.current === current && !signal.aborted),
+      })
+      if (sessionRef.current !== current || signal.aborted) return
       setCloudManifests((items) => items.filter((item) => item.id !== manifest.id))
-      // The gateway may still be deleting chunks. Do not claim completion until
-      // a real manifest refresh confirms the server-side state.
-      toast(ui.cloudDeletePending)
-    } catch (error) {
-      if (sessionRef.current === current) toast(error instanceof Error ? error.message : ui.actionFailed)
+      toast(status === 'deleted' ? ui.cloudDeleteAcknowledged : ui.cloudDeletePending)
+    } catch {
+      if (sessionRef.current === current && !signal.aborted) toast(ui.actionFailed)
     }
   }
 

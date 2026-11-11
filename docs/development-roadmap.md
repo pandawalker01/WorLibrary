@@ -181,3 +181,5 @@
 0021及新版Worker现已本机接线持久intent→条件PUT→复验commit、实际字节验证→snapshot CAS，以及全部身份零字节栅栏确认后结算；仍需真实Supabase/R2联调。接下来先审查legacy切换/生命周期约束，再完成首次明确同意、导入队列与可见进度/重试，最后按门禁验收。不得将本机网关测试当产品入口或跨设备交付完成。
 
 设置页首次明确同意、暂停/恢复及本人用量入口已有按需加载UI与中英文浏览器回归；这是授权状态交付，不是自动上传交付。下一步仍为确认B的edition就绪信号后接账户隔离导入队列、进度/重试，再完成真实staging验收。
+
+云端正文删除现已有首次请求前持久journal、本人远端pending查询与设置页显式重试/配额重读，本机书保留。上传就绪门禁已由主 Agent采纳B的保守active投影方案，接下来按同一session代际、completed runtime、shadow/revision/文件描述一致性接导入队列与进度；不新增metadata receipt协议。真实staging与旧存量切换仍待门禁。

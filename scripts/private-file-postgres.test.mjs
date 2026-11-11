@@ -361,6 +361,7 @@ test('0021 local SQL: intent cutover and deletion-fence protocol', async (t) => 
   assert.equal(await ok("select to_regclass('public.private_file_write_intents') is null;"), 't')
   await ok('delete from public.editions; delete from auth.users;')
   await ok(migration)
+  await ok(await readFile('supabase/migrations/0022_private_file_cleanup_status.sql', 'utf8'))
   const prepare = (f, index = 0, size = 4, hash = 'b'.repeat(64)) => `select public.prepare_private_file_chunk('${f.user}','${f.manifest}',${index},'${hash}',${size});`
   const prepared = async (f, index = 0, size = 4) => JSON.parse(await serviceOk(prepare(f, index, size)))
   const commit = (f, i) => `select public.commit_private_file_chunk('${f.user}','${i.id}');`
@@ -457,5 +458,21 @@ test('0021 local SQL: intent cutover and deletion-fence protocol', async (t) => 
     assert.equal(await ok(`select count(*) from public.private_file_write_intents where manifest_id='${f.manifest}';`), '2')
     await denied(commit(f, first), { role: 'service_role' }, /not active/)
     await serviceOk(commit(f, second)); assert.equal((await snapshot(f)).chunks[0].key, second.key)
+  })
+
+  await t.test('0022 cleanup projection is owner-only, minimal and available while paused', async () => {
+    const f = await fresh(); const i = await prepared(f); await serviceOk(deleteSql(f))
+    const other = await fresh(); await serviceOk(deleteSql(other))
+    const sql = 'select public.list_private_file_cleanup_jobs();'
+    await ok('select public.set_private_file_library_enabled(false);', { role: 'authenticated', user: f.user })
+    const jobs = JSON.parse(await ok(sql, { role: 'authenticated', user: f.user }))
+    assert.deepEqual(jobs, [{ manifestId: f.manifest, editionId: f.edition, fileName: 'fixture.pdf' }])
+    assert.doesNotMatch(JSON.stringify(jobs), /object_key|private-intents|chunk_hash|plaintext_hash/)
+    await denied(sql, { role: 'anon' }, /permission denied/)
+    await denied(sql, { role: 'service_role' }, /permission denied/)
+    await denied(sql, { role: 'authenticated', user: f.user, anonymous: true }, /stable account required/)
+    await serviceOk(ack(f, i)); await serviceOk(finishSql(f))
+    assert.deepEqual(JSON.parse(await ok(sql, { role: 'authenticated', user: f.user })), [])
+    assert.deepEqual(JSON.parse(await ok(sql, { role: 'authenticated', user: other.user })), [{ manifestId: other.manifest, editionId: other.edition, fileName: 'fixture.pdf' }])
   })
 })

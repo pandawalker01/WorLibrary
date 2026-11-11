@@ -300,3 +300,7 @@ Cloudflare 部署需独立、非公开的 R2 bucket，并以 `USER_BACKUPS` 绑�
 0021对任何现有user_file_manifests或user_file_chunks记录拒绝执行且不改写数据。主 Agent应先只读盘点实际迁移/manifest/chunk与旧R2对象及写入身份；非空时另立保留数据的迁移/隔离切换方案，不得清空旧数据迁就草案。空DB不证明桶无旧孤立对象。当前均NOT VERIFIED，未执行远端DDL或Production操作。
 
 R2生命周期要求：private-intents/永久保留零字节删除栅栏，**不得配置TTL/生命周期/后台GC移除它们**。栅栏无原文/文件名/hash自定义metadata；删除只承诺正文被清除，不称key消失。用户正文配额清零后仍有内部随机定位、对象数量/请求成本，应在运维容量与成本监控中单独计数；wrangler注释同步提醒，无新binding/secret。回滚须关闭个人文件写入口，不允许重新启用旧无条件PUT或移除栅栏；数据库只做新前向修复。
+
+## 0022 待清理状态查询
+
+新增仅authenticated稳定本人可调用的无参 `list_private_file_cleanup_jobs()`；只返回本人deleting的manifest/edition/文件名，不给对象键/hash或其他账户。暂停仍可查询/删除。沿用0018-21+新版Worker的存量/旧写身份和真实staging门禁，不授权远端DDL。设置页合并远端查询与独立本机journal，无新环境变量/绑定。回滚应用入口保留本机journal/服务端墓碑与栅栏，不能清空任务/移除栅栏作为重试；SQL只前向修复。

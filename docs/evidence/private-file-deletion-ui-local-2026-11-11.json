@@ -1,0 +1,115 @@
+{
+  "schemaVersion": 1,
+  "recordedAt": "2026-11-11T15:50:17.100Z",
+  "environment": "local production preview public CI configuration plus disposable local PostgreSQL",
+  "scope": "durable cloud deletion journal, owner-only pending status and visible retry",
+  "relatedTests": {
+    "passed": 16,
+    "failed": 0,
+    "composedOf": {
+      "taskAndClient": 7,
+      "deletionUI": 4,
+      "permissionUI": 5
+    }
+  },
+  "postgres": {
+    "passed": 23,
+    "failed": 0,
+    "fixture": "minimal synthetic auth/edition claims, not real Supabase",
+    "newChecks": [
+      "owner-only minimal cleanup status",
+      "anonymous and service-role execute rejected",
+      "paused read allowed",
+      "completed job omitted without affecting another account"
+    ],
+    "serverStopped": true
+  },
+  "fullPlaywright": {
+    "passed": 226,
+    "failed": 1,
+    "skipped": 0,
+    "flaky": 0,
+    "durationMs": 61006.388,
+    "failedCase": "existing smoke signed-in menu sign-out waits for login button",
+    "independentRerun": "FAIL",
+    "requestSummary": {
+      "host": "ci.example.test",
+      "path": "/auth/v1/logout",
+      "method": "POST",
+      "status": -1,
+      "elapsedMs": 4639.468,
+      "failure": null
+    },
+    "dependency": "Agent B PR10 contains explicit auth/v1/logout 204 route mock; not duplicated in A"
+  },
+  "validation": {
+    "typecheck": "PASS",
+    "productionBuild": "PASS",
+    "configuredOriginalBundle": "PASS 351.4kB",
+    "windowsQuality": "exit0 without report NOT VERIFIED"
+  },
+  "verified": [
+    "first DELETE follows durable journal; failed persistence makes zero DELETEs",
+    "deleting or error persists, only explicit deleted removes",
+    "new device without local book can retry owner pending status",
+    "refresh and actual IndexedDB account key range isolate pending jobs",
+    "malformed response or SDK message is not rendered",
+    "menu cloud deletion retains local original",
+    "quota reread follows deletion receipt",
+    "session generation including A-B-A rejects old completion",
+    "only empty payload sent to dedicated status RPC; no metadata protocol change"
+  ],
+  "subjects": [
+    {
+      "path": "supabase/migrations/0022_private_file_cleanup_status.sql",
+      "sha256": "9f2e0065e1db77baa10abe5f8468d4170fa4a9e6f617a940ec2c4d371d9bbb4b"
+    },
+    {
+      "path": "scripts/private-file-postgres.test.mjs",
+      "sha256": "52b3bf8a4ed1bfc60d0c058029043d9a1d6989bd2570530b7c1fe8b6452a77e4"
+    },
+    {
+      "path": "src/App.tsx",
+      "sha256": "7abab4d2aac49ee10299e1510a87e59c75ed2641c5ec057512c5c410cf2f067d"
+    },
+    {
+      "path": "src/lib/user-file-delete-task.ts",
+      "sha256": "a80d729694815d25b39b3acf16413ea2c28599fa3db0e7d863b5e270bedc95ad"
+    },
+    {
+      "path": "src/components/PrivateCloudDeletionJobs.tsx",
+      "sha256": "dc48ee59d6895144d8b013bc8522d9b01ba04e60b1fcb03f721be01d95793f77"
+    },
+    {
+      "path": "src/components/PrivateCloudPreferences.tsx",
+      "sha256": "55736d8c325f019b7c6d2f8ba675be0e65c8f0f2ad1a07c2affda92c64cbbceb"
+    },
+    {
+      "path": "src/lib/private-cloud-copy.ts",
+      "sha256": "156cbd8ff777cd61540f4b7d53011f945f065ffc05bd7d37e77f5cf477538459"
+    },
+    {
+      "path": "src/lib/i18n.ts",
+      "sha256": "a0a4fccd48253cd7a5b19e783b3bfb79747c78503a5e637ce2a2f814080ec73b"
+    },
+    {
+      "path": "tests/user-file-delete-task.spec.ts",
+      "sha256": "10120481ae7237f4a77ce3c53def01d1e86ae3b2a90e69ecba62f165238a6ca7"
+    },
+    {
+      "path": "tests/private-cloud-deletion-ui.spec.ts",
+      "sha256": "8a88df61da1d36cee574fecb9a64404e311b76a32fc3a9276c1aa31ce096adef"
+    }
+  ],
+  "hashNormalization": "UTF-8 LF",
+  "notVerified": [
+    "real Supabase/RLS/R2 and complete schema",
+    "legacy cutover and lifecycle policy",
+    "end-to-end two-device product acceptance",
+    "automatic import upload/progress/retry wiring",
+    "Agent B integration quality"
+  ],
+  "remoteDDLExecuted": false,
+  "remoteDeploymentExecuted": false,
+  "rawTraceUploaded": false
+}

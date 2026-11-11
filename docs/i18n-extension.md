@@ -85,3 +85,5 @@
 ### 私有云书库懒加载文案子包
 
 `src/lib/private-cloud-copy.ts` 是私有设置子树的中英双语文案，随 `PrivateCloudPreferences` 懒加载以遵守首屏包体预算；不加入全局copy热路径。它只接收既有UiLocale，必须同时维护两种语言的同字段，不另存语言选择、不改变AI理解/翻译语言。新入口的标题、授权说明、checkbox、错误重读和暂停/恢复均在该子包集中维护，英语真实浏览器用例验证同意边界。全局UI文案仍以i18n.ts为入口；以后扩展该子树语言时需同步维护相应子包和测试。
+
+删除任务UI与授权卡片共用private-cloud-copy.ts惰性子包；中英文同时维护待确认/失败/重试/重读/处理回执，不使用“备份完成”文案。书籍菜单的简短删除回执由全局i18n.ts维护cloudDeleteAcknowledged，仍使用同一UiLocale；原始服务错误不拼入可见文案。

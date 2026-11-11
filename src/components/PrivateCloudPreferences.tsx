@@ -4,6 +4,7 @@ import type { UiLocale } from '../lib/i18n'
 import { privateCloudCopy } from '../lib/private-cloud-copy'
 import { createUserFileConsentClient, type UserFileLibraryState } from '../lib/user-file-consent'
 import './private-cloud.css'
+import PrivateCloudDeletionJobs from './PrivateCloudDeletionJobs'
 
 export default function PrivateCloudPreferences({ session, uiLocale }: { session: AuthSession; uiLocale: UiLocale }) {
   const text = privateCloudCopy(uiLocale)
@@ -17,12 +18,14 @@ export default function PrivateCloudPreferences({ session, uiLocale }: { session
   const mounted = useRef(false)
   const activeRequest = useRef(0)
   const busyRef = useRef(false)
+  const refreshQueued = useRef(false)
   const controllers = useRef(new Set<AbortController>())
   const focusBeforeDialog = useRef<HTMLElement | null>(null)
   const checkbox = useRef<HTMLInputElement>(null)
 
   async function request(enabled?: boolean) {
-    if (busyRef.current || session.user.isAnonymous) return
+    if (session.user.isAnonymous) return
+    if (busyRef.current) { if (enabled === undefined) refreshQueued.current = true; return }
     busyRef.current = true; setBusy(true); setError('')
     const run = ++activeRequest.current
     const isCurrent = () => mounted.current && currentSession.current === session && activeRequest.current === run
@@ -38,12 +41,15 @@ export default function PrivateCloudPreferences({ session, uiLocale }: { session
       if (isCurrent()) { setState(null); setError(enabled === undefined ? 'unavailable' : 'saveFailed') }
     } finally {
       window.clearTimeout(timer); controllers.current.delete(controller)
-      if (isCurrent()) { busyRef.current = false; setBusy(false) }
+      if (isCurrent()) {
+        busyRef.current = false; setBusy(false)
+        if (refreshQueued.current) { refreshQueued.current = false; void request() }
+      }
     }
   }
 
   useEffect(() => {
-    mounted.current = true; busyRef.current = false; setState(null); setDialog(false); setAgreed(false)
+    mounted.current = true; busyRef.current = false; refreshQueued.current = false; setState(null); setDialog(false); setAgreed(false)
     void request()
     return () => {
       mounted.current = false; activeRequest.current++
@@ -74,6 +80,7 @@ export default function PrivateCloudPreferences({ session, uiLocale }: { session
       else if (state.consented) void request(true)
       else open()
     }}>{busy ? text.saving : !state ? text.retry : state.enabled ? text.pause : state.consented ? text.resume : text.enable}</button>
+    <PrivateCloudDeletionJobs key={session.user.id} session={session} uiLocale={uiLocale} onSettled={() => { void request() }} />
     {dialog && <div className="auth-dialog-backdrop" onMouseDown={event => { if (event.currentTarget === event.target) closeDialog() }}>
       <section className="auth-dialog private-cloud-consent" role="dialog" aria-modal="true" aria-labelledby="private-cloud-consent-title" tabIndex={-1}
         onKeyDown={event => {

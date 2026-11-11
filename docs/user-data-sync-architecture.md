@@ -251,3 +251,5 @@ WorLibrary 使用魔法链接，不假定用户具有可用于派生密钥的账
 主 Agent选择P0保留零字节R2删除栅栏。先持久登记仅随机UUID定位的intent，再条件创建正文并锁内确认；完成必须实际R2字节校验后按snapshot generation激活。删除先阻止新intent，对包括未确认/失败/在途的所有登记key写入并确认0-byte栅栏，全部ack后才结算；晚到条件PUT只能失败，不能覆盖已存在栅栏。SQL/Worker旧无摘要complete、直接record和无条件正文写路径关闭。正文恢复仍只向本人active manifest供给，空对象失败关闭。
 
 栅栏不携带正文、文件名或原文hash/custom敏感metadata；保留内部随机定位及对象/请求成本，不宣称对象键物理消失。任何TTL/生命周期/后台GC均不得移除仍用于阻挡迟到写入的栅栏。该保留策略不提供应用层或端到端加密。0018-21及Worker尚未真实联调，0021拒绝任何legacy manifest/chunk，需另行审查实际存量切换；当前不获远端DDL/部署批准。
+
+0022提供本人稳定JWT的待删除状态投影，暴露范围仅manifestId/editionId/fileName，解决新设备看不到deleting记录而无法重试的问题。首次云DELETE前持久本机五字段journal，按账户范围读取；deleted回执前保留，RPC失败/列表消失不替代完成证明。删除回执按session代际隔离，A→B→A不复活旧动作；metadata协议、永久零字节栅栏与配额结算门禁不变。真实Supabase/R2与生命周期仍未验收。
