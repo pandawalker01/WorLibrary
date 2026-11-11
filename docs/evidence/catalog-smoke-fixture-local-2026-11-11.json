@@ -1,0 +1,118 @@
+{
+  "schemaVersion": 1,
+  "recordedAt": "2026-11-11T14:32:25.286Z",
+  "baseline": "b34110d",
+  "scope": "two local catalog smoke fixtures; no product catalog changes",
+  "originalIndependentRerun": {
+    "passed": 2,
+    "failed": 0,
+    "traceObservedRequests": [
+      {
+        "test": "smoke-world-library-filter-6790a-d-multilingual-availability-chromium",
+        "host": "127.0.0.1",
+        "path": "/api/catalog",
+        "status": 404,
+        "elapsedMs": 0.729,
+        "queryKeys": [
+          "q",
+          "language",
+          "multiLanguageOnly"
+        ]
+      },
+      {
+        "test": "smoke-world-library-filter-6790a-d-multilingual-availability-chromium",
+        "host": "openlibrary.org",
+        "path": "/search.json",
+        "status": 200,
+        "elapsedMs": 7.732,
+        "queryKeys": [
+          "q",
+          "language",
+          "limit",
+          "fields"
+        ]
+      },
+      {
+        "test": "smoke-world-library-filter-6790a-d-multilingual-availability-chromium",
+        "host": "www.googleapis.com",
+        "path": "/books/v1/volumes",
+        "status": 429,
+        "elapsedMs": 1408.522,
+        "queryKeys": [
+          "q",
+          "langRestrict",
+          "maxResults",
+          "printType"
+        ]
+      },
+      {
+        "test": "smoke-world-library-saves--10504--catalog-book-to-my-library-chromium",
+        "host": "127.0.0.1",
+        "path": "/api/catalog",
+        "status": 404,
+        "elapsedMs": 0.781,
+        "queryKeys": [
+          "q"
+        ]
+      },
+      {
+        "test": "smoke-world-library-saves--10504--catalog-book-to-my-library-chromium",
+        "host": "openlibrary.org",
+        "path": "/search.json",
+        "status": 200,
+        "elapsedMs": 10.63,
+        "queryKeys": [
+          "q",
+          "limit",
+          "fields"
+        ]
+      },
+      {
+        "test": "smoke-world-library-saves--10504--catalog-book-to-my-library-chromium",
+        "host": "www.googleapis.com",
+        "path": "/books/v1/volumes",
+        "status": 429,
+        "elapsedMs": 1358.6290000000001,
+        "queryKeys": [
+          "q",
+          "maxResults",
+          "printType"
+        ]
+      }
+    ]
+  },
+  "controlledReproduction": {
+    "secondSourceDelayMs": 6500,
+    "originalAssertionTimeoutMs": 5000,
+    "result": "heading assertion failed",
+    "trace": "kept locally, not uploaded",
+    "traceSHA256": "d1447d623e19ac117e469c6c28f9d12f4fe91edb34d1030607979c2bd122935b"
+  },
+  "fix": {
+    "sameOriginCatalog": "mock 404 to exercise direct adapters",
+    "googleBooks": "mock empty items",
+    "assertions": "proxy and google each called exactly once; original source/language assertions preserved",
+    "independentRerun": {
+      "passed": 2,
+      "failed": 0
+    }
+  },
+  "fullPlaywright": {
+    "passed": 211,
+    "failed": 0,
+    "flaky": 0,
+    "skipped": 0,
+    "durationMs": 53754.194
+  },
+  "subject": {
+    "path": "tests/smoke.spec.ts",
+    "sha256": "559a59eb29e4059ee83b76bc12c2475e606c8c051e52416e958ac1b3475431ba",
+    "normalization": "UTF-8 LF"
+  },
+  "notVerified": [
+    "real Supabase/RLS/R2",
+    "two-device product acceptance",
+    "Agent B integration quality report"
+  ],
+  "redaction": "No query values, headers, response bodies, credentials or raw trace uploaded"
+}

@@ -168,3 +168,5 @@ WorLibrary 是本地优先的多语言阅读器：用户导入自己拥有的 EP
 `0020_private_file_verification_snapshot.sql` 为块账本insert/update/delete递增manifest的内部chunk_generation；块所属账户/manifest/version禁止原地迁移。service-only快照返回本人当前可校验manifest的有序账本与descriptor，generation和对象定位仅供Worker内部使用，不进入浏览器或metadata协议。缺块、尺寸/索引不符、暂停、墓碑或过期拒绝快照。
 
 完成RPC必须提交Worker实际字节校验所得size/hash和原snapshot generation，在同一账户锁/manifest锁内重新核对当前状态和完整账本；generation变化拒绝，重复已active回执不再计费。旧无摘要complete RPC撤销service权限且函数体失败关闭，避免旧路径绕过。**当前Worker尚未接新RPC**，不能单独部署0020；generation只保护SQL账本，仍需不可变R2对象和并发清理协议，不能证明实际对象在校验后未变。
+
+目录测试边界：两项smoke的OpenLibrary fixture需同时隔离同源代理回退与Google Books来源，不能只mock其中一个adapter而等待真实网络。当前最小修复及脱敏请求证据见runbook/acceptance；产品目录逻辑与metadata协议不变。

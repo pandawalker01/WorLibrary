@@ -131,3 +131,5 @@ npm run qa
 ## 0020 校验窗口内的数据库竞争
 
 本机PostgreSQL回归现为15项，新增验证快照权限/旧complete关闭、generation变化、错误回执和并发幂等收费。真实多连接在record未提交时让旧快照完成请求等待，提交后必须拒绝旧generation并维持reserved配额；暂停/删除/过期及metadata删除均不能凭旧快照激活。合成hash回执不是字节证明，R2不可变性与完成端点仍待接线，不可单独应用0020。
+
+目录smoke隔离边界：两项OpenLibrary搜索用例现在明确mock同源/api/catalog回退和Google Books空结果，并断言两条分支被调用，避免等待真实第二来源导致5秒断言抖动。受控慢来源已复现旧fixture失败；不修改目录产品逻辑或由Agent B维护的logout mock。#9未合入当前基线，不以模块归属代替失败归因。
