@@ -275,3 +275,9 @@ curl -sI https://app.example.com/
 ## 私有原书对象存储
 
 Cloudflare 部署需独立、非公开的 R2 bucket，并以 `USER_BACKUPS` 绑定。它不得用于平台授权内容，也不得配置 public domain、静态 URL 或浏览器直连 CORS。`SUPABASE_SERVICE_ROLE_KEY` 只能是 Worker Secret，绝不使用 `VITE_` 前缀。部署前运行 `npm run test:worker`，并在 staging 完成真实 Supabase/R2 验收；本地合约测试不授权开启“同步完成”文案。
+
+## 0018 私有文件同意准入（草案，未应用）
+
+只新增0018，不修改0014/0015/0017。新表 `user_file_library_preferences` 普通浏览器无直接权限；专用get/set RPC仅本人稳定账户可执行，set只接受boolean，服务端记录首次accepted_at。暂停保留同意和现有云文件，get只返回开关/同意及用量。新begin会拒绝未同意、暂停、他人/已删除edition及不一致的幂等descriptor，用户删除墓碑不因旧expires_at到期恢复上传。
+
+此SQL仅获起草/测试授权，不代表远端已执行。先核对真实staging迁移清单并经主 Agent门禁，验证同意客户端与完整Worker版本兼容；旧客户端没有同意记录会失败关闭。尚未提供产品首次同意入口，不能单独应用0018开启面向用户上传。服务端分块完整性/并发清理与两账户RLS仍需真实验收；不部署Production。

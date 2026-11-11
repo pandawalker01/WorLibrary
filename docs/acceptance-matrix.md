@@ -115,3 +115,7 @@ npm run qa
 ## 删除后的本机上传抑制验收
 
 `tests/user-file-upload-task.spec.ts` 新增在途分块时删除、陈旧失败回执、重试/内容变化仍拒绝和账户隔离；`tests/private-cloud-local-lifecycle.spec.ts` 用真实IndexedDB验证重开store以及陈旧active/failed写入均不能覆盖suppressed；`tests/user-file-library.spec.ts` 验证抑制落盘失败时不发云删除请求。本机/云端删除入口均先写本机抑制。此阶段自动上传产品入口尚未接线，跨设备永久删除和R2清理/配额真实验收仍NOT VERIFIED。
+
+## 私有文件同意与准入草案
+
+`tests/user-file-consent.spec.ts` 覆盖专用RPC最小payload、匿名/失效账户零请求、在途失效丢弃返回和未知/危险字段失败关闭；0018静态契约覆盖RLS、窄授权、本人active edition、描述符幂等、串行begin与删除墓碑不按30天失效。SQL执行、并发配额和真实RLS尚NOT VERIFIED；首次同意产品入口、Worker完整性硬化及真实两设备恢复仍未交付，不把静态断言作为线上证据。

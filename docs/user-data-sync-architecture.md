@@ -237,3 +237,7 @@ WorLibrary 使用魔法链接，不假定用户具有可用于派生密钥的账
 `0015_private_user_file_gateway.sql` 是 `0014` 的后继，必须按编号执行。它只向 `service_role` 授权上传、分块记录、完成和删除 RPC；authenticated/anon 不能读分块或对象键。Worker 同时需要私有 `USER_BACKUPS`、`SUPABASE_URL`、`SUPABASE_ANON_KEY` 和 Secret `SUPABASE_SERVICE_ROLE_KEY`。同一 idempotency key 重新 initiate 会返回已上传索引，客户端跳过它们继续；完成前 manifest 不会 active。恢复逐块经 Worker 重验账户与 active 状态，不提供下载 URL。
 
 删除顺序是 tombstone/标记 deleting、删除 R2 对象、标记 deleted/结算配额。R2 删除失败必须保留 deleting 与 tombstone 并由受控重试任务继续；不能以删除表或 tombstone 作为回滚。真实两账户/两设备验收完成前，任何用户文案仍不得称“同步完成”。
+
+## P0 同意准入实施补充（未部署）
+
+0018草案将账户同意/暂停从metadata同步协议分离：稳定本人JWT调用专用get/set RPC，首次接受时间保留，暂停不删除云文件；前向begin要求已同意/开启且edition归本人。客户端严格投影开关和用量，不接文件字节/对象定位。用户云删除墓碑不因旧30天过期而重新授权同edition上传；过期未完成上传仅在已确认清理/配额释放后重建预留。该草案不修改metadata outbox/revision，不提供应用层或端到端加密。产品入口与完整服务端网关、真实Supabase/R2验收仍待完成，未执行远端DDL。
