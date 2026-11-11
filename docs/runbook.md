@@ -243,3 +243,9 @@ Node 24.22.1 下 typecheck、生产 build、bundle budget 通过；完整 Playwr
 最小修复仅在两项smoke用例mock同源404和Google空结果，断言两个分支各调用一次，保留OpenLibrary原有来源/语言断言；不改变目录产品行为、超时或B的sign-out fixture。修复后的独立用例2/2通过，无真实Google请求。受控失败trace保存在本机忽略目录，不提交完整网络trace；仅提交不含query值/headers/body的脱敏请求摘要JSON。
 
 修复后完整Playwright **211/211通过，0 flaky/skip**（独占4273、2 workers，约54秒），typecheck通过；最近生产构建为同一b34110d代码，测试-only修复不改变产品产物。历史迁移换行临时规范后已恢复，未提交改写。脱敏证据 `docs/evidence/catalog-smoke-fixture-local-2026-11-11.json` 记录独立重跑的实际来源摘要、受控失败和修复后结果；不上传原始trace。npm run quality仍无Windows报告，集成依赖B #10及Linux CI，不据211项称真实云书库验收完成。
+
+### 不可变条件写回归与尚待决定的清理策略
+
+`npm run test:worker` 新增6项条件写测试：无效输入/内容错误零IO，await前复制正文与descriptor，实际字节幂等验证，冲突/缺失/空对象不删除或覆盖，固定错误码，以及真正workerd/R2中的并发相同PUT仅一次创建、不同内容不能改写etag/正文。与既有网关/完整性测试合计23项。使用已有Miniflare测试依赖，不访问真实R2。
+
+当前尚无持久intent RPC/端点接线。删除枚举后慢PUT迟到的问题不能用任意lease TTL当作已解决；已在PR交主 Agent明确“清零后保留内部删除栅栏”是否符合删除要求，未作架构决定或实现删除策略。保持deleting/配额保守原则，禁止据该helper称文件物理清理/真实云书库完成。与前端代码无交叉，最近完整Playwright为05a10c7的211/211；共享Windows质量门仍依赖B #10。

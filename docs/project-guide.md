@@ -170,3 +170,9 @@ WorLibrary 是本地优先的多语言阅读器：用户导入自己拥有的 EP
 完成RPC必须提交Worker实际字节校验所得size/hash和原snapshot generation，在同一账户锁/manifest锁内重新核对当前状态和完整账本；generation变化拒绝，重复已active回执不再计费。旧无摘要complete RPC撤销service权限且函数体失败关闭，避免旧路径绕过。**当前Worker尚未接新RPC**，不能单独部署0020；generation只保护SQL账本，仍需不可变R2对象和并发清理协议，不能证明实际对象在校验后未变。
 
 目录测试边界：两项smoke的OpenLibrary fixture需同时隔离同源代理回退与Google Books来源，不能只mock其中一个adapter而等待真实网络。当前最小修复及脱敏请求证据见runbook/acceptance；产品目录逻辑与metadata协议不变。
+
+### 条件创建原语（尚未接上传端点）
+
+`worker/user-file-immutable-write.mjs` 在首个await前复制至多8MiB正文与intent descriptor，计算实际SHA-256，并用R2 `onlyIf.etagDoesNotMatch='*'` 和checksum条件创建。已存在时必须读回实际字节验证后才接受幂等重试；同大小冲突、缺失或空对象失败关闭。错误不携带定位，不做无条件覆盖或删除。官方条件API：https://developers.cloudflare.com/r2/api/workers/workers-api-reference/#conditional-operations 。
+
+该helper不分配intent、不做鉴权或SQL记账，**尚未接Worker端点**；调用方必须先持久登记本人唯一写入intent并在写入后锁内复验。删除与在途PUT的物理清理策略已在PR向主 Agent提出具体问题，未采纳零字节栅栏策略、未新增配置或迁移。条件创建本身不证明删除竞态安全，不能开启上传入口。

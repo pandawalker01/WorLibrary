@@ -19,7 +19,7 @@
     "test:bundle": "node scripts/bundle-budget.mjs",
     "quality": "node scripts/quality-gate.mjs",
     "test:production": "npm run validate:env -- --production && npm run typecheck && npm run build && npm run test:gateway",
-    "test:worker": "node --test tests/worker-contract.test.mjs worker/user-file-integrity.test.mjs",
+    "test:worker": "node --test tests/worker-contract.test.mjs worker/user-file-integrity.test.mjs worker/user-file-immutable-write.test.mjs",
     "test:user-files-db": "node --test scripts/private-file-postgres.test.mjs",
     "cf:dev": "npm run build && wrangler dev",
     "cf:deploy": "wrangler deploy",
