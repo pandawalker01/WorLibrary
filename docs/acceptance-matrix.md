@@ -143,3 +143,7 @@ Worker测试增加原生R2并发条件创建：同内容重试只有一次create
 本机PG验证随机intent先于ledger、普通角色/表直读与旧record拒绝、暂停/删除后的旧receipt拒绝、等待删除锁的新prepare/commit拒绝、全部intent确认前配额不释放，以及过期重试不复用旧随机key。legacy记录拒绝门禁必须保持，不得拿清空fixture流程当真实迁移。
 
 原生workerd经真实Worker路由测试：delete先于慢PUT（无对象先建栅栏）、PUT先于delete、重复删除、部分清理失败与配额重试、暂停后旧写回执、校验窗口删除、同大小损坏不发激活RPC、空栅栏拒绝读和读期间删除后复核。SQL服务为合成模型，独立PG证明锁/权限；两者不替代真实staging R2/Supabase/RLS。删除只承诺正文清零，永久保留0-byte内部栅栏及随机定位/请求成本，TTL/GC禁止移除。
+
+## 设置页首次授权与暂停
+
+新 `tests/private-cloud-preferences.spec.ts` 包含5个浏览器用例：匿名不见入口、首次未选中checkbox与取消零写、boolean-only启用/暂停/恢复、危险响应不渲染且模糊set后只能重读、账户切换隔离和英文等价边界。RPC交互用例仅在公开模拟Supabase配置的构建与测试中运行，无配置明确skip；配置独立5/5通过。授权页不发文件上传请求，自动导入队列仍待交付，真实后端权限/双设备验收没有因此通过。

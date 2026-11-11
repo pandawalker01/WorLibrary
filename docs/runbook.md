@@ -261,3 +261,13 @@ Node 24.22.1 下 typecheck、生产 build、bundle budget 通过；完整 Playwr
 SQL runner分两阶段：先在最小fixture验证0018-20共15项，然后证明0021拒绝旧记录；只在已核实随机本机cluster中清理合成旧fixture数据，再应用0021并验证6项intent协议子用例（计父用例合计22）。这是测试fixture重置，不是升级手册。workerd测试使用真实Worker入口、R2与DigestStream，但SQL服务是合成模型；真实数据库行为由独立PG多连接测试证明，两者不等于真实完整Supabase/R2联调。
 
 0021提交前：本机PG **22/22**（含intent协议6子用例与父用例），原生Worker **32/32**（9项真实入口/本机R2场景），完整Playwright **211/211、0 flaky/skip**；Node24 typecheck、生产build、CI模拟配置原bundle预算通过（350.4kB），Wrangler本机dry-run打包约48.8KiB/12.46KiB gzip，未部署。SQL临时cluster已停止。脱敏证据见 `docs/evidence/private-file-intent-gateway-local-2026-11-11.json`。Windowsnpm quality仍无报告，依赖B集成；4080b01的CI在浏览器依赖安装因security.ubuntu.com DNS失败而结束，quality未运行，不记通过；不因基础设施失败降低门禁。新提交需重新跑CI。
+
+## 私有云书库设置页的授权验收
+
+登录稳定账户→设置→私有云书库→开启原书上传，说明仅授权以后导入；勾选同意前确认按钮禁用。取消不写入，确认仅发专用boolean set，暂停/恢复同样明确点击，展示正文/待处理用量。当前仅授权入口，自动导入队列与可见上传进度仍待接线；不会把权限状态当备份完成证据。
+
+`tests/private-cloud-preferences.spec.ts` 用真实App入口验证匿名零授权请求、首次同意/取消/暂停/恢复、未知响应失败关闭、模糊set响应后显式重读、账户切换丢弃旧回执/用量，以及英语同意边界。4项RPC交互场景要求构建和测试进程均设置CI公开模拟VITE_SUPABASE_URL/VITE_SUPABASE_ANON_KEY，路由全部fixture；本机无配置时这4项明确skip，不能当已运行。配置后的独立5/5通过，原bundle预算通过（入口约350.7kB，文案/组件按需加载）。真实Supabase/R2仍NOT VERIFIED。
+
+9c05be4 CI再次失败在Ubuntu浏览器依赖源DNS，quality未执行；未调整门禁规避安装。Windowsquality无报告仍由B #10集成解决。后续导入adapter已在PR向Agent B确认edition ack/revision的只读就绪信号，不修改其协议。
+
+本次授权UI提交前完整回归使用CI公开模拟配置构建与测试，**216/216通过，0 flaky/skip**（约59秒），包括新增全部5项；不是无配置skip结果。typecheck、生产build、原bundle预算通过（350.7kB）。历史SQL临时换行已恢复。npm run quality仍无Windows报告，未作为通过；无远端DDL/部署，自动导入调度仍待接线。
