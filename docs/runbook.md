@@ -219,3 +219,11 @@ Node 24.22.1 下 typecheck、生产 build、bundle budget 通过；完整 Playwr
 这取代“只有静态字符串”的本机SQL验证限制，但不取代真实Supabase JWT/RLS、完整schema、R2或两个Profile验收。Worker目前仍需不可变对象写入、全文件校验及R2并发清理硬化；SQL串行化不能被表述为对象并发安全。0018/0019未执行远端DDL，产品上传入口仍未接线；共享Windows quality修复仍归Agent B #10。
 
 2026-11-11 0019提交前验证：本机PostgreSQL15.19实际多连接10/10，完整Playwright211/211（独占4273、2 workers），typecheck/生产build及配置启用bundle budget均通过，入口约350.4kB，预算未提高。SQL runner在任何fixture DDL前还校验随机cluster身份，结束后停止；官方archive SHA与规范LF后的脚本/迁移SHA留在证据JSON。共享Windows quality仍归B，SQL独立命令未加入共享门禁；真实Supabase/R2和远端DDL仍未执行。
+
+### 原生 Worker 完整性回归
+
+`npm run test:worker` 同时运行网关契约与 `worker/user-file-integrity.test.mjs`。直接锁定已有Wrangler依赖版本的Miniflare作为测试依赖，在本机workerd与临时R2模拟绑定中执行真正的DigestStream；不需账户或远端凭据，不创建远端桶。回归覆盖已知SHA向量、8MiB多块顺序读取、同大小损坏、块摘要正确但整书错误、缺失/截断/超长正文、账本无效零读取和SDK错误脱敏。运行后dispose本机runtime。
+
+这是本机字节验证原语测试，当前尚未接完成接口，不代表不可变写入/最终CAS、对象删除竞态、真实R2或两设备验收通过。README、deployment的远端配置与发布门禁未变，本次不新增迁移/远端绑定；共享quality执行器仍由Agent B #10负责，复用已有test:worker门禁入口。
+
+2026-11-11 流式原语验证：test:worker **17/17**（含原生workerd/R2模拟），typecheck、生产build及配置启用原bundle预算通过，入口350.4kB。完整Playwright本轮为 **209 PASS / 2 FAIL**，失败仅既有世界书库两项OpenLibrary fixture（等待结果5秒超时），不记全绿；本次未修改目录实现/测试，交主 Agent与目录PR #9协调。Windows测试预览退出挂起，核对本轮PID后仅清理该预览进程树；无远端操作。npm run quality仍退出0但无报告，不能据此称quality通过，依赖Agent B #10修复及PR Linux CI。此前211/211是9788db9记录，不冒充本轮结果。

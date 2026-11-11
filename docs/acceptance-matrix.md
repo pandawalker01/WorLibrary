@@ -123,3 +123,7 @@ npm run qa
 ## 0019 本机数据库并发证据
 
 `scripts/private-file-postgres.test.mjs` / `npm run test:user-files-db` 已用本机PostgreSQL15.19执行10项真实多连接回归，包含等待中的pause/delete栅栏、旧快照、幂等配额和cleanup状态；不再仅用SQL静态字符串作为并发依据。证据 `docs/evidence/private-file-sql-local-2026-11-11.json` 不含令牌、对象实际地址或完整请求payload。fixture的auth与edition是最小模拟，真实Supabase/RLS、R2并发/完整性与产品双设备仍NOT VERIFIED。新SQL命令未自动纳入共享quality，须主 Agent协调CI集成。
+
+## Worker 实际字节完整性原语
+
+`npm run test:worker` 增加7项流式单元测试及1项原生workerd/模拟R2测试：同大小损坏必须拒绝，逐块摘要不能替代整书摘要，顺序读取不得整书缓冲，未知/缺失/超长正文失败关闭，内部地址不出错误。该helper尚未接完成路由，验收范围仅本机原语；不可变对象、generation CAS和真实Supabase/R2/两设备仍NOT VERIFIED，不能据此启用自动上传。

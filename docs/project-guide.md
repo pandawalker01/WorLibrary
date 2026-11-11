@@ -156,3 +156,9 @@ WorLibrary 是本地优先的多语言阅读器：用户导入自己拥有的 EP
 `0019_private_file_lifecycle_serialization.sql` 为同意切换、begin、record、complete、请求/完成删除及过期回收提供统一“账户advisory lock → 账户mutation fence → 业务行/配额”的入口顺序。fence是内部计数，不进入metadata同步或客户端state响应；旧REPEATABLE READ快照在等待后必须序列化失败，不能用旧同意/删除状态授权新预留。chunk/complete每次重新核对同意、本人active edition、墓碑、有效期和manifest状态；本人的既有读取与删除不要求开关enabled。metadata edition只加行锁复验，不修改Agent B协议。
 
 请求删除先进入deleting，finish仅允许deleting后结算且幂等；reap返回全部待删除项，使先前对象清理失败可以重试。它不证明R2物理清理/字节完整性：Worker不可变写入、完整性验证与对象并发清理仍待实现，产品上传入口不得据此启用。0018/0019都未执行远端DDL。
+
+### Worker 流式完整性原语（尚未接完成接口）
+
+`worker/user-file-integrity.mjs` 顺序读取实际R2正文，以原生 `crypto.DigestStream('SHA-256')` 同时校验每块及整书大小/摘要；无整书缓冲，不使用对象metadata摘要作为字节证明。描述符和有序账本先校验，读取失败只返回固定错误码，不传播SDK中的内部地址。原生API说明见 https://developers.cloudflare.com/workers/runtime-apis/web-crypto/ 。
+
+该内部helper不写存储、不结算配额、不激活manifest，目前尚未接入user-files完成接口。调用方仍需本人/versioned snapshot、不可变对象写入及校验后generation/state CAS；SQL锁不能跨R2读取保护对象，不能用此原语宣称上传闭环已完成。
